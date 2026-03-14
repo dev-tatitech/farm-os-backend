@@ -1,0 +1,48 @@
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+
+# Environment files
+.env
+.env.local
+.env.*.local
+venv/
+.env/
+# Log files
+*.log
+
+# Build output
+/dist/
+/build/
+/node_modules/
+*.pyc
+__pycache__/
+
+# Credentials
+*.pem
+*.key
+*.crt
+*.p12
+
+# Database files
+*.sqlite
+*.db
+
+# Backup files
+*.bak
+*.tmp
+
+# Misc
+*.secret
+*.config.local
+
+Arch.jpeg
+
+# Django migrations
+**/migrations/*
+!**/migrations/__init__.py

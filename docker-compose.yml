@@ -1,0 +1,71 @@
+version: "3.9"
+
+services:
+  farmos:
+    build: ./api
+    container_name: farmos-backend
+    command: >
+      sh -c "
+      python manage.py collectstatic --noinput &&
+      daphne -b 0.0.0.0 -p 8000 api.asgi:application
+      "
+    environment:
+      - DEBUG=True
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+      - LOCAL_PORT=8000
+      - LOCAL_DB_NAME=${DB_NAME}
+      - LOCAL_USERNAME=${DB_USER}
+      - LOCAL_HOSTNAME=${DB_HOST}
+      - LOCAL_PASSWORD=${DB_PASSWORD}
+    depends_on:
+      - farmos_db
+      - redis
+    ports:
+      - "127.0.0.1:8000:8000"
+    networks:
+      - app_network
+    volumes:
+      - ./api:/app
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+
+  farmos_db:
+    image: postgres:15
+    container_name: farmos-db
+    environment:
+      - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - farmos_data:/var/lib/postgresql/data
+    networks:
+      - app_network
+
+  redis:
+    image: redis:alpine
+    container_name: farmos-redis
+    networks:
+      - app_network
+
+  nginx:
+    image: nginx:alpine
+    container_name: nginx_farmos
+    depends_on:
+      - farmos
+    ports:
+      - "8081:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+    networks:
+      - app_network
+
+volumes:
+  farmos_data:
+  static_volume:
+  media_volume:
+
+networks:
+  app_network:
+    driver: bridge

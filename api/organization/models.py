@@ -2,11 +2,12 @@ from django.db import models
 from core.models import TimeStampedModel
 from django.contrib.auth import get_user_model
 from account.models import Country, AdminLevel1, AdminLevel2
-
+import uuid
 User = get_user_model()
 
 
 class SubscriptionPlan(TimeStampedModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=200)
     code = models.CharField(max_length=50)
     monthly_price = models.DecimalField(max_digits=10, decimal_places=2)
@@ -32,6 +33,7 @@ class Organization(TimeStampedModel):
         ("suspended", "Suspended"),
         ("trial", "Trial"),
     ]
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL)
     name = models.CharField(max_length=255)
     code = models.CharField(max_length=50, unique=True)

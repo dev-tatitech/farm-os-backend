@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.urls import path
 from ninja import NinjaAPI
 from account.api import router
+from organization.api import router as organization
 
 
 
@@ -16,6 +17,7 @@ api = NinjaAPI(
     openapi_url="/openapi.json",  # Required for documentation to work
 )
 api.add_router("/auth/", router)
+api.add_router("/organization/", organization)
 
 urlpatterns = [
     path("admin/", admin.site.urls),

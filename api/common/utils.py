@@ -1,19 +1,8 @@
 from zoneinfo import ZoneInfo
 from django.utils import timezone
-
+import uuid
 def format_datetime(dt, tz_name="UTC", fmt="%Y-%m-%d %H:%M:%S"):
-    """
-    Convert a timezone-aware or naive datetime to the given timezone
-    and return it as a formatted string.
 
-    Args:
-        dt (datetime): The datetime to convert
-        tz_name (str): IANA timezone string, e.g. "Africa/Lagos"
-        fmt (str): Python strftime format
-
-    Returns:
-        str: formatted datetime string in the user's timezone
-    """
     if dt is None:
         return None
 
@@ -27,3 +16,6 @@ def format_datetime(dt, tz_name="UTC", fmt="%Y-%m-%d %H:%M:%S"):
 
     # Format as string
     return local_dt.strftime(fmt)
+
+def generate_ref():
+    return f"{uuid.uuid4().int % 10**15:015d}"

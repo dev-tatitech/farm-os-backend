@@ -10,7 +10,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 api = NinjaAPI(
-    title="Shabablkhair API DOCS",
+    title="FarmOS API DOCS",
     version="1.0",
     description="API documentation",
     docs_url="/docs",  # Swagger UI (enabled by default)

@@ -242,7 +242,7 @@ def resend_otp(request, payload: ResendOtpSchema):
     except users.DoesNotExist:
         return 401, Error_out(status="Error", message="Invalid credentials")
 
-    email_sender(user,payload.email)
+    send_account_otp_email(user,payload.email)
     response = JsonResponse(
                 {
                     "success": True,

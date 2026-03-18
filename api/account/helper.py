@@ -104,7 +104,7 @@ def email_sender(user, email):
     )
 
     plain_message = (
-    f"Hello {user.fullName or 'there'},\n\n"
+    f"Hello { 'there'},\n\n"
     f"Welcome to G1 Data!\n"
     f"Your One-Time Password (OTP) is: {otp_code}\n\n"
     "Use this OTP to complete your login or registration on G1 Data. "
@@ -130,7 +130,7 @@ def email_sender(user, email):
         </div>
 
         <p style="font-size: 16px; color: #333;">
-            Hello {user.fullName or 'there'},
+            Hello { 'there'},
         </p>
 
         <p style="font-size: 15px; color: #444; line-height: 1.6;">
@@ -325,7 +325,7 @@ def send_account_otp_email(user, email):
     from .models import EmailValidation
 
     """
-    Sends OTP email for new account verification
+    Sends OTP email (Tati FarmOS branded, FormOS style)
     """
 
     # Remove existing OTPs
@@ -343,86 +343,76 @@ def send_account_otp_email(user, email):
     )
 
     # Plain text email
-    plain_message = (
-        f"Assalamu Alaikum {user.first_name or 'Valued Customer'},\n\n"
-        "Welcome to SHABABUL KHAIR HALAL INVESTMENT LTD.\n\n"
-        "To complete your account registration, please verify your email address "
-        "using the One-Time Password (OTP) below:\n\n"
-        f"OTP Code: {otp_code}\n\n"
-        "This code will expire in 10 minutes.\n\n"
-        "If you did not attempt to create an account, please ignore this email.\n\n"
-        "Best regards,\n"
-        "SHABABUL KHAIR HALAL INVESTMENT LTD"
-    )
+    plain_message = f"""
+Tati FarmOS
+
+Hi {user.first_name or "there"},
+
+Your verification code is:
+
+{otp_code}
+
+This code expires in 10 minutes.
+
+If you didn’t request this, please ignore this email.
+
+— Tati FarmOS
+"""
 
     # HTML email
     html_message = f"""
     <html>
-    <body style="font-family: Arial, sans-serif; background:#f4f6f8; padding:25px;">
+    <body style="margin:0;padding:0;background:#f9fafb;font-family:Arial, sans-serif;">
 
-    <div style="max-width:600px;margin:auto;background:white;padding:30px;
-                border-radius:10px;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
+        <div style="max-width:480px;margin:40px auto;background:#ffffff;
+                    padding:30px;border-radius:12px;
+                    box-shadow:0 2px 10px rgba(0,0,0,0.05);text-align:center;">
 
-        <div style="text-align:center;">
-            <h2 style="color:#1c4a27;margin-bottom:5px;">
-                SHABABUL KHAIR HALAL INVESTMENT LTD
-            </h2>
-            <p style="color:#666;font-size:14px;margin-top:0;">
-                Secure Account Verification
+            <!-- Brand -->
+            <p style="font-size:13px;color:#888;margin-bottom:5px;">
+                Tati FarmOS
             </p>
-            <hr style="border:none;height:1px;background:#e5e5e5;margin:20px 0;">
+
+            <h2 style="margin:0 0 10px 0;color:#111;">
+                Your verification code
+            </h2>
+
+            <p style="color:#555;font-size:14px;">
+                Hi {user.first_name or "there"}, use the code below to continue.
+            </p>
+
+            <!-- OTP -->
+            <div style="
+                font-size:34px;
+                font-weight:700;
+                letter-spacing:8px;
+                margin:30px 0;
+                color:#111;
+            ">
+                {otp_code}
+            </div>
+
+            <p style="font-size:13px;color:#888;">
+                Expires in 10 minutes
+            </p>
+
+            <hr style="border:none;border-top:1px solid #eee;margin:25px 0;">
+
+            <p style="font-size:12px;color:#aaa;">
+                If you didn’t request this, you can safely ignore it.
+            </p>
+
         </div>
-
-        <p style="font-size:16px;color:#333;">
-            Assalamu Alaikum <strong>{user.first_name or 'Valued Customer'}</strong>,
-        </p>
-
-        <p style="font-size:15px;color:#444;line-height:1.6;">
-            Thank you for choosing <strong>SHABABUL KHAIR HALAL INVESTMENT LTD</strong>.
-            To complete your account registration, please verify your email address
-            using the One-Time Password (OTP) below.
-        </p>
-
-        <div style="
-            font-size:28px;
-            font-weight:bold;
-            background:#edf7f0;
-            padding:15px;
-            text-align:center;
-            border-radius:8px;
-            letter-spacing:5px;
-            color:#1c4a27;
-            border:1px solid #cde6d2;
-            margin:25px 0;
-        ">
-            {otp_code}
-        </div>
-
-        <p style="font-size:14px;color:#555;">
-            This OTP will expire in <strong>10 minutes</strong>.
-        </p>
-
-        <p style="font-size:14px;color:#666;margin-top:20px;">
-            If you did not attempt to create an account, please ignore this email
-            or contact our support team immediately.
-        </p>
-
-        <p style="font-size:15px;color:#333;margin-top:25px;">
-            Best regards,<br>
-            <strong>SHABABUL KHAIR HALAL INVESTMENT LTD</strong>
-        </p>
-
-    </div>
 
     </body>
     </html>
     """
 
     send_mail(
-        subject="Verify Your Account – SHABABUL KHAIR HALAL INVESTMENT LTD",
+        subject="Your Tati FarmOS verification code",
         message=plain_message,
         html_message=html_message,
-        from_email="noreply@shababhalal.com",
+        from_email="Tati FarmOS <noreply@shababhalal.com>",
         recipient_list=[email],
         fail_silently=False,
     )

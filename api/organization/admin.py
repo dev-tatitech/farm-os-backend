@@ -1,15 +1,10 @@
 from django.contrib import admin
-from .models import (SubscriptionPlan,
+from .models import (
                      Industry, 
                      Organization, 
                      Farm,
               
                      )
-
-
-@admin.register(SubscriptionPlan)
-class SubscriptionPlanAdmin(admin.ModelAdmin):
-    list_display = [field.name for field in SubscriptionPlan._meta.fields]
 
 @admin.register(Industry)
 class IndustryAdmin(admin.ModelAdmin):

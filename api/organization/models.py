@@ -6,18 +6,6 @@ import uuid
 User = get_user_model()
 
 
-class SubscriptionPlan(TimeStampedModel):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    name = models.CharField(max_length=200)
-    code = models.CharField(max_length=50)
-    monthly_price = models.DecimalField(max_digits=10, decimal_places=2)
-    annual_price = models.DecimalField(max_digits=10, decimal_places=2)
-    max_users = models.IntegerField()
-    max_farms = models.IntegerField()
-    max_batches = models.IntegerField()
-    features_json = models.JSONField(null=True, blank=True)
-    status = models.CharField(max_length=20, default="active")
-
 
 class Industry(models.Model):
     short_nme = models.CharField(max_length=100)
@@ -37,7 +25,6 @@ class Organization(TimeStampedModel):
     user = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL)
     name = models.CharField(max_length=255)
     code = models.CharField(max_length=50, unique=True)
-
     industry_type = models.ForeignKey(
         Industry, null=True, blank=True, on_delete=models.SET_NULL
     )
@@ -46,9 +33,6 @@ class Organization(TimeStampedModel):
     )
     state_region  = models.ForeignKey(
         AdminLevel1, null=True, blank=True, on_delete=models.SET_NULL
-    )
-    subscription_plan = models.ForeignKey(
-        SubscriptionPlan, null=True, blank=True, on_delete=models.SET_NULL
     )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="trial")
 

@@ -21,7 +21,8 @@ def default_timezone(instance):
 class AdminLevel1(models.Model):
     country = models.ForeignKey(Country, on_delete=models.CASCADE, related_name="countries")
     name = models.CharField(max_length=100)
-    timezone = models.CharField(max_length=50, blank=True, null=True, default=default_timezone) 
+    timezone = models.CharField(max_length=50, blank=True, null=True) 
+
     def __str__(self):
         return self.name
 

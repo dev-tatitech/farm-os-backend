@@ -18,3 +18,10 @@ class APIResponse(Schema):
     success: bool
     message: str
     data: Any
+    
+class OranizationSchemaIn(Schema):
+    name: str
+    industry_id: int
+    country_id: int
+    state_region_id: int
+    

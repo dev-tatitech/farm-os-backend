@@ -19,21 +19,6 @@ class APIResponse(Schema):
     message: str
     data: Any
     
-class OranizationSchemaIn(Schema):
+class RoleIn(Schema):
     name: str
-    industry_id: int
-    country_id: int
-    state_region_id: int
-    
-class FarmInSchema(Schema):
-    organization_id: UUID
-    name: str
-    country_id: int
-    state_region_id: int
-    city: str
-    location_address: str
-    latitude: str
-    longitude: str
-    farm_type_id: int
-    is_primary: bool
-    
+    description: str

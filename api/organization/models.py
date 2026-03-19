@@ -36,7 +36,12 @@ class Organization(TimeStampedModel):
     )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="trial")
 
+class FarmType(models.Model):
+    name = models.CharField(max_length=50)
+    code = models.SlugField(unique=True)
 
+    def __str__(self):
+        return self.name
 class Farm(TimeStampedModel):
     organization = models.ForeignKey(
         Organization, on_delete=models.CASCADE, related_name="farms"
@@ -53,7 +58,7 @@ class Farm(TimeStampedModel):
     location_address = models.TextField(blank=True)
     latitude = models.FloatField(null=True, blank=True)
     longitude = models.FloatField(null=True, blank=True)
-    farm_type = models.CharField(max_length=50)
+    farm_type = models.ForeignKey(FarmType, on_delete=models.CASCADE)
     is_primary = models.BooleanField(default=False)
     status = models.CharField(max_length=20, default="active")
 

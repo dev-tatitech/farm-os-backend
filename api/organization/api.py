@@ -43,7 +43,9 @@ from account.models import (
 import uuid
 from .models import (
     Industry,
-    Organization
+    Organization,
+    FarmType,
+    Farm
 )
 from subcriptions.models import SubscriptionPlan, Subscription
 from common.utils import generate_ref
@@ -53,7 +55,8 @@ from django.http import JsonResponse
 from .schema import (
     ListResponseSchema,
     APIResponse,
-   OranizationSchemaIn
+   OranizationSchemaIn,
+   FarmInSchema
 )
 router = Router(tags=["Oganization module"])
 @router.get(
@@ -166,6 +169,9 @@ def organiation(request, payload: OranizationSchemaIn):
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(400, "Permission denied")
+    if Organization.objects.filter(user=user).exists():
+        raise HttpError(409, "User already has an organization.")
+    
     industry = get_object_or_404(Industry, id = payload.industry_id)
     country = get_object_or_404(Country, id = payload.country_id)
     state = get_object_or_404(AdminLevel1, id = payload.state_region_id)
@@ -200,4 +206,129 @@ def organiation(request, payload: OranizationSchemaIn):
         
     return 200, APIResponse(
         success=True, message="organization create successfully", data=None
+    )
+    
+@router.get(
+    "/oganization/",
+    response={200: APIResponse, 403: APIResponse},
+)
+def get_organization(request):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Permission denied")
+    org = get_object_or_404(Organization, user =user)
+   
+    data = {
+         "id": org.id,
+         "name": org.name,
+         "code": org.code,
+         "industry_type": org.industry_type.name if org.industry_type else None,
+         "country": org.country.name if org.country else None,
+         "state_region": org.state_region.name if org.state_region else None,
+         "status": org.status
+        }
+        
+
+    return 200, APIResponse(
+        success=True, message="oranization fetch successfully", data=data
+    )
+    
+@router.get(
+    "/farm-type/",
+    response={200: APIResponse, 403: APIResponse},
+)
+def farm_type(request):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    
+    farm_type = FarmType.objects.all()
+    data = [
+        {
+         "id": f_type.id,
+         "name": f_type.name  ,   
+         "code": f_type.code  ,   
+        }
+        for f_type in farm_type
+    ]
+    return 200, APIResponse(
+        success=True, message="farm type successfully", data=data
+    )
+    
+@router.post(
+    "/farm/",
+    response={200: APIResponse, 403: APIResponse},
+)
+def farm(request, payload: FarmInSchema):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Permission denied")
+    if Farm.objects.filter(name__iexact=payload.name).exists():
+        raise HttpError(409, "Farm already exists") 
+    org = get_object_or_404(Organization, id = payload.organization_id)
+    country = get_object_or_404(Country, id = payload.country_id)
+    state = get_object_or_404(AdminLevel1, id = payload.state_region_id)
+    farm_type = get_object_or_404(FarmType, id = payload.farm_type_id)
+    
+    farm_code= f"FRM-{generate_ref()}"
+    farm = Farm.objects.create(
+        organization = org,
+        name = payload.name,
+        farm_code= farm_code,
+        country = country,
+        state_region = state,
+        city = payload.city,
+        location_address = payload.location_address,
+        latitude = payload.latitude,
+        longitude = payload.longitude,
+        farm_type = farm_type,
+        is_primary = payload.is_primary
+    )
+    data = {
+        "name": farm.name,
+        "city": farm.city,
+        "location_address":farm.location_address
+    }
+    return 200, APIResponse(
+        success=True, message="farm created successfully", data=data
+    )
+    
+@router.get(
+    "/farm/",
+    response={200: APIResponse, 403: APIResponse},
+)
+def get_farm(request):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    
+    farms = Farm.objects.all()
+    data = [
+        {
+            "id": farm.id,
+            "name": farm.name,
+            "farm_code": farm.farm_code,
+            "country": farm.country.name if farm.country else None,
+            "state_region": farm.state_region.name if farm.state_region else None,
+            "farm_type": farm.farm_type.name if farm.farm_type else None,
+            "city": farm.city,
+            "location_address": farm.location_address,
+            "latitude": farm.latitude,
+            "longitude": farm.longitude,
+            "is_primary": farm.is_primary,
+            "status": farm.status,
+            
+        }
+        for farm in farms
+    ]
+    return 200, APIResponse(
+        success=True, message="farm fetch successfully", data=data
     )

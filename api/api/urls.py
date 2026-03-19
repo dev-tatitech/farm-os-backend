@@ -3,6 +3,7 @@ from django.urls import path
 from ninja import NinjaAPI
 from account.api import router
 from organization.api import router as organization
+from role.api import router as role
 
 
 
@@ -18,6 +19,7 @@ api = NinjaAPI(
 )
 api.add_router("/auth/", router)
 api.add_router("/organization/", organization)
+api.add_router("/role/", role)
 
 urlpatterns = [
     path("admin/", admin.site.urls),

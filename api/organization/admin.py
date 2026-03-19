@@ -3,8 +3,12 @@ from .models import (
                      Industry, 
                      Organization, 
                      Farm,
-              
+                    FarmType
                      )
+
+@admin.register(FarmType)
+class FarmTypeAdmin(admin.ModelAdmin):
+    list_display = [field.name for field in FarmType._meta.fields]
 
 @admin.register(Industry)
 class IndustryAdmin(admin.ModelAdmin):

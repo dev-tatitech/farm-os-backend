@@ -76,34 +76,4 @@ class RefreshSession(models.Model):
     def __str__(self):
         return f"RefreshSession(user={self.user.username}, active={self.is_active})"
 
-class Role(TimeStampedModel):
-    organization = models.ForeignKey(
-        "organization.Organization",
-        null=True,
-        blank=True,
-        on_delete=models.CASCADE
-    )
-    name = models.CharField(max_length=100)
-    code = models.CharField(max_length=50)
-    description = models.TextField(blank=True)
-
-
-class Permission(models.Model):
-    code = models.CharField(max_length=100)
-    name = models.CharField(max_length=100)
-    module = models.CharField(max_length=100)
-    description = models.TextField(blank=True)
-
-
-class UserRole(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    role = models.ForeignKey(Role, on_delete=models.CASCADE)
-    farm = models.ForeignKey("organization.Farm", null=True, blank=True, on_delete=models.SET_NULL)
-    assigned_at = models.DateTimeField(auto_now_add=True)
-    assigned_by = models.IntegerField(null=True)
-
-
-class RolePermission(TimeStampedModel):
-    role = models.ForeignKey(Role, on_delete=models.CASCADE)
-    permission = models.ForeignKey(Permission, on_delete=models.CASCADE)
-    
+ 

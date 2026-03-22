@@ -19,3 +19,13 @@ def format_datetime(dt, tz_name="UTC", fmt="%Y-%m-%d %H:%M:%S"):
 
 def generate_ref():
     return f"{uuid.uuid4().int % 10**15:015d}"
+
+def generate_strong_password(length=12):
+    """
+    Generate a strong random password.
+    Default length is 12 characters.
+    """
+    allowed_chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=[]{}|;:,.<>?'
+    from django.utils.crypto import get_random_string
+
+    return get_random_string(length, allowed_chars)

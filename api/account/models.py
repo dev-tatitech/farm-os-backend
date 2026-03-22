@@ -36,6 +36,7 @@ class User(AbstractUser):
         ("Active", "Active"),
         ("Suspended", "Suspended"),
         ("Deleted", "Deleted"),
+        ("inactive", "Inactive"),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -44,7 +45,13 @@ class User(AbstractUser):
     account_status = models.CharField(
         max_length=50, choices=ACCOUNT_STATUS_CHOICES, default="Active"
     )
-    
+    organization = models.ForeignKey(
+        "organization.Organization",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name='users'
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     USERNAME_FIELD = "email"

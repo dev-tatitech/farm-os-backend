@@ -22,7 +22,7 @@ class Organization(TimeStampedModel):
         ("trial", "Trial"),
     ]
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    user = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL)
+    user = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='organizations')
     name = models.CharField(max_length=255)
     code = models.CharField(max_length=50, unique=True)
     industry_type = models.ForeignKey(

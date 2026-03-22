@@ -21,7 +21,7 @@ class Permission(models.Model):
 
 
 class UserRole(models.Model):
-    user = models.ForeignKey("account.User", on_delete=models.CASCADE)
+    user = models.ForeignKey("account.User", on_delete=models.CASCADE, related_name="user_roles")
     role = models.ForeignKey(Role, on_delete=models.CASCADE)
     farm = models.ForeignKey("organization.Farm", null=True, blank=True, on_delete=models.SET_NULL)
     assigned_at = models.DateTimeField(auto_now_add=True)
@@ -32,6 +32,6 @@ class UserRole(models.Model):
     related_name="assigned_roles"
 )
 class RolePermission(TimeStampedModel):
-    role = models.ForeignKey(Role, on_delete=models.CASCADE)
+    role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="roles_permission")
     permission = models.ForeignKey(Permission, on_delete=models.CASCADE)
    

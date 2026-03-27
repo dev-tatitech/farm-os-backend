@@ -32,7 +32,8 @@ INSTALLED_APPS = [
     "core",
     "admin_panel",
     "subcriptions",
-    "role"
+    "role",
+    "farms"
 ]
 
 MIDDLEWARE = [

@@ -4,7 +4,8 @@ from ninja import NinjaAPI
 from account.api import router
 from organization.api import router as organization
 from role.api import router as role
-
+from admin_panel.api import router as admin_panel
+from farms.api import router as farm
 
 
 from django.conf import settings
@@ -18,8 +19,10 @@ api = NinjaAPI(
     openapi_url="/openapi.json",  # Required for documentation to work
 )
 api.add_router("/auth/", router)
+api.add_router("/admin/", admin_panel)
 api.add_router("/organization/", organization)
 api.add_router("/role/", role)
+api.add_router("/farm/", farm)
 
 urlpatterns = [
     path("admin/", admin.site.urls),

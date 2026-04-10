@@ -39,7 +39,13 @@ class Organization(TimeStampedModel):
 class FarmType(models.Model):
     name = models.CharField(max_length=50)
     code = models.SlugField(unique=True)
-
+    industry = models.ForeignKey(
+        Industry,
+        on_delete=models.CASCADE,
+        related_name="farm_types",
+        null=True, blank=True
+        
+    )
     def __str__(self):
         return self.name
 class Farm(TimeStampedModel):
@@ -61,4 +67,3 @@ class Farm(TimeStampedModel):
     farm_type = models.ForeignKey(FarmType, on_delete=models.CASCADE)
     is_primary = models.BooleanField(default=False)
     status = models.CharField(max_length=20, default="active")
-

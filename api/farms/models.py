@@ -26,3 +26,4 @@ class FarmUnit(TimeStampedModel):
     capacity = models.IntegerField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="active")
 
+

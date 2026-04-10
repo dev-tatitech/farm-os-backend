@@ -74,8 +74,8 @@ def add_farm_unit(request, payload: FarmSchemaIn):
     if not user.organizations.first():
         perm = user_has_permission(user,Permissions.FarmUnit.CREATE)
         raise HttpError(404, f"you are not admin {perm}")
-    raise HttpError(400, f"i am the owner of {org.name}")   
-    org = get_object_or_404(Organization, id = payload.org_id)
+   
+
     farm = get_object_or_404(Farm, id= payload.farm_id)
     unit_type = get_object_or_404(UnitType, id = payload.unit_type_id)
     if FarmUnit.objects.filter(name__iexact=payload.name).exists():
@@ -90,3 +90,96 @@ def add_farm_unit(request, payload: FarmSchemaIn):
         capacity = payload.capacity
     )
     return 200, APIResponse(success=True, message=f"farm Unit added success", data=None)
+
+@router.get(
+    "/all-farm-unit/{page}/{page_size}",
+    response={200: APIResponse, 403: APIResponse},
+)
+def get_farm_unit(
+    request,
+    page: int,
+    page_size: int,):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not user.organizations.first():
+        perm = user_has_permission(user,Permissions.FarmUnit.VIEW)
+        raise HttpError(404, f"you are not admin {perm}")
+    farm_unit = FarmUnit.objects.filter(organization = org)
+    paginator = Paginator(farm_unit, page_size)
+    page_obj = paginator.page(page)
+    # Serialization
+    serialized = []
+    for data in page_obj.object_list:
+        serialized.append(
+            {
+                "id":data.id,
+                "farm":data.farm.name if data.farm else None,
+                "name":data.name,
+                "unit_type": data.unit_type.name if data.unit_type else None,
+                "capacity":data.capacity,
+                "status": data.status
+            }
+        )
+    return 200, ListResponseSchema(
+            success=True,
+            message=f"farm unit fetch successfully",
+            data=serialized,
+            num_pages=paginator.num_pages,
+            current_page=page_obj.number,
+            total_items=paginator.count,
+            has_next=page_obj.has_next,
+            has_previous=page_obj.has_previous,
+        )
+    
+@router.get(
+    "/all-farm-unit-by-farm/{page}/{page_size}/{farm_id}",
+    response={200: APIResponse, 403: APIResponse},
+)
+def get_farm_unit_by_farm(
+    request,
+    page: int,
+    page_size: int,
+    farm_id: int):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not user.organizations.first():
+        perm = user_has_permission(user,Permissions.FarmUnit.VIEW)
+        raise HttpError(404, f"you are not admin {perm}")
+    farm_unit = FarmUnit.objects.filter(farm_id = farm_id)
+    paginator = Paginator(farm_unit, page_size)
+    page_obj = paginator.page(page)
+    # Serialization
+    serialized = []
+    for data in page_obj.object_list:
+        serialized.append(
+            {
+                "id":data.id,
+                "farm":data.farm.name if data.farm else None,
+                "name":data.name,
+                "unit_type": data.unit_type.name if data.unit_type else None,
+                "capacity":data.capacity,
+                "status": data.status
+            }
+        )
+    return 200, ListResponseSchema(
+            success=True,
+            message=f"farm unit fetch successfully",
+            data=serialized,
+            num_pages=paginator.num_pages,
+            current_page=page_obj.number,
+            total_items=paginator.count,
+            has_next=page_obj.has_next,
+            has_previous=page_obj.has_previous,
+        )

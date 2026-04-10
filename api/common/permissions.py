@@ -8,3 +8,4 @@ class Permissions:
         CREATE = "create_farm_unit"
         UPDATE = "update_farm_unit"
         DELETE = "delete_farm_unit"
+        VIEW = "view_farm_unit"

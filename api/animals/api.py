@@ -44,6 +44,7 @@ from account.models import (
     Country,
     AdminLevel1
 )
+from django.db import IntegrityError
 import uuid
 from admin_panel.models import UnitType, Species, Breed
 from subcriptions.models import SubscriptionPlan, Subscription
@@ -51,12 +52,24 @@ from common.utils import generate_ref
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from django.http import JsonResponse
-from .models import Animal
+from .models import (
+    Animal, 
+    AnimalProfileAttribute,
+    AnimalGroup,
+    AnimalGroupMember
+    )
+from core.models import GroupType
 from django.core.exceptions import ValidationError
 from .schema import (
     ListResponseSchema,
     APIResponse,
-    AnimalsSchemaIn
+    AnimalsSchemaIn,
+    AnimalProfileAttributeSchemaIn,
+    AnimalGroupSchemaIn,
+    AnimalGroupMemberSchemaIn,
+    AnimalGroupUpdateSchema,
+    AnimalGroupMemberFilterSchema,
+    UpdateAnimalGroupMemberSchemaIn
 )
 router = Router(tags=["Animals"])
 @router.post("/animal/", response={200: APIResponse, 403: APIResponse},)
@@ -73,7 +86,7 @@ def new_animal(
     if not org:
         org = user.organizations.first()
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.FarmUnit.CREATE)
+        perm = user_has_permission(user,Permissions.Animal.CREATE)
         raise HttpError(404, f"you are not admin {perm}")
     if Animal.objects.filter(tag_id__iexact=payload.tag_id).exists():
         raise HttpError(409, "tag ID already exists")
@@ -145,7 +158,7 @@ def get_animal(
     if not org:
         org = user.organizations.first()
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.FarmUnit.VIEW)
+        perm = user_has_permission(user,Permissions.Animal.VIEW)
         raise HttpError(404, f"you are not admin {perm}")
     farm = get_object_or_404(Farm, id =farm_id)
     animals = Animal.objects.filter(farm = farm)
@@ -185,3 +198,413 @@ def get_animal(
             has_next=page_obj.has_next,
             has_previous=page_obj.has_previous,
         )
+
+@router.post("/animal-profile-attribute/", response={200: APIResponse, 403: APIResponse},)
+def animal_profile_attribute(
+    request,
+    payload:AnimalProfileAttributeSchemaIn
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not user.organizations.first():
+        perm = user_has_permission(user,Permissions.Animal.CREATE)
+        raise HttpError(404, f"you are not admin {perm}")
+ 
+    animal = get_object_or_404(Animal, id = payload.animal_id)
+    if AnimalProfileAttribute.objects.filter(attribute_key__iexact=payload.attribute_key, animal = animal).exists():
+        raise HttpError(409, "attribute key already exists")
+    profile = AnimalProfileAttribute.objects.create(
+        animal = animal,
+        attribute_key = payload.attribute_key,
+        attribute_value = payload.attribute_value
+    )
+    data={
+        "attribute_key":profile.attribute_key,
+        "attribute_value": profile.attribute_value
+    }
+    return 200,APIResponse(
+        success=True,
+        message="animal profile attribute create successfully",
+        data=data
+    )
+    
+@router.get(
+    "/animal-profile-attribute/{page}/{page_size}/{animal_id}",
+    response={200: APIResponse, 403: APIResponse},
+)
+def get_animal_at_proile(
+    request,
+    page: int,
+    page_size: int,
+    animal_id: int
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not user.organizations.first():
+        perm = user_has_permission(user,Permissions.Animal.VIEW)
+        raise HttpError(404, f"you are not admin {perm}")
+    animal = AnimalProfileAttribute.objects.filter(animal_id = animal_id)
+    paginator = Paginator(animal, page_size)
+    page_obj = paginator.page(page)
+    # Serialization
+    serialized = []
+    for data in page_obj.object_list:
+        serialized.append(
+            {
+                "id":data.id,
+                "attribute_key": data.attribute_key,
+                "attribute_value": data.attribute_value,
+            }
+        )
+    return 200, ListResponseSchema(
+            success=True,
+            message=f"animal attribute fetch successfully",
+            data=serialized,
+            num_pages=paginator.num_pages,
+            current_page=page_obj.number,
+            total_items=paginator.count,
+            has_next=page_obj.has_next,
+            has_previous=page_obj.has_previous,
+        )
+
+@router.delete(
+    "/animal-profile-attribute/{animal_attribute_id}",
+    response={200: APIResponse, 403: APIResponse},
+)
+def delete_animal_at_proile(
+    request,
+    animal_attribute_id: int
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not user.organizations.first():
+        perm = user_has_permission(user,Permissions.Animal.DELETE)
+        raise HttpError(404, f"you are not admin {perm}")
+    attr = get_object_or_404(AnimalProfileAttribute, id = animal_attribute_id)
+    attr.delete()
+    return 200,APIResponse(
+        success=True,
+        message="animal profile attribute deleted successfully",
+        data=None
+    )
+    
+@router.post(
+    "/animal-group/",
+    response={200: APIResponse, 403: APIResponse},
+)
+def animal_group(
+    request,
+    payload: AnimalGroupSchemaIn
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not user.organizations.first():
+        perm = user_has_permission(user,Permissions.Animal.VIEW)
+        raise HttpError(404, f"you are not admin {perm}")
+    if not Farm.objects.filter(id=payload.farm_id).exists():
+        raise HttpError(400, "Invalid farm_id")
+    if not GroupType.objects.filter(id=payload.group_type_id).exists():
+        raise HttpError(400, "Invalid group_type_id")
+    try:
+        group = AnimalGroup.objects.create(**payload.dict())
+        return 200,APIResponse(
+        success=True,
+        message="animal group added successfully",
+        data=None
+    )
+    except IntegrityError as e:
+        raise HttpError(409, "Group with this name already exists in this farm")
+    
+    
+@router.get(
+    "/animal-group/{page}/{page_size}/{farm_id}",
+    response={200: APIResponse, 403: APIResponse},
+)
+def get_animal_group(
+    request,
+    page: int,
+    page_size: int,
+    farm_id: int
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not user.organizations.first():
+        perm = user_has_permission(user,Permissions.Animal.VIEW)
+        raise HttpError(404, f"you are not admin {perm}")
+    group = AnimalGroup.objects.select_related("farm", "group_type").filter(farm_id = farm_id)
+    paginator = Paginator(group, page_size)
+    page_obj = paginator.page(page)
+    # Serialization
+    serialized = []
+    for data in page_obj.object_list:
+        serialized.append(
+            {
+                "id":data.id,
+                "farm": data.farm.name,
+                "group_type": data.group_type.name,
+                "name": data.name,
+                "description": data.description,
+                "status": data.status,
+            }
+        )
+    return 200, ListResponseSchema(
+            success=True,
+            message=f"animal group fetch successfully",
+            data=serialized,
+            num_pages=paginator.num_pages,
+            current_page=page_obj.number,
+            total_items=paginator.count,
+            has_next=page_obj.has_next,
+            has_previous=page_obj.has_previous,
+        )
+
+@router.patch(
+    "/update-animal-group/{group_id}",
+    response={200: APIResponse, 403: APIResponse},
+)
+def update_animal_group(
+    request,
+    payload: AnimalGroupUpdateSchema,
+    group_id:int
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not user.organizations.first():
+        perm = user_has_permission(user,Permissions.Animal.UPDATE)
+        raise HttpError(404, f"you are not admin {perm}")
+    group = get_object_or_404(AnimalGroup, id=group_id)
+    update_data = payload.dict(exclude_unset=True)
+    for attr, value in update_data.items():
+        setattr(group, attr, value)
+    try:
+        group.save()
+        return 200,APIResponse(
+        success=True,
+        message="animal group updatd successfully",
+        data=None
+    )
+    except IntegrityError:
+        raise HttpError(409, "Duplicate group name for this farm")
+    
+@router.post(
+    "/animal-group/",
+    response={200: APIResponse, 403: APIResponse},
+)
+def animal_group(
+    request,
+    payload: AnimalGroupSchemaIn
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not user.organizations.first():
+        perm = user_has_permission(user,Permissions.Animal.VIEW)
+        raise HttpError(404, f"you are not admin {perm}")
+    if not Farm.objects.filter(id=payload.farm_id).exists():
+        raise HttpError(400, "Invalid farm_id")
+    if not GroupType.objects.filter(id=payload.group_type_id).exists():
+        raise HttpError(400, "Invalid group_type_id")
+    try:
+        group = AnimalGroup.objects.create(**payload.dict())
+        return 200,APIResponse(
+        success=True,
+        message="animal group added successfully",
+        data=None
+    )
+    except IntegrityError as e:
+        raise HttpError(409, "Group with this name already exists in this farm")
+    
+@router.post(
+    "/animal-group-member/",
+    response={200: APIResponse, 403: APIResponse},
+)
+def animal_group_member(
+    request,
+    payload: AnimalGroupMemberSchemaIn
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not user.organizations.first():
+        perm = user_has_permission(user,Permissions.Animal.VIEW)
+        raise HttpError(404, f"you are not admin {perm}")
+    if not Animal.objects.filter(id=payload.animal_id).exists():
+        raise HttpError(400, "Invalid animal_id")
+    if not AnimalGroup.objects.filter(id=payload.group_id).exists():
+        raise HttpError(400, "Invalid group_id")
+    try:
+        member = AnimalGroupMember.objects.create(**payload.dict())
+        return 200,APIResponse(
+        success=True,
+        message="animal group member added successfully",
+        data=None
+    )
+    except IntegrityError as e:
+        raise HttpError(409, "Group with this animal already exists in this group members")
+    
+@router.get(
+    "/animal-group-member/{page}/{page_size}",
+    response={200: APIResponse, 403: APIResponse},
+)
+def get_animal_group_member(
+    request,
+    page: int,
+    page_size: int,
+    filters:AnimalGroupMemberFilterSchema= Query(...)
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not user.organizations.first():
+        perm = user_has_permission(user,Permissions.Animal.VIEW)
+        raise HttpError(404, f"you are not admin {perm}")
+    #>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+    query = Q()
+    if filters.group_id is not None:
+        query &= Q(group_id=filters.group_id)
+    if filters.animal_id is not None:
+        query &= Q(animal_id=filters.animal_id)
+    if filters.status:
+        query &= Q(status=filters.status)
+    if filters.joined_after:
+        query &= Q(joined_at__gte=filters.joined_after)
+    if filters.joined_before:
+        query &= Q(joined_at__lte=filters.joined_before)
+    if filters.search:
+        search_query = (
+        Q(animal__tag_id__icontains=filters.search) |
+        Q(status__icontains=filters.search) |
+        Q(group__name__icontains=filters.search)
+    )
+        query &= search_query
+    member = AnimalGroupMember.objects.select_related(
+        "animal", "group"
+    ).filter(query)
+    #>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+    #group = AnimalGroup.objects.select_related("farm", "group_type").filter(farm_id = farm_id)
+    paginator = Paginator(member, page_size)
+    page_obj = paginator.page(page)
+    # Serialization
+    serialized = []
+    for data in page_obj.object_list:
+        serialized.append(
+            {
+                "id":data.id,
+                "group":{
+                    "id":data.group.id,
+                    "name": data.group.name,
+                    "description": data.group.description
+                    },
+                "animal":{
+                    "id": data.animal.id,
+                    "tag": data.animal.tag_id
+                },
+                "joined_at": data.joined_at.strftime("%Y-%m-%d %H:%M:%S") if data.joined_at else None,
+                "removed_at": data.removed_at.strftime("%Y-%m-%d %H:%M:%S") if data.removed_at else None,
+                "status": data.status,
+       
+            }
+        )
+    return 200, ListResponseSchema(
+            success=True,
+            message=f"animal group member fetch successfully",
+            data=serialized,
+            num_pages=paginator.num_pages,
+            current_page=page_obj.number,
+            total_items=paginator.count,
+            has_next=page_obj.has_next,
+            has_previous=page_obj.has_previous,
+        )
+
+@router.patch(
+    "/update-animal-group-member/{member_id}",
+    response={200: APIResponse, 403: APIResponse},
+)
+def update_animal_group_member(
+    request,
+    payload: UpdateAnimalGroupMemberSchemaIn,
+    member_id:int
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not user.organizations.first():
+        perm = user_has_permission(user,Permissions.Animal.UPDATE)
+        raise HttpError(404, f"you are not admin {perm}")
+    group = get_object_or_404(AnimalGroupMember, id=member_id)
+    if payload.status==AnimalGroupMember.Status.REMOVED:
+        group.remove()
+        return 200,APIResponse(
+        success=True,
+        message="animal group member updatd successfully",
+        data=None)
+    update_data = payload.dict(exclude_unset=True)
+    update_data.pop("status", None)
+    for attr, value in update_data.items():
+        setattr(group, attr, value)
+    try:
+        group.save()
+        return 200,APIResponse(
+        success=True,
+        message="animal group member updatd successfully",
+        data=None
+    )
+    except IntegrityError:
+        raise HttpError(409, "Duplicate group name for this farm")
+ 

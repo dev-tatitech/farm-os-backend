@@ -18,3 +18,10 @@ class APIResponse(Schema):
     success: bool
     message: str
     data: Any
+    
+class GroupTypeSchmaIn(Schema):
+    name: str
+    
+class EventTypeSchemaIn(Schema):
+    name: str
+    description: str

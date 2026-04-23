@@ -119,3 +119,129 @@ class Animal(TimeStampedModel):
 
     def __str__(self):
         return f"{self.tag_id} ({self.species})"
+    
+class AnimalProfileAttribute(models.Model):
+    animal = models.ForeignKey(Animal, on_delete=models.CASCADE, related_name='profile_attributes')
+    attribute_key = models.CharField(max_length=100)  
+    attribute_value = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['animal', 'attribute_key'], name='unique_animal_attribute')
+        ]
+        verbose_name = 'Animal Profile Attribute'
+        verbose_name_plural = 'Animal Profile Attributes'
+
+    def __str__(self):
+        return f"{self.animal.tag_id} - {self.attribute_key}: {self.attribute_value}"
+    
+from django.db import models
+
+
+class AnimalGroup(models.Model):
+    class Status(models.TextChoices):
+        ACTIVE = "ACTIVE", "Active"
+        INACTIVE = "INACTIVE", "Inactive"
+
+    farm = models.ForeignKey(
+        "organization.Farm",
+        on_delete=models.CASCADE,
+        related_name="animal_groups"
+    )
+    name = models.CharField(max_length=255)
+    group_type = models.ForeignKey("core.GroupType", null=True, blank=True, on_delete=models.SET_NULL)
+    description = models.TextField(blank=True, null=True)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.ACTIVE
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("farm", "name")
+        indexes = [
+            models.Index(fields=["farm", "group_type"]),
+            models.Index(fields=["status"]),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.farm})"
+    
+class AnimalGroupMember(models.Model):
+    class Status(models.TextChoices):
+        ACTIVE = "ACTIVE", "Active"
+        REMOVED = "REMOVED", "Removed"
+    group = models.ForeignKey(
+        AnimalGroup,
+        on_delete=models.CASCADE,
+        related_name="members"
+    )
+    animal = models.ForeignKey(
+        "Animal",
+        on_delete=models.CASCADE,
+        related_name="group_memberships"
+    )
+    joined_at = models.DateTimeField(auto_now_add=True)
+    removed_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.ACTIVE
+    )
+    class Meta:
+        unique_together = ("group", "animal")
+        indexes = [
+            models.Index(fields=["group", "status"]),
+            models.Index(fields=["animal", "status"]),
+        ]
+    def remove(self):
+        """Soft remove animal from group"""
+        from django.utils import timezone
+        self.status = self.Status.REMOVED
+        self.removed_at = timezone.now()
+        self.save()
+        
+
+class AnimalEvent(models.Model):
+    farm = models.ForeignKey(
+        "organization.Farm",
+        on_delete=models.CASCADE,
+        related_name="animal_event_farms"
+    )
+    group = models.ForeignKey(
+        AnimalGroup,
+        on_delete=models.CASCADE,
+        related_name="animal_event_groups"
+    )
+    animal = models.ForeignKey(
+        "Animal",
+        on_delete=models.CASCADE,
+        related_name="animal_event_animals"
+    )
+    event_type = models.ForeignKey(
+        "core.EventType",
+        on_delete=models.PROTECT,
+        related_name="events",
+        db_index=True
+    )
+    event_date = models.DateTimeField(db_index=True)
+    event_title = models.CharField(max_length=255)
+    event_summary = models.TextField(blank=True, null=True)
+    reference_table = models.CharField(max_length=100, null=True, blank=True)
+    reference_id = models.IntegerField(null=True, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    class Meta:
+        ordering = ["-event_date"]
+        indexes = [
+        models.Index(fields=["farm", "animal"]),
+        models.Index(fields=["farm", "group"]),
+        models.Index(fields=["event_type"]),
+        models.Index(fields=["event_date"]),
+    ]
+
+    def __str__(self):
+        return f"{self.event_type.name} - {self.event_date}"

@@ -214,7 +214,8 @@ class AnimalEvent(models.Model):
     group = models.ForeignKey(
         AnimalGroup,
         on_delete=models.CASCADE,
-        related_name="animal_event_groups"
+        related_name="animal_event_groups",
+        blank=True, null=True
     )
     animal = models.ForeignKey(
         "Animal",

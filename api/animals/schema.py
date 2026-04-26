@@ -25,26 +25,57 @@ class AnimalsSchemaIn(Schema):
     status: Literal["active", "pregnant","lactating", "sick", "quarantine", "sold", "dead"]
     gender: Literal["male", "female"]    
     source: Literal["born","purchased","imported"]
-
     farm_id: int
     unit_id: int
     tag_id: str
     species_id: int
     breed_id: int 
-
     dob: Optional[date] = None
     estimated_age_months: Optional[int] = None
     mother_id: Optional[int] = None
-
     health_status: Literal["healthy", "sick", "recovering", "at_risk"]
-
     is_pregnant: bool
     is_lactating: bool
     is_quarantine: bool
     is_active: bool
-
     notes: Optional[str] = None
+    @model_validator(mode="after")
+    def validate_source_rules(self):
 
+        # Rule 1: Born
+        if self.source == "born":
+            if not self.mother_id:
+                raise ValueError("mother_id is required when source is 'born'")
+            if not self.dob:
+                raise ValueError("dob is required when source is 'born'")
+
+        # Rule 2: Purchased / Imported
+        if self.source in ["purchased", "imported"]:
+            if not self.dob and not self.estimated_age_months:
+                raise ValueError(
+                    "Either dob or estimated_age_months is required when source is purchased/imported"
+                )
+
+        return self
+   
+class AnimalsUpdateSchemaIn(Schema):
+    status: Optional[Literal["active", "pregnant","lactating", "sick", "quarantine", "sold", "dead"]] = None
+    gender: Optional[Literal["male", "female"]]= None    
+    source: Optional[Literal["born","purchased","imported"]]= None
+    farm_id: Optional[int]= None
+    unit_id: Optional[int] = None
+    tag_id: Optional[str] = None
+    species_id: Optional[int] = None
+    breed_id: Optional[int] = None 
+    dob: Optional[date] = None
+    estimated_age_months: Optional[int] = None
+    mother_id: Optional[int] = None
+    health_status: Optional[Literal["healthy", "sick", "recovering", "at_risk"]] = None
+    is_pregnant: Optional[bool] = None
+    is_lactating: Optional[bool] = None
+    is_quarantine: Optional[bool] = None
+    is_active: Optional[bool] = None
+    notes: Optional[str] = None
     @model_validator(mode="after")
     def validate_source_rules(self):
 

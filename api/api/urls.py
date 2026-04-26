@@ -8,7 +8,7 @@ from admin_panel.api import router as admin_panel
 from farms.api import router as farm
 from core.api import router as global_api
 from animals.api import router as animals
-
+from reproduction.api import router as reproductions
 from django.conf import settings
 from django.conf.urls.static import static
 
@@ -26,6 +26,7 @@ api.add_router("/organization/", organization)
 api.add_router("/role/", role)
 api.add_router("/farm/", farm)
 api.add_router("/animals/", animals)
+api.add_router("/reproductions/", reproductions)
 
 urlpatterns = [
     path("admin/", admin.site.urls),

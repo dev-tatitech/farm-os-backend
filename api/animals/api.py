@@ -56,7 +56,8 @@ from .models import (
     Animal, 
     AnimalProfileAttribute,
     AnimalGroup,
-    AnimalGroupMember
+    AnimalGroupMember,
+    AnimalEvent
     )
 from core.models import GroupType
 from django.core.exceptions import ValidationError
@@ -69,7 +70,8 @@ from .schema import (
     AnimalGroupMemberSchemaIn,
     AnimalGroupUpdateSchema,
     AnimalGroupMemberFilterSchema,
-    UpdateAnimalGroupMemberSchemaIn
+    UpdateAnimalGroupMemberSchemaIn,
+    AnimalsUpdateSchemaIn
 )
 router = Router(tags=["Animals"])
 @router.post("/animal/", response={200: APIResponse, 403: APIResponse},)
@@ -141,7 +143,7 @@ def new_animal(
     
 @router.get(
     "/animal/{page}/{page_size}/{farm_id}",
-    response={200: APIResponse, 403: APIResponse},
+    response={200: ListResponseSchema, 403: APIResponse},
 )
 def get_animal(
     request,
@@ -199,6 +201,91 @@ def get_animal(
             has_previous=page_obj.has_previous,
         )
 
+@router.patch("/animal/{animal_id}", response={200: APIResponse, 403: APIResponse},)
+def update_animal(
+    request,
+    payload:AnimalsUpdateSchemaIn,
+    animal_id: int
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not user.organizations.first():
+        perm = user_has_permission(user,Permissions.Animal.CREATE)
+        raise HttpError(404, f"you are not admin {perm}")
+    animal = get_object_or_404(Animal.objects.select_related("farm", "unit"), id = animal_id)
+    if payload.tag_id:
+        if Animal.objects.filter(
+            tag_id__iexact=payload.tag_id,
+            farm=animal.farm
+        ).exclude(id=animal.id).exists():
+            raise HttpError(409, "tag ID already exists")
+        animal.tag_id = payload.tag_id
+
+    if payload.farm_id:
+        animal.farm = get_object_or_404(Farm, id=payload.farm_id)
+
+    if payload.unit_id:
+        animal.unit = get_object_or_404(FarmUnit, id=payload.unit_id)
+
+    if payload.species_id:
+        animal.species = get_object_or_404(Species, id=payload.species_id)
+
+    if payload.breed_id:
+        animal.breed = get_object_or_404(Breed, id=payload.breed_id)
+
+    if payload.mother_id:
+        animal.mother = get_object_or_404(Animal, id=payload.mother_id)
+
+    if payload.gender is not None:
+        animal.gender = payload.gender
+
+    if payload.source is not None:
+        animal.source_type = payload.source
+
+    if payload.dob is not None:
+        animal.dob = payload.dob
+
+    if payload.estimated_age_months is not None:
+        animal.estimated_age_months = payload.estimated_age_months
+
+    if payload.status is not None:
+        animal.status = payload.status
+
+    if payload.health_status is not None:
+        animal.health_status = payload.health_status
+
+    if payload.is_pregnant is not None:
+        animal.is_pregnant = payload.is_pregnant
+
+    if payload.is_lactating is not None:
+        animal.is_lactating = payload.is_lactating
+
+    if payload.is_quarantine is not None:
+        animal.is_quarantine = payload.is_quarantine
+
+    if payload.is_active is not None:
+        animal.is_active = payload.is_active
+
+    if payload.notes is not None:
+        animal.notes = payload.notes
+
+    animal.save()
+    data={
+        "name":animal.tag_id,
+        "gender": animal.gender
+    }
+    return 200,APIResponse(
+        success=True,
+        message="animal updated successfully",
+        data=data
+    )
+    
 @router.post("/animal-profile-attribute/", response={200: APIResponse, 403: APIResponse},)
 def animal_profile_attribute(
     request,
@@ -236,7 +323,7 @@ def animal_profile_attribute(
     
 @router.get(
     "/animal-profile-attribute/{page}/{page_size}/{animal_id}",
-    response={200: APIResponse, 403: APIResponse},
+    response={200: ListResponseSchema, 403: APIResponse},
 )
 def get_animal_at_proile(
     request,
@@ -342,7 +429,7 @@ def animal_group(
     
 @router.get(
     "/animal-group/{page}/{page_size}/{farm_id}",
-    response={200: APIResponse, 403: APIResponse},
+    response={200: ListResponseSchema, 403: APIResponse},
 )
 def get_animal_group(
     request,
@@ -490,7 +577,7 @@ def animal_group_member(
     
 @router.get(
     "/animal-group-member/{page}/{page_size}",
-    response={200: APIResponse, 403: APIResponse},
+    response={200: ListResponseSchema, 403: APIResponse},
 )
 def get_animal_group_member(
     request,
@@ -608,3 +695,57 @@ def update_animal_group_member(
     except IntegrityError:
         raise HttpError(409, "Duplicate group name for this farm")
  
+@router.get(
+    "/animal-event/{page}/{page_size}/{farm_id}",
+    response={200: ListResponseSchema, 403: APIResponse},
+)
+def get_animal_event(
+    request,
+    page: int,
+    page_size: int,
+    farm_id: int
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not user.organizations.first():
+        perm = user_has_permission(user,Permissions.Reproduction.VIEW)
+        raise HttpError(404, f"you are not admin {perm}")
+    event = AnimalEvent.objects.select_related("group", "animal", "event_type", "created_by").filter(farm_id = farm_id)
+    paginator = Paginator(event, page_size)
+    page_obj = paginator.page(page)
+    # Serialization
+    serialized = []
+    for data in page_obj.object_list:
+        serialized.append(
+            {
+                "id":data.id,
+                "group": data.group.name if data.group else None,
+                "tag": data.animal.tag_id,
+                "species": data.animal.species.name,
+                "breed": data.animal.breed.name,
+                "event_type": data.event_type.name,
+                "event_title": data.event_title,
+                "event_summary": data.event_summary,
+                "reference_table": data.reference_table,
+                "reference_id": data.reference_id,
+                "created_at": data.created_at,
+                "created_by": data.created_by.email,
+             
+            }
+        )
+    return 200, ListResponseSchema(
+            success=True,
+            message=f"animal event fetch successfully",
+            data=serialized,
+            num_pages=paginator.num_pages,
+            current_page=page_obj.number,
+            total_items=paginator.count,
+            has_next=page_obj.has_next,
+            has_previous=page_obj.has_previous,
+        )

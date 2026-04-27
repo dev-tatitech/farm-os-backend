@@ -5,6 +5,7 @@ from pydantic import EmailStr
 from datetime import date
 from pydantic import model_validator
 from datetime import datetime
+from pydantic import validator
 
 class ListResponseSchema(Schema):
     success: bool
@@ -132,3 +133,14 @@ class AnimalGroupMemberFilterSchema(Schema):
     joined_after: Optional[datetime] = None
     joined_before: Optional[datetime] = None
     search: Optional[str] = None
+    
+class AnimalWeightIn(Schema):
+    farm_id: int
+    animal_id: int
+    weight: float
+    date: date
+    @validator("weight")
+    def validate_weight(cls, value):
+        if value <= 0:
+            raise ValueError("Weight must be greater than 0")
+        return value

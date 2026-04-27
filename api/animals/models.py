@@ -37,10 +37,8 @@ class Animal(TimeStampedModel):
     # Relationships
     farm = models.ForeignKey("organization.Farm", on_delete=models.CASCADE)
     unit = models.ForeignKey("farms.FarmUnit", on_delete=models.SET_NULL, null=True)
-
     species = models.ForeignKey("admin_panel.Species", on_delete=models.CASCADE, related_name="animals_species")
     breed = models.ForeignKey("admin_panel.Breed", on_delete=models.CASCADE, related_name="animal_breeds")
-
     mother = models.ForeignKey(
         "self",
         null=True,
@@ -116,7 +114,10 @@ class Animal(TimeStampedModel):
     def save(self, *args, **kwargs):
         self.full_clean()  # enforce validation everywhere
         super().save(*args, **kwargs)
-
+    def set_lactating(self):
+        self.is_lactating = True
+        self.is_pregnant = False
+        self.save()
     def __str__(self):
         return f"{self.tag_id} ({self.species})"
     
@@ -246,3 +247,30 @@ class AnimalEvent(models.Model):
 
     def __str__(self):
         return f"{self.event_type.name} - {self.event_date}"
+    
+    
+class AnimalWeight(models.Model):
+    farm = models.ForeignKey(
+        "organization.Farm",
+        on_delete=models.CASCADE,
+        blank=True,
+        null=True
+    )
+    animal = models.ForeignKey(
+        Animal,
+        on_delete=models.CASCADE,
+        related_name="weights"
+    )
+    date = models.DateField()
+    weight = models.FloatField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["animal", "date"],
+                name="unique_weight_per_day_per_animal"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.animal_id} - {self.date} - {self.weight}kg"

@@ -44,7 +44,7 @@ from account.models import (
     Country,
     AdminLevel1
 )
-from animals.models import Animal
+from animals.models import Animal, AnimalWeight
 from django.db import IntegrityError
 import uuid
 from admin_panel.models import UnitType, Species, Breed
@@ -55,7 +55,9 @@ from django.utils import timezone
 from django.http import JsonResponse
 from .models import (
     InseminationRecord,
-    PregnancyRecord
+    PregnancyRecord,
+    BirthRecord,
+    BirthOffspringRecord
     )
 from core.models import GroupType
 from django.core.exceptions import ValidationError
@@ -63,7 +65,9 @@ from .schema import (
     ListResponseSchema,
     APIResponse,
     InseminationRecordSchema,
-    PregnancyRecordIn
+    PregnancyRecordIn,
+    BirthRecordIn,
+    BirthOffspringRecordIn
  
 )
 from animals.event import new_event
@@ -302,6 +306,272 @@ def get_pregnancy(
     return 200, ListResponseSchema(
             success=True,
             message=f"pregnancy fetch successfully",
+            data=serialized,
+            num_pages=paginator.num_pages,
+            current_page=page_obj.number,
+            total_items=paginator.count,
+            has_next=page_obj.has_next,
+            has_previous=page_obj.has_previous,
+        )
+
+@router.post("/birth/", response={200: APIResponse, 403: APIResponse},)
+def birth(
+    request,
+    payload:BirthRecordIn
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not user.organizations.first():
+        perm = user_has_permission(user,Permissions.Reproduction.CREATE)
+        raise HttpError(404, f"you are not admin {perm}")
+    
+    farm = get_object_or_404(Farm, id =payload.farm_id)
+    animal = get_object_or_404(Animal, id = payload.mother_id, farm = farm)
+    if animal.gender !="female":
+        raise HttpError(400, "Insemination can only be performed on female animals.")
+    if not animal.is_pregnant:
+        raise HttpError(400,"mother must be pregnant")
+    birth_data = {
+    "farm": farm,
+    "mother": animal,
+    "birth_date": payload.birth_date,
+    "number_of_offspring": payload.number_of_offspring,
+    "number_alive": payload.number_alive,
+    "number_dead": payload.number_dead,
+    "created_by": user
+    }
+    if payload.notes:
+        birth_data["notes"] = payload.notes
+    birth = BirthRecord(
+        **birth_data
+    )
+    try:
+        birth.clean()
+        birth.save()
+        birth.mother.set_lactating()
+    except ValidationError as e:
+        return JsonResponse({
+        "errors": e.message_dict
+        }, status=400)
+    new_event(
+        birth.farm, 
+        birth.mother,
+        "birth", 
+        birth.birth_date,
+        "birth recorded",
+        birth.number_of_offspring,
+        "birth",
+        birth.id,
+        user
+        )
+    data={
+        "name":birth.mother.tag_id,
+        "gender": birth.number_of_offspring
+    }
+    return 200,APIResponse(
+        success=True,
+        message="birth create successfully",
+        data=data
+    )
+
+@router.get(
+    "/birth/{page}/{page_size}/{farm_id}",
+    response={200: ListResponseSchema, 403: APIResponse},
+)
+def get_birth(
+    request,
+    page: int,
+    page_size: int,
+    farm_id: int
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not user.organizations.first():
+        perm = user_has_permission(user,Permissions.Reproduction.VIEW)
+        raise HttpError(404, f"you are not admin {perm}")
+    birth = BirthRecord.objects.select_related("mother__species", "created_by").filter(farm_id = farm_id)
+    paginator = Paginator(birth, page_size)
+    page_obj = paginator.page(page)
+    # Serialization
+    serialized = []
+    for data in page_obj.object_list:
+        serialized.append(
+            {
+                "id":data.id,
+                "mother_tag": data.mother.tag_id,
+                "species": data.mother.species.name,
+                "breed": data.mother.breed.name,
+                "birth_date": data.birth_date,
+                "number_of_offspring": data.number_of_offspring,
+                "number_alive": data.number_alive,
+                "number_dead": data.number_dead,
+                "notes": data.notes,
+                "created_at": data.created_at,
+                "created_by": data.created_by.email,
+             
+            }
+        )
+    return 200, ListResponseSchema(
+            success=True,
+            message=f"birth fetch successfully",
+            data=serialized,
+            num_pages=paginator.num_pages,
+            current_page=page_obj.number,
+            total_items=paginator.count,
+            has_next=page_obj.has_next,
+            has_previous=page_obj.has_previous,
+        )
+
+@router.post("/birth-offspring/", response={200: APIResponse, 403: APIResponse},)
+def birth_offspring(
+    request,
+    payload:BirthOffspringRecordIn
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not user.organizations.first():
+        perm = user_has_permission(user,Permissions.Reproduction.CREATE)
+        raise HttpError(404, f"you are not admin {perm}")
+    
+    farm = get_object_or_404(Farm, id =payload.farm_id)
+    birth_details = get_object_or_404(BirthRecord.objects.select_related("mother__unit", "mother__species", "mother__breed"), id = payload.birth_record_id)
+    animal_data = {
+        "status": "active",
+        "gender": payload.gender,
+        "source_type": "born",
+        "farm": farm,
+        "unit": birth_details.mother.unit,
+        "tag_id": payload.tag_id,
+        "species": birth_details.mother.species,
+        "breed": birth_details.mother.breed,
+        "mother": birth_details.mother,
+        "dob": birth_details.birth_date,
+        "health_status": payload.health_status,
+        "is_pregnant": False,
+        "is_lactating": False,
+        "is_quarantine": False,
+        "is_active": True,
+    }
+    with db_transaction.atomic():
+        animal = Animal(
+            **animal_data
+        )
+        try:
+            animal.full_clean()
+            animal.save()
+        except ValidationError as e:
+            return JsonResponse({
+            "errors": e.message_dict
+            }, status=400)
+        
+        birth_data = {
+        "farm": farm,
+        "offspring_animal": animal,
+        "birth_record": birth_details,
+        "gender": payload.gender,
+        "birth_weight": payload.birth_weight,
+        }
+        birth = BirthOffspringRecord(
+            **birth_data
+        )
+        try:
+            birth.clean()
+            birth.save()
+        except ValidationError as e:
+            return JsonResponse({
+            "errors": e.message_dict
+            }, status=400)
+            
+        birth_data = {
+            "farm": farm,
+            "animal": animal,
+            "weight": payload.birth_weight,
+            "date": birth_details.birth_date
+         }
+
+    try:
+        weight = AnimalWeight(
+        **birth_data
+    )
+        weight.full_clean()
+        weight.save()
+
+    except ValidationError as e:
+        return JsonResponse({
+        "errors": e.message_dict
+        }, status=400)
+  
+    data={
+        "name":birth.offspring_animal.tag_id,
+        "gender": birth.birth_weight
+    }
+    return 200,APIResponse(
+        success=True,
+        message="birth offspring create successfully",
+        data=data
+    )
+
+@router.get(
+    "/birth-offspring/{page}/{page_size}/{farm_id}",
+    response={200: ListResponseSchema, 403: APIResponse},
+)
+def get_birth_offspring(
+    request,
+    page: int,
+    page_size: int,
+    farm_id: int
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not user.organizations.first():
+        perm = user_has_permission(user,Permissions.Reproduction.VIEW)
+        raise HttpError(404, f"you are not admin {perm}")
+    birth = BirthOffspringRecord.objects.select_related("offspring_animal", "birth_record").filter(farm_id = farm_id)
+    paginator = Paginator(birth, page_size)
+    page_obj = paginator.page(page)
+    # Serialization
+    serialized = []
+    for data in page_obj.object_list:
+        serialized.append(
+            {
+                "id":data.id,
+                "mother_tag": data.offspring_animal.tag_id,
+                "species": data.offspring_animal.species.name,
+                "breed": data.offspring_animal.breed.name,
+                "gender": data.gender,
+                "birth_weight": data.birth_weight,
+                "created_at": data.created_at,
+       
+             
+            }
+        )
+    return 200, ListResponseSchema(
+            success=True,
+            message=f"birth offspring fetch successfully",
             data=serialized,
             num_pages=paginator.num_pages,
             current_page=page_obj.number,

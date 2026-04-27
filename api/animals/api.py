@@ -57,7 +57,8 @@ from .models import (
     AnimalProfileAttribute,
     AnimalGroup,
     AnimalGroupMember,
-    AnimalEvent
+    AnimalEvent,
+    AnimalWeight
     )
 from core.models import GroupType
 from django.core.exceptions import ValidationError
@@ -71,7 +72,8 @@ from .schema import (
     AnimalGroupUpdateSchema,
     AnimalGroupMemberFilterSchema,
     UpdateAnimalGroupMemberSchemaIn,
-    AnimalsUpdateSchemaIn
+    AnimalsUpdateSchemaIn,
+    AnimalWeightIn
 )
 router = Router(tags=["Animals"])
 @router.post("/animal/", response={200: APIResponse, 403: APIResponse},)
@@ -742,6 +744,104 @@ def get_animal_event(
     return 200, ListResponseSchema(
             success=True,
             message=f"animal event fetch successfully",
+            data=serialized,
+            num_pages=paginator.num_pages,
+            current_page=page_obj.number,
+            total_items=paginator.count,
+            has_next=page_obj.has_next,
+            has_previous=page_obj.has_previous,
+        )
+
+@router.post("/animal-weight/", response={200: APIResponse, 403: APIResponse},)
+def weight(
+    request,
+    payload:AnimalWeightIn
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not user.organizations.first():
+        perm = user_has_permission(user,Permissions.Animal.CREATE)
+        raise HttpError(404, f"you are not admin {perm}")
+    
+    farm = get_object_or_404(Farm, id =payload.farm_id)
+    animal = get_object_or_404(Animal, id = payload.animal_id, farm = farm)
+    birth_data = {
+    "farm": farm,
+    "animal": animal,
+    "weight": payload.weight,
+    "date": payload.date
+    }
+
+    try:
+        weight = AnimalWeight(
+        **birth_data
+    )
+        weight.full_clean()
+        weight.save()
+
+    except ValidationError as e:
+        return JsonResponse({
+        "errors": e.message_dict
+        }, status=400)
+    data={
+        "name":weight.weight,
+        "gender": weight.date
+    }
+    return 200,APIResponse(
+        success=True,
+        message="weight create successfully",
+        data=data
+    )
+
+@router.get(
+    "/animal-weight/{page}/{page_size}/{farm_id}",
+    response={200: ListResponseSchema, 403: APIResponse},
+)
+def get_animal_weight(
+    request,
+    page: int,
+    page_size: int,
+    farm_id: int
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not user.organizations.first():
+        perm = user_has_permission(user,Permissions.Reproduction.VIEW)
+        raise HttpError(404, f"you are not admin {perm}")
+    weight = AnimalWeight.objects.select_related("animal").filter(farm_id = farm_id)
+    paginator = Paginator(weight, page_size)
+    page_obj = paginator.page(page)
+    # Serialization
+    serialized = []
+    for data in page_obj.object_list:
+        serialized.append(
+            {
+                "id":data.id,
+                "tag": data.animal.tag_id,
+                "species": data.animal.species.name,
+                "breed": data.animal.breed.name,
+                "date": data.date,
+                "weight": data.weight,
+                "created_at": data.created_at,
+            
+             
+            }
+        )
+    return 200, ListResponseSchema(
+            success=True,
+            message=f"animal weight fetch successfully",
             data=serialized,
             num_pages=paginator.num_pages,
             current_page=page_obj.number,

@@ -81,3 +81,43 @@ class PregnancyRecord(models.Model):
         if self.result == 'pregnant':
             self.animal.is_pregnant = True
             self.animal.save()
+            
+class BirthRecord(models.Model):
+    farm = models.ForeignKey("organization.Farm", on_delete=models.CASCADE)
+    mother = models.ForeignKey("animals.Animal", on_delete=models.CASCADE)
+    birth_date = models.DateField()
+    number_of_offspring = models.PositiveIntegerField()
+    number_alive = models.PositiveIntegerField()
+    number_dead = models.PositiveIntegerField()
+    notes = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    def clean(self):
+        # Rule: mother must be pregnant
+        if not self.mother.is_pregnant:
+            raise ValidationError("Mother must be pregnant to record a birth.")
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+        self.mother.save()
+        
+class BirthOffspringRecord(models.Model):
+    GENDER_CHOICES = [
+        ("male", "Male"),
+        ("female", "Female"),
+    ]
+    farm = models.ForeignKey("organization.Farm", on_delete=models.CASCADE)
+    offspring_animal = models.ForeignKey("animals.Animal", on_delete=models.CASCADE, related_name="birth_links")
+    birth_record = models.ForeignKey(
+        BirthRecord,
+        on_delete=models.CASCADE,
+        related_name="offspring_records"
+    )
+    gender = models.CharField(max_length=10, choices=GENDER_CHOICES)
+    birth_weight = models.FloatField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)

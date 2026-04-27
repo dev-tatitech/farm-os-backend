@@ -58,3 +58,31 @@ class PregnancyRecordIn(Schema):
         if values.get("result") == "pregnant" and not value:
             raise ValueError("expected_delivery_date is required if result is pregnant")
         return value
+    
+class BirthRecordIn(Schema):
+    farm_id: int
+    mother_id: int
+    birth_date: date
+    number_of_offspring: int
+    number_alive: int
+    number_dead: int
+    notes: Optional[str] = None
+    @validator("number_of_offspring", "number_alive", "number_dead")
+    def validate_non_negative(cls, value):
+        if value < 0:
+            raise ValueError("Values must be non-negative")
+        return value
+
+class BirthOffspringRecordIn(Schema):
+    farm_id: int
+    birth_record_id: int
+    tag_id: str
+    gender: Literal["male", "female"]
+    birth_weight: Optional[float] = None
+    health_status: Literal["healthy", "sick", "recovering", "at_risk"]
+    status: Literal["active", "sick", "dead"]
+    @validator("birth_weight")
+    def validate_weight(cls, value):
+        if value is not None and value <= 0:
+            raise ValueError("Birth weight must be greater than 0")
+        return value

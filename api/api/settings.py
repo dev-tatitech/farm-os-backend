@@ -35,7 +35,9 @@ INSTALLED_APPS = [
     "role",
     "farms",
     "animals",
-    "reproduction"
+    "reproduction",
+    "health",
+    "feed"
 ]
 
 MIDDLEWARE = [

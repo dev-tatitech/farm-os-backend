@@ -144,3 +144,11 @@ class AnimalWeightIn(Schema):
         if value <= 0:
             raise ValueError("Weight must be greater than 0")
         return value
+    
+class MilkRecordSchema(Schema):
+    farm_id: int
+    animal_id: int
+    record_date: date
+    session: Literal["morning", "evening"]
+    quantity: float
+    notes: Optional[str] = None

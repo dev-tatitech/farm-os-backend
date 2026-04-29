@@ -9,6 +9,8 @@ from farms.api import router as farm
 from core.api import router as global_api
 from animals.api import router as animals
 from reproduction.api import router as reproductions
+from health.api import router as health
+from feed.api import router as feed
 from django.conf import settings
 from django.conf.urls.static import static
 
@@ -27,6 +29,8 @@ api.add_router("/role/", role)
 api.add_router("/farm/", farm)
 api.add_router("/animals/", animals)
 api.add_router("/reproductions/", reproductions)
+api.add_router("/health/", health)
+api.add_router("/feed/", feed)
 
 urlpatterns = [
     path("admin/", admin.site.urls),

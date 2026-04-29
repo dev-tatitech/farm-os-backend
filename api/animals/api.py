@@ -44,6 +44,7 @@ from account.models import (
     Country,
     AdminLevel1
 )
+from .event import new_event
 from django.db import IntegrityError
 import uuid
 from admin_panel.models import UnitType, Species, Breed
@@ -58,7 +59,8 @@ from .models import (
     AnimalGroup,
     AnimalGroupMember,
     AnimalEvent,
-    AnimalWeight
+    AnimalWeight,
+    MilkRecord
     )
 from core.models import GroupType
 from django.core.exceptions import ValidationError
@@ -73,7 +75,8 @@ from .schema import (
     AnimalGroupMemberFilterSchema,
     UpdateAnimalGroupMemberSchemaIn,
     AnimalsUpdateSchemaIn,
-    AnimalWeightIn
+    AnimalWeightIn,
+    MilkRecordSchema
 )
 router = Router(tags=["Animals"])
 @router.post("/animal/", response={200: APIResponse, 403: APIResponse},)
@@ -849,3 +852,133 @@ def get_animal_weight(
             has_next=page_obj.has_next,
             has_previous=page_obj.has_previous,
         )
+
+
+#>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+@router.post("/milk/", response={200: APIResponse, 403: APIResponse},tags=["Production"])
+def milk(
+    request,
+    payload:MilkRecordSchema
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not user.organizations.first():
+        perm = user_has_permission(user,Permissions.Health.CREATE)
+        raise HttpError(404, f"you are not admin {perm}")
+    
+    farm = get_object_or_404(Farm, id =payload.farm_id)
+    animal = get_object_or_404(Animal, id = payload.animal_id, farm = farm)
+    milk_data = {
+    "farm": farm,
+    "animal": animal,
+    "record_date": payload.record_date,
+    "session": payload.session,
+    "quantity": payload.quantity,
+    "created_by": user
+    }
+    if payload.notes:
+        milk_data["notes"] = payload.notes
+    milk = MilkRecord(
+        **milk_data
+    )
+    try:
+        milk.full_clean()
+        milk.save()
+    except ValidationError as e:
+        return JsonResponse({
+        "errors": e.message_dict
+        }, status=400)
+    """ 
+   AnimalEvent.objects.create(
+    farm=self.farm,
+    animal=self.animal,
+    event_type=event_type,  # quarantine
+    event_date=self.start_date,
+    event_title=f"Quarantine - {self.status}",
+    event_summary=self.reason,
+    reference_table="quarantine_record",
+    reference_id=self.id,
+    created_by=self.created_by,
+)
+)
+    """
+    new_event(
+    milk.farm,
+    milk.animal,
+    "milk",
+    milk.record_date,
+    f"Milk Recorded - {milk.session}",
+    f"{milk.quantity} liters",
+    "milk_record",
+    milk.id,
+    user
+)
+    data={
+        "session":milk.session,
+        "start_date": milk.record_date
+    }
+    return 200,APIResponse(
+        success=True,
+        message="milk create successfully",
+        data=data
+    )
+
+@router.get(
+    "/milk/{page}/{page_size}/{farm_id}",
+    response={200: ListResponseSchema, 403: APIResponse},
+    tags=["Production"]
+)
+def get_milk(
+    request,
+    page: int,
+    page_size: int,
+    farm_id: int
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not user.organizations.first():
+        perm = user_has_permission(user,Permissions.Health.VIEW)
+        raise HttpError(404, f"you are not admin {perm}")
+    milk = MilkRecord.objects.select_related("animal__species", "created_by").filter(farm_id = farm_id)
+    paginator = Paginator(milk, page_size)
+    page_obj = paginator.page(page)
+    # Serialization
+    serialized = []
+    for data in page_obj.object_list:
+        serialized.append(
+            {
+                "id":data.id,
+                "animal_tag": data.animal.tag_id if data.animal else None,
+                "species": data.animal.species.name if data.animal else None,
+                "breed": data.animal.breed.name if data.animal else None,
+                "record_date": data.record_date,
+                "session": data.session,
+                "quantity": data.quantity,
+                "created_at": data.created_at,
+                "created_by": data.created_by.email,
+             
+            }
+        )
+    return 200, ListResponseSchema(
+            success=True,
+            message=f"milk fetch successfully",
+            data=serialized,
+            num_pages=paginator.num_pages,
+            current_page=page_obj.number,
+            total_items=paginator.count,
+            has_next=page_obj.has_next,
+            has_previous=page_obj.has_previous,
+        )
+    

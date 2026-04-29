@@ -11,10 +11,6 @@ class Animal(TimeStampedModel):
 
     STATUS_CHOICES = [
         ("active", "Active"),
-        ("pregnant", "Pregnant"),
-        ("lactating", "Lactating"),
-        ("sick", "Sick"),
-        ("quarantine", "Quarantine"),
         ("sold", "Sold"),
         ("dead", "Dead"),
     ]
@@ -68,7 +64,28 @@ class Animal(TimeStampedModel):
     is_active = models.BooleanField(default=True)
 
     notes = models.TextField(blank=True)
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["farm"]),
+            models.Index(fields=["status"]),
+            models.Index(fields=["health_status"]),
+        ]
+        
+    def mark_dead(self):
+        self.status = "dead"
+        self.is_active = False
+        self.is_quarantine = False
+        self.is_pregnant = False
+        self.is_lactating = False
 
+        self.save(update_fields=[
+            "status",
+            "is_active",
+            "is_quarantine",
+            "is_pregnant",
+            "is_lactating",
+        ])
     # -----------------------------
     # BUSINESS VALIDATION
     # -----------------------------
@@ -221,7 +238,8 @@ class AnimalEvent(models.Model):
     animal = models.ForeignKey(
         "Animal",
         on_delete=models.CASCADE,
-        related_name="animal_event_animals"
+        related_name="animal_event_animals",
+        blank=True, null=True
     )
     event_type = models.ForeignKey(
         "core.EventType",
@@ -274,3 +292,58 @@ class AnimalWeight(models.Model):
 
     def __str__(self):
         return f"{self.animal_id} - {self.date} - {self.weight}kg"
+    
+class MilkRecord(models.Model):
+    SESSION_CHOICES = [
+        ("morning", "Morning"),
+        ("evening", "Evening"),
+    ]
+    farm = models.ForeignKey(
+        "organization.Farm",
+        on_delete=models.CASCADE,
+        related_name="milk_records"
+    )
+    animal = models.ForeignKey(
+        Animal,
+        on_delete=models.CASCADE,
+        related_name="milk_records"
+    )
+    record_date = models.DateField()
+    session = models.CharField(
+        max_length=10,
+        choices=SESSION_CHOICES
+    )
+    quantity = models.DecimalField(
+        max_digits=6,
+        decimal_places=2
+    )
+    notes = models.TextField(
+        null=True,
+        blank=True
+    )
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="created_milk_records"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    class Meta:
+        ordering = ["-record_date"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["animal", "record_date", "session"],
+                name="unique_milk_record_per_session"
+            )
+        ]
+    def clean(self):
+        # 🐄 Must be cow
+        if self.animal.species.name.lower() != "cow":
+            raise ValidationError(f"Milk can only be recorded for cows. {self.animal.species.name}")
+        if not self.animal.is_lactating:
+            raise ValidationError("Milk can only be recorded for lactating animals.")
+        if self.animal.status == "dead" or not self.animal.is_active:
+            raise ValidationError("Cannot record milk for inactive or dead animals.")
+    def __str__(self):
+        return f"{self.animal.tag_id} - {self.quantity}L ({self.session})"
+    

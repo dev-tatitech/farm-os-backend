@@ -21,3 +21,9 @@ class Permissions:
         UPDATE = "update_reproduction"
         DELETE = "delete_reproduction"
         VIEW = "view_reproduction"
+
+    class Health:
+        CREATE = "add_health"
+        UPDATE = "update_health"
+        DELETE = "delete_health"
+        VIEW = "view_health"

@@ -731,9 +731,9 @@ def get_animal_event(
             {
                 "id":data.id,
                 "group": data.group.name if data.group else None,
-                "tag": data.animal.tag_id,
-                "species": data.animal.species.name,
-                "breed": data.animal.breed.name,
+                "tag": data.animal.tag_id if data.animal else None,
+                "species": data.animal.species.name if data.animal else None,
+                "breed": data.animal.breed.name if data.animal else None,
                 "event_type": data.event_type.name,
                 "event_title": data.event_title,
                 "event_summary": data.event_summary,

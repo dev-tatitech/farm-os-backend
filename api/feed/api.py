@@ -55,7 +55,9 @@ from django.utils import timezone
 from django.http import JsonResponse
 from .models import (
     FeedInventory,
-    FeedPlan
+    FeedPlan,
+    FeedIssuanceRecord,
+    FeedConfirmationRecord
     )
 from core.models import GroupType
 from django.core.exceptions import ValidationError
@@ -64,7 +66,8 @@ from .schema import (
     APIResponse,
     FeedInventorySchema,
     FeedPlanSchema,
-    
+    FeedIssuanceRecordSchema,
+    FeedConfirmationRecordSchema
 )
 from animals.event import new_event
 router = Router(tags=["Feed"])
@@ -83,7 +86,7 @@ def mortality(
     if not org:
         org = user.organizations.first()
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Health.CREATE)
+        perm = user_has_permission(user,Permissions.Feed.CREATE)
         raise HttpError(404, f"you are not admin {perm}")
     
     farm = get_object_or_404(Farm, id =payload.farm_id)
@@ -133,7 +136,7 @@ def get_feed(
     if not org:
         org = user.organizations.first()
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Health.VIEW)
+        perm = user_has_permission(user,Permissions.Feed.VIEW)
         raise HttpError(404, f"you are not admin {perm}")
     fi = FeedInventory.objects.filter(farm_id = farm_id)
     paginator = Paginator(fi, page_size)
@@ -180,7 +183,7 @@ def feed_plan(
     if not org:
         org = user.organizations.first()
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Health.CREATE)
+        perm = user_has_permission(user,Permissions.Feed.CREATE)
         raise HttpError(404, f"you are not admin {perm}")
     
     farm = get_object_or_404(Farm, id =payload.farm_id)
@@ -244,7 +247,7 @@ def get_feed_plan(
     if not org:
         org = user.organizations.first()
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Health.VIEW)
+        perm = user_has_permission(user,Permissions.Feed.VIEW)
         raise HttpError(404, f"you are not admin {perm}")
     fp = FeedPlan.objects.filter(farm_id = farm_id)
     paginator = Paginator(fp, page_size)
@@ -274,6 +277,254 @@ def get_feed_plan(
     return 200, ListResponseSchema(
             success=True,
             message=f"feed plan fetch successfully",
+            data=serialized,
+            num_pages=paginator.num_pages,
+            current_page=page_obj.number,
+            total_items=paginator.count,
+            has_next=page_obj.has_next,
+            has_previous=page_obj.has_previous,
+        )
+    
+@router.post("/feed-issue/", response={200: APIResponse, 403: APIResponse},)
+def feed_issue(
+    request,
+    payload:FeedIssuanceRecordSchema
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not user.organizations.first():
+        perm = user_has_permission(user,Permissions.Feed.CREATE)
+        raise HttpError(404, f"you are not admin {perm}")
+    
+    farm = get_object_or_404(Farm, id =payload.farm_id)
+    feed_inventory = get_object_or_404(FeedInventory, id =payload.feed_inventory_id)
+    feed_data = {
+    "farm": farm,
+    "target_type": payload.target_type,
+    "feed_inventory":feed_inventory,
+    "quantity_issued": payload.quantity_issued,
+    "issue_date": payload.issue_date,
+    "issued_by": user
+    }
+    if payload.animal_id:
+        animal = get_object_or_404(Animal, id = payload.animal_id)
+        feed_data["animal"] = animal
+    if payload.group_id:
+        group = get_object_or_404(AnimalGroup, id = payload.group_id)
+        feed_data["group"] = group
+  
+    if payload.notes:
+        feed_data["notes"] = payload.notes
+    feed = FeedIssuanceRecord(
+        **feed_data
+    )
+    try:
+        feed.full_clean()
+        feed.save()
+    except ValidationError as e:
+        if hasattr(e, "message_dict"):
+            return JsonResponse({
+            "errors": e.message_dict
+            }, status=400)
+        else:
+            return JsonResponse({
+            "errors": e.messages
+            }, status=400)
+        
+    new_event(
+    feed.farm,
+    feed.animal,
+    "feeding",
+    feed.issue_date,
+    f"Feed Issued - {feed.quantity_issued}",
+    feed.notes,
+    "feed_issuance_record",
+    feed.id,
+    feed.issued_by,
+    group=feed.group
+)
+    data={
+        "target_type":feed.target_type,
+        "quantity_issued": feed.quantity_issued
+    }
+    return 200,APIResponse(
+        success=True,
+        message="Feed issue create successfully",
+        data=data
+    )
+
+@router.get(
+    "/feed-issue/{page}/{page_size}/{farm_id}",
+    response={200: ListResponseSchema, 403: APIResponse},
+)
+def get_feed_issue(
+    request,
+    page: int,
+    page_size: int,
+    farm_id: int
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not user.organizations.first():
+        perm = user_has_permission(user,Permissions.Feed.VIEW)
+        raise HttpError(404, f"you are not admin {perm}")
+    fp = FeedIssuanceRecord.objects.filter(farm_id = farm_id)
+    paginator = Paginator(fp, page_size)
+    page_obj = paginator.page(page)
+    # Serialization
+    serialized = []
+    for data in page_obj.object_list:
+        serialized.append(
+            {
+                "id":data.id,
+                "target_type": data.target_type,
+                "animal": data.animal.species.name if data.animal else None,
+                "quantity_issued": data.quantity_issued,
+                "group": data.group.name if data.group else None,
+                "feed_inventory": data.feed_inventory.feed_name,
+                "issue_date": data.issue_date,
+                "notes": data.notes,
+                "issued_by": data.issued_by.email,
+                "created_at": data.created_at,
+        
+             
+            }
+        )
+    return 200, ListResponseSchema(
+            success=True,
+            message=f"feed plan fetch successfully",
+            data=serialized,
+            num_pages=paginator.num_pages,
+            current_page=page_obj.number,
+            total_items=paginator.count,
+            has_next=page_obj.has_next,
+            has_previous=page_obj.has_previous,
+        )
+    
+@router.post("/feed-confirmation/", response={200: APIResponse, 403: APIResponse},)
+def feed_confirmation(
+    request,
+    payload:FeedConfirmationRecordSchema
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not user.organizations.first():
+        perm = user_has_permission(user,Permissions.Feed.CREATE)
+        raise HttpError(404, f"you are not admin {perm}")
+    farm = get_object_or_404(Farm, id =payload.farm_id)
+    feed_issue = get_object_or_404(FeedIssuanceRecord, id =payload.issuance_id)
+    feed_data = {
+    "farm": farm,
+    "actual_used_quantity": payload.actual_used_quantity,
+    "issuance":feed_issue,
+    "confirmation_date": payload.confirmation_date,
+    "confirmed_by": user,
+    "status": payload.status
+    }  
+    if payload.notes:
+        feed_data["notes"] = payload.notes
+    feed = FeedConfirmationRecord(
+        **feed_data
+    )
+    try:
+        feed.full_clean()
+        feed.save()
+    except ValidationError as e:
+        if hasattr(e, "message_dict"):
+            return JsonResponse({
+            "errors": e.message_dict
+            }, status=400)
+        else:
+            return JsonResponse({
+            "errors": e.messages
+            }, status=400)
+        
+    new_event(
+    feed.farm,
+    feed.issuance.animal,
+    "feeding",
+    feed.confirmation_date,
+    "Feed Confirmation",
+    f"Used: {feed.actual_used_quantity}, Variance: {feed.variance_quantity}",
+    "feed_confirmation_record",
+    feed.id,
+    feed.confirmed_by,
+    group=feed.issuance.group
+)
+    data={
+        "actual_used_quantity":feed.actual_used_quantity,
+        "confirmation_date": feed.confirmation_date
+    }
+    return 200,APIResponse(
+        success=True,
+        message="Confirm create successfully",
+        data=data
+    )
+
+@router.get(
+    "/feed-confirmation/{page}/{page_size}/{farm_id}",
+    response={200: ListResponseSchema, 403: APIResponse},
+)
+def get_feed_confirmatione(
+    request,
+    page: int,
+    page_size: int,
+    farm_id: int
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not user.organizations.first():
+        perm = user_has_permission(user,Permissions.Feed.VIEW)
+        raise HttpError(404, f"you are not admin {perm}")
+    fp = FeedConfirmationRecord.objects.select_related("issuance__feed_inventory").filter(farm_id = farm_id)
+    paginator = Paginator(fp, page_size)
+    page_obj = paginator.page(page)
+    # Serialization
+    serialized = []
+    for data in page_obj.object_list:
+        serialized.append(
+            {
+                "id":data.id,
+                "feed_name": data.issuance.feed_inventory.feed_name,
+                "quantity_issued": data.issuance.quantity_issued,
+                "target_type": data.issuance.target_type,
+                "actual_used_quantity": data.actual_used_quantity,
+                "confirmation_date": data.confirmation_date,
+                "variance_quantity": data.variance_quantity,
+                "status": data.status,
+                "confirmed_by": data.confirmed_by.email,
+                "created_at": data.created_at,
+        
+             
+            }
+        )
+    return 200, ListResponseSchema(
+            success=True,
+            message=f"feed confirm fetch successfully",
             data=serialized,
             num_pages=paginator.num_pages,
             current_page=page_obj.number,

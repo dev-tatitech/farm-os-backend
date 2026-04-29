@@ -27,3 +27,9 @@ class Permissions:
         UPDATE = "update_health"
         DELETE = "delete_health"
         VIEW = "view_health"
+
+    class Feed:
+        CREATE = "add_feed"
+        UPDATE = "update_feed"
+        DELETE = "delete_feed"
+        VIEW = "view_feed"

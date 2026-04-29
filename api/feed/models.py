@@ -3,7 +3,7 @@ from django.core.exceptions import ValidationError
 from django.contrib.auth import get_user_model
 User = get_user_model()
 from django.utils import timezone
-
+from django.db import models, transaction
 
 class FeedInventory(models.Model):
     STATUS_CHOICES = [
@@ -182,3 +182,172 @@ class FeedPlan(models.Model):
     def __str__(self):
         target = self.species or self.group
         return f"{self.plan_type} plan ({target}) - {self.daily_feed_quantity} {self.unit}"
+    
+class FeedIssuanceRecord(models.Model):
+    TARGET_TYPE_CHOICES = [
+        ("animal", "Animal"),
+        ("group", "Group"),
+    ]
+    farm = models.ForeignKey(
+        "organization.Farm",
+        on_delete=models.CASCADE,
+        related_name="feed_issuance_records"
+    )
+    target_type = models.CharField(
+        max_length=10,
+        choices=TARGET_TYPE_CHOICES
+    )
+    animal = models.ForeignKey(
+        "animals.Animal",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="feed_issuances"
+    )
+    group = models.ForeignKey(
+        "animals.AnimalGroup",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="feed_issuances"
+    )
+    feed_inventory = models.ForeignKey(
+        FeedInventory,
+        on_delete=models.CASCADE,
+        related_name="issuance_records"
+    )
+
+    quantity_issued = models.DecimalField(
+        max_digits=10,
+        decimal_places=2
+    )
+    issue_date = models.DateField()
+    issued_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="issued_feed_records"
+    )
+    notes = models.TextField(
+        null=True,
+        blank=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    class Meta:
+        ordering = ["-issue_date"]
+        indexes = [
+            models.Index(fields=["farm", "issue_date"]),
+        ]
+    def __str__(self):
+        return f"{self.target_type} - {self.quantity_issued}"
+    def clean(self):
+        # target validation
+        if self.target_type == "animal":
+            if not self.animal:
+                raise ValidationError("Animal is required when target_type is 'animal'.")
+            if self.group:
+                raise ValidationError("Group must be empty when target_type is 'animal'.")
+        elif self.target_type == "group":
+            if not self.group:
+                raise ValidationError("Group is required when target_type is 'group'.")
+            if self.animal:
+                raise ValidationError("Animal must be empty when target_type is 'group'.")
+        # quantity validation
+        if self.quantity_issued <= 0:
+            raise ValidationError("Quantity must be greater than zero.")
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        with transaction.atomic():
+            inventory = self.feed_inventory
+            inventory = (
+                type(inventory)
+                .objects.select_for_update()
+                .get(pk=inventory.pk)
+            )
+            if inventory.quantity_available < self.quantity_issued:
+                raise ValidationError("Insufficient stock available.")
+            inventory.quantity_available -= self.quantity_issued
+            inventory.save()
+            super().save(*args, **kwargs)
+            
+class FeedConfirmationRecord(models.Model):
+    STATUS_CHOICES = [
+        ("confirmed", "Confirmed"),
+        ("variance_detected", "Variance Detected"),
+    ]
+    farm = models.ForeignKey(
+        "organization.Farm",
+        on_delete=models.CASCADE,
+        related_name="feed_confirmations"
+    )
+    issuance = models.OneToOneField(
+        FeedIssuanceRecord,
+        on_delete=models.CASCADE,
+        related_name="confirmation"
+    )
+
+    actual_used_quantity = models.DecimalField(
+        max_digits=10,
+        decimal_places=2
+    )
+
+    confirmation_date = models.DateField()
+
+    confirmed_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="confirmed_feed_records"
+    )
+
+    notes = models.TextField(
+        null=True,
+        blank=True
+    )
+
+    variance_quantity = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-confirmation_date"]
+
+    def clean(self):
+        if self.actual_used_quantity < 0:
+            raise ValidationError("Actual used quantity cannot be negative.")
+        issued_qty = self.issuance.quantity_issued
+        if self.actual_used_quantity > issued_qty:
+            raise ValidationError(
+                "Actual used quantity cannot exceed issued quantity."
+            )
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        with transaction.atomic():
+            issued_qty = self.issuance.quantity_issued
+            self.variance_quantity = issued_qty - self.actual_used_quantity
+            self.status = (
+                "confirmed"
+                if self.variance_quantity == 0
+                else "variance_detected"
+            )
+            super().save(*args, **kwargs)
+            if self.variance_quantity > 0:
+                inventory = self.issuance.feed_inventory
+                inventory = (
+                    type(inventory)
+                    .objects.select_for_update()
+                    .get(pk=inventory.pk)
+                )
+                inventory.quantity_available += self.variance_quantity
+                inventory.save()
+    def __str__(self):
+        return f"Confirmation - Issuance {self.issuance_id}"

@@ -39,3 +39,21 @@ class FeedPlanSchema(Schema):
     start_date: date
     end_date: Optional[date] = None
     notes: Optional[str] = None
+    
+class FeedIssuanceRecordSchema(Schema):
+    farm_id: int
+    target_type: Literal["animal", "group"]
+    animal_id: Optional[int] = None
+    group_id: Optional[int] = None
+    feed_inventory_id: int
+    quantity_issued: float
+    issue_date: date
+    notes: Optional[str] = None
+    
+class FeedConfirmationRecordSchema(Schema):
+    farm_id: int
+    status: Literal["confirmed", "variance_detected"]
+    issuance_id: int
+    actual_used_quantity: float
+    confirmation_date: date
+    notes: Optional[str] = None

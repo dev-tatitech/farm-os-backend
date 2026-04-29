@@ -255,7 +255,7 @@ class AnimalEvent(models.Model):
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     class Meta:
-        ordering = ["-event_date"]
+        ordering = ["-created_at"]
         indexes = [
         models.Index(fields=["farm", "animal"]),
         models.Index(fields=["farm", "group"]),

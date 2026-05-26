@@ -95,9 +95,7 @@ def get_species(
     except users.DoesNotExist:
         return 403, APIResponse(success=False, message="Permission denied", data=None)
     
-    if not user.is_superuser:
-         raise HttpError(403, "Permission Denied")
-     
+  
     species = Species.objects.all()
     paginator = Paginator(species, page_size)
     page_obj = paginator.page(page)
@@ -183,9 +181,7 @@ def get_breed(
     except users.DoesNotExist:
         return 403, APIResponse(success=False, message="Permission denied", data=None)
     
-    if not user.is_superuser:
-         raise HttpError(403, "Permission Denied")
-     
+   
     breed = Breed.objects.select_related("species").all()
     paginator = Paginator(breed, page_size)
     page_obj = paginator.page(page)

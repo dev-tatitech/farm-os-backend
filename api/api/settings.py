@@ -37,7 +37,8 @@ INSTALLED_APPS = [
     "animals",
     "reproduction",
     "health",
-    "feed"
+    "feed",
+    "movement_records",
 ]
 
 MIDDLEWARE = [

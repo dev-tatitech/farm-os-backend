@@ -33,3 +33,15 @@ class Permissions:
         UPDATE = "update_feed"
         DELETE = "delete_feed"
         VIEW = "view_feed"
+
+    class MovementRecord:
+        CREATE = "add_movement_record"
+        UPDATE = "update_movement_record"
+        DELETE = "delete_movement_record"
+        VIEW = "view_movement_record"
+
+    class SalesRecord:
+        CREATE = "add_sales_record"
+        UPDATE = "update_sales_record"
+        DELETE = "delete_sales_record"
+        VIEW = "view_sales_record"

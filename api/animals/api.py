@@ -206,6 +206,51 @@ def get_animal(
             has_previous=page_obj.has_previous,
         )
 
+@router.get(
+    "/animal-by-id/{animal_id}",
+    response={200: APIResponse, 403: APIResponse},
+)
+def get_animal_by_id(
+    request,
+    animal_id: int
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not user.organizations.first():
+        perm = user_has_permission(user,Permissions.Animal.VIEW)
+        raise HttpError(404, f"you are not admin {perm}")
+  
+    data = get_object_or_404(Animal, id = animal_id)
+    serialized = {
+        "id":data.id,
+                "unit": data.unit.name if data.unit else None,
+                "species": data.species.name if data.species else None,
+                "breed": data.breed.name if data.breed else None,
+                "mother": data.mother.tag_id if data.mother else None,
+                "tag_id": data.tag_id,
+                "gender": data.gender,
+                "source_type": data.source_type,
+                "dob": data.dob,
+                "estimated_age_months": data.estimated_age_months,
+                "status": data.status,
+                "health_status": data.health_status,
+                "is_pregnant": data.is_pregnant,
+                "is_lactating": data.is_lactating,
+                "is_quarantine": data.is_quarantine,
+                "is_active": data.is_active,
+                "notes": data.notes
+    }
+    return 200,APIResponse(
+        success=True,
+        message="animal details successfully",
+        data=serialized
+    )
 @router.patch("/animal/{animal_id}", response={200: APIResponse, 403: APIResponse},)
 def update_animal(
     request,

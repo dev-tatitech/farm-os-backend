@@ -11,6 +11,7 @@ from animals.api import router as animals
 from reproduction.api import router as reproductions
 from health.api import router as health
 from feed.api import router as feed
+from movement_records.api import router as movement_records
 from django.conf import settings
 from django.conf.urls.static import static
 
@@ -31,6 +32,7 @@ api.add_router("/animals/", animals)
 api.add_router("/reproductions/", reproductions)
 api.add_router("/health/", health)
 api.add_router("/feed/", feed)
+api.add_router("/movement-records/", movement_records)
 
 urlpatterns = [
     path("admin/", admin.site.urls),

@@ -64,6 +64,7 @@ class Animal(TimeStampedModel):
     is_active = models.BooleanField(default=True)
 
     notes = models.TextField(blank=True)
+    image = models.ImageField(upload_to="animals/", null=True, blank=True)
     class Meta:
         ordering = ["-created_at"]
         indexes = [
@@ -346,4 +347,48 @@ class MilkRecord(models.Model):
             raise ValidationError("Cannot record milk for inactive or dead animals.")
     def __str__(self):
         return f"{self.animal.tag_id} - {self.quantity}L ({self.session})"
-    
+
+
+class AnimalDashboard(models.Model):
+    farm = models.OneToOneField(
+        "organization.Farm",
+        on_delete=models.CASCADE,
+        related_name="animal_dashboard",
+    )
+    total_animals = models.PositiveIntegerField(default=0)
+    active = models.PositiveIntegerField(default=0)
+    healthy = models.PositiveIntegerField(default=0)
+    lactating = models.PositiveIntegerField(default=0)
+    pregnant = models.PositiveIntegerField(default=0)
+    sick = models.PositiveIntegerField(default=0)
+    quarantine = models.PositiveIntegerField(default=0)
+    deaths = models.PositiveIntegerField(default=0)
+    sales = models.PositiveIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Animal Dashboard"
+        verbose_name_plural = "Animal Dashboards"
+
+    def __str__(self):
+        return f"Dashboard for {self.farm}"
+
+
+class DailyMilkSummary(models.Model):
+    farm = models.ForeignKey(
+        "organization.Farm",
+        on_delete=models.CASCADE,
+        related_name="daily_milk_summaries",
+    )
+    date = models.DateField()
+    total_litres = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("farm", "date")]
+        ordering = ["-date"]
+        verbose_name = "Daily Milk Summary"
+        verbose_name_plural = "Daily Milk Summaries"
+
+    def __str__(self):
+        return f"{self.farm} - {self.date}: {self.total_litres}L"

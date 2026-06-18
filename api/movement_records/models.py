@@ -83,6 +83,11 @@ class MovementRecord(models.Model):
         return f"MovementRecord #{self.id} for {self.farm}"
 
 class SalesRecord(models.Model):
+    STATUS_CHOICES = [
+        ("recorded", "Recorded"),
+        ("approved", "Approved"),
+        ("corrected", "Corrected"),
+    ]
     farm = models.ForeignKey(
         Farm,
         on_delete=models.CASCADE,
@@ -97,6 +102,11 @@ class SalesRecord(models.Model):
     buyer_name = models.CharField(max_length=255)
     price = models.DecimalField(max_digits=12, decimal_places=2)
     sale_date = models.DateTimeField()
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="recorded",
+    )
     reason = models.TextField(blank=True, null=True)
     notes = models.TextField(blank=True)
     created_by = models.ForeignKey(

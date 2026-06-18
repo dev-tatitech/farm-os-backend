@@ -72,8 +72,8 @@ from .schema import (
 from animals.event import new_event
 router = Router(tags=["Feed"])
 
-@router.post("/mortality/", response={200: APIResponse, 403: APIResponse},)
-def mortality(
+@router.post("/feed-inventory/", response={200: APIResponse, 403: APIResponse},)
+def feed_inventory(
     request,
     payload:FeedInventorySchema
     ):

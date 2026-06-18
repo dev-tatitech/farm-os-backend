@@ -133,6 +133,11 @@ class QuarantineRecord(models.Model):
         return f"{self.animal} - {self.status}"
     
 class MortalityRecord(models.Model):
+    STATUS_CHOICES = [
+        ("recorded", "Recorded"),
+        ("approved", "Approved"),
+        ("corrected", "Corrected"),
+    ]
     farm = models.ForeignKey(
         "organization.Farm",
         on_delete=models.CASCADE,
@@ -145,6 +150,11 @@ class MortalityRecord(models.Model):
     )
     cause = models.TextField()
     death_date = models.DateField()
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="recorded",
+    )
     notes = models.TextField(
         null=True,
         blank=True

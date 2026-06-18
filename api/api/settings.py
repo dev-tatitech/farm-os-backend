@@ -39,6 +39,8 @@ INSTALLED_APPS = [
     "health",
     "feed",
     "movement_records",
+    "alerts",
+    "dashbaord",
 ]
 
 MIDDLEWARE = [

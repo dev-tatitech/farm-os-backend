@@ -309,8 +309,8 @@ def get_farm(request):
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         return 403, APIResponse(success=False, message="Permission denied", data=None)
-    
-    farms = Farm.objects.all()
+    org = get_object_or_404(Organization, user =user)
+    farms = Farm.objects.filter(organization=org)
     data = [
         {
             "id": farm.id,

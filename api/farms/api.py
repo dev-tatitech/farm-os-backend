@@ -156,7 +156,7 @@ def get_farm_unit_by_farm(
         org = user.organizations.first()
     if not user.organizations.first():
         perm = user_has_permission(user,Permissions.FarmUnit.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
+        raise HttpError(404, f"Permission denied")
     farm_unit = FarmUnit.objects.filter(farm_id = farm_id)
     paginator = Paginator(farm_unit, page_size)
     page_obj = paginator.page(page)

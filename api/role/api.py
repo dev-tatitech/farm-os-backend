@@ -402,27 +402,36 @@ def assign_role_permission(request, payload: RolePermissionIn):
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(400, "Permission denied")
-    org = get_object_or_404(Organization, user = user)
-    role = get_object_or_404(Role,organization= org, id = payload.role_id)
-    permission = get_object_or_404(Permission, id =payload.permission_id)
-    
-    if RolePermission.objects.filter(
-        role = role,
-        permission = permission
-        ).exists():
-       raise HttpError(400, "Role already exists.")
-    role_permission = RolePermission.objects.create(
-        role = role,
-        permission = permission
+    org = get_object_or_404(Organization, user=user)
+    role = get_object_or_404(Role, organization=org, id=payload.role_id)
+
+    permissions = Permission.objects.filter(id__in=payload.permission_ids)
+    found_ids = set(permissions.values_list("id", flat=True))
+    missing = set(payload.permission_ids) - found_ids
+    if missing:
+        raise HttpError(404, f"Permission(s) not found: {sorted(missing)}")
+
+    existing_ids = set(
+        RolePermission.objects.filter(role=role, permission__in=permissions)
+        .values_list("permission_id", flat=True)
     )
+    new_permissions = [p for p in permissions if p.id not in existing_ids]
+
+    RolePermission.objects.bulk_create(
+        [RolePermission(role=role, permission=p) for p in new_permissions]
+    )
+
     data = {
         "role": role.name,
-        "permission": permission.name
+        "assigned": [p.name for p in new_permissions],
+        "already_assigned": [
+            p.name for p in permissions if p.id in existing_ids
+        ],
     }
-    return 200,APIResponse(
+    return 200, APIResponse(
         success=True,
-        message="role permission assigned successfully",
-        data=data
+        message=f"{len(new_permissions)} permission(s) assigned to role '{role.name}'",
+        data=data,
     )
     
 @router.get(

@@ -47,4 +47,4 @@ class NewUserRoleIn(Schema):
     
 class RolePermissionIn(Schema):
     role_id: int
-    permission_id: int
+    permission_ids: List[int]

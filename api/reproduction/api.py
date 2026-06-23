@@ -82,14 +82,18 @@ def insemination(
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         return 403, APIResponse(success=False, message="Permission denied", data=None)
+    
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Reproduction.CREATE)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Reproduction.CREATE)
-        raise HttpError(404, f"you are not admin {perm}")
-    
-    farm = get_object_or_404(Farm, id =payload.farm_id)
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+        
+    farm = get_object_or_404(Farm, id =payload.farm_id, organization = org)
     animal = get_object_or_404(Animal, id = payload.animal_id, farm = farm)
     if InseminationRecord.objects.filter(farm=farm,animal=animal).exists():
         raise HttpError(409, "this record already exists")
@@ -159,10 +163,14 @@ def get_insemination(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Reproduction.VIEW)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Reproduction.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
-    insemination = InseminationRecord.objects.select_related("animal__breed").filter(farm_id = farm_id)
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    insemination = InseminationRecord.objects.select_related("animal__breed").filter(farm=farm)
     paginator = Paginator(insemination, page_size)
     page_obj = paginator.page(page)
     # Serialization
@@ -207,11 +215,14 @@ def pregnancy(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Reproduction.CREATE)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Reproduction.CREATE)
-        raise HttpError(404, f"you are not admin {perm}")
-    
-    farm = get_object_or_404(Farm, id =payload.farm_id)
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+        
+    farm = get_object_or_404(Farm, id =payload.farm_id, organization = org)
     animal = get_object_or_404(Animal, id = payload.animal_id, farm = farm)
     if animal.gender !="female":
         raise HttpError(400, "Insemination can only be performed on female animals.")
@@ -281,10 +292,14 @@ def get_pregnancy(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Reproduction.VIEW)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Reproduction.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
-    pregnancy = PregnancyRecord.objects.select_related("animal__species", "insemination", "created_by").filter(farm_id = farm_id)
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    pregnancy = PregnancyRecord.objects.select_related("animal__species", "insemination", "created_by").filter(farm=farm)
     paginator = Paginator(pregnancy, page_size)
     page_obj = paginator.page(page)
     # Serialization
@@ -327,11 +342,14 @@ def birth(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Reproduction.CREATE)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Reproduction.CREATE)
-        raise HttpError(404, f"you are not admin {perm}")
+        if not perm:
+            raise HttpError(404, f"Permission denied")
     
-    farm = get_object_or_404(Farm, id =payload.farm_id)
+    farm = get_object_or_404(Farm, id =payload.farm_id, organization = org)
     animal = get_object_or_404(Animal, id = payload.mother_id, farm = farm)
     if animal.gender !="female":
         raise HttpError(400, "Insemination can only be performed on female animals.")
@@ -398,10 +416,14 @@ def get_birth(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Reproduction.VIEW)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Reproduction.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
-    birth = BirthRecord.objects.select_related("mother__species", "created_by").filter(farm_id = farm_id)
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    birth = BirthRecord.objects.select_related("mother__species", "created_by").filter(farm=farm)
     paginator = Paginator(birth, page_size)
     page_obj = paginator.page(page)
     # Serialization
@@ -447,11 +469,14 @@ def birth_offspring(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Reproduction.CREATE)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Reproduction.CREATE)
-        raise HttpError(404, f"you are not admin {perm}")
-    
-    farm = get_object_or_404(Farm, id =payload.farm_id)
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+        
+    farm = get_object_or_404(Farm, id =payload.farm_id, organization = org)
     birth_details = get_object_or_404(BirthRecord.objects.select_related("mother__unit", "mother__species", "mother__breed"), id = payload.birth_record_id)
     animal_data = {
         "status": "active",
@@ -547,10 +572,14 @@ def get_birth_offspring(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Reproduction.VIEW)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Reproduction.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
-    birth = BirthOffspringRecord.objects.select_related("offspring_animal", "birth_record").filter(farm_id = farm_id)
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    birth = BirthOffspringRecord.objects.select_related("offspring_animal", "birth_record").filter(farm=farm)
     paginator = Paginator(birth, page_size)
     page_obj = paginator.page(page)
     # Serialization

@@ -15,6 +15,11 @@ class Permissions:
         UPDATE = "update_animal_details"
         DELETE = "delete_animal_details"
         VIEW = "view_animal_details"
+    class Production:
+        CREATE = "add_production"
+        UPDATE = "update_production"
+        DELETE = "delete_production"
+        VIEW = "view_production"
 
     class Reproduction:
         CREATE = "add_reproduction"

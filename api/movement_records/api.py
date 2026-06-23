@@ -28,11 +28,14 @@ def create_movement(request, payload: MovementRecordSchema):
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.MovementRecord.CREATE)
     if not user.organizations.first():
-        perm = user_has_permission(user, Permissions.MovementRecord.CREATE)
-        raise HttpError(404, f"you are not admin {perm}")
-
-    farm = get_object_or_404(Farm, id=payload.farm_id)
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+        
+    farm = get_object_or_404(Farm, id=payload.farm_id, organization=org)
     animal = None
     group = None
     from_unit = None
@@ -94,11 +97,15 @@ def list_movements(request, page: int, page_size: int, farm_id: int, q: str = Qu
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.MovementRecord.VIEW)
     if not user.organizations.first():
-        perm = user_has_permission(user, Permissions.MovementRecord.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
-
-    qs = MovementRecord.objects.filter(farm_id=farm_id)
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+        
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    qs = MovementRecord.objects.filter(farm=farm)
     if q:
         qs = qs.filter(
             Q(reason__icontains=q)
@@ -150,9 +157,12 @@ def get_movement(request, movement_id: int):
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.MovementRecord.VIEW)
     if not user.organizations.first():
-        perm = user_has_permission(user, Permissions.MovementRecord.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")   
+        if not perm:
+            raise HttpError(404, f"Permission denied") 
     m = get_object_or_404(MovementRecord, id=movement_id)
     data = {
         "id": m.id,
@@ -180,11 +190,14 @@ def create_sale(request, payload: SalesRecordSchema):
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.SalesRecord.CREATE)
     if not user.organizations.first():
-        perm = user_has_permission(user, Permissions.SalesRecord.CREATE)
-        raise HttpError(404, f"you are not admin {perm}")
+        if not perm:
+            raise HttpError(404, f"Permission denied")
 
-    farm = get_object_or_404(Farm, id=payload.farm_id)
+    farm = get_object_or_404(Farm, id=payload.farm_id, organization=org)
     animal = get_object_or_404(Animal, id=payload.animal_id, farm=farm)
     if animal.status in ["sold", "dead"]:
         raise HttpError(400, "Only active animals can be sold")
@@ -223,11 +236,14 @@ def list_sales(request, page: int, page_size: int, farm_id: int, q: str = Query(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.SalesRecord.VIEW)
     if not user.organizations.first():
-        perm = user_has_permission(user, Permissions.SalesRecord.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
-
-    qs = SalesRecord.objects.filter(farm_id=farm_id)
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    qs = SalesRecord.objects.filter(farm=farm)
     if q:
         qs = qs.filter(
             Q(buyer_name__icontains=q)
@@ -279,11 +295,14 @@ def get_sale(request, sale_id: int):
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.SalesRecord.VIEW)
     if not user.organizations.first():
-        perm = user_has_permission(user, Permissions.SalesRecord.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
+        if not perm:
+            raise HttpError(404, f"Permission denied")
 
-    s = get_object_or_404(SalesRecord, id=sale_id)
+    s = get_object_or_404(SalesRecord, id=sale_id, farm__organization=org)
     data = {
         "id": s.id,
         "farm_id": s.farm_id,

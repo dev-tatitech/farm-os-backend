@@ -24,13 +24,13 @@ class APIResponse(Schema):
     
 class AnimalsSchemaIn(Schema):
     status: Literal["active", "pregnant","lactating", "sick", "quarantine", "sold", "dead"]
-    gender: Literal["male", "female"]    
+    gender: Literal["male", "female"]
     source: Literal["born","purchased","imported"]
     farm_id: int
     unit_id: int
     tag_id: str
     species_id: int
-    breed_id: int 
+    breed_id: int
     dob: Optional[date] = None
     estimated_age_months: Optional[int] = None
     mother_id: Optional[int] = None
@@ -40,6 +40,16 @@ class AnimalsSchemaIn(Schema):
     is_quarantine: bool
     is_active: bool
     notes: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def empty_strings_to_none(cls, values):
+        optional_fields = {"dob", "estimated_age_months", "mother_id", "notes"}
+        for field in optional_fields:
+            if isinstance(values, dict) and values.get(field) == "":
+                values[field] = None
+        return values
+
     @model_validator(mode="after")
     def validate_source_rules(self):
 
@@ -61,13 +71,13 @@ class AnimalsSchemaIn(Schema):
    
 class AnimalsUpdateSchemaIn(Schema):
     status: Optional[Literal["active", "pregnant","lactating", "sick", "quarantine", "sold", "dead"]] = None
-    gender: Optional[Literal["male", "female"]]= None    
-    source: Optional[Literal["born","purchased","imported"]]= None
-    farm_id: Optional[int]= None
+    gender: Optional[Literal["male", "female"]] = None
+    source: Optional[Literal["born","purchased","imported"]] = None
+    new_farm_id: Optional[int] = None
     unit_id: Optional[int] = None
     tag_id: Optional[str] = None
     species_id: Optional[int] = None
-    breed_id: Optional[int] = None 
+    breed_id: Optional[int] = None
     dob: Optional[date] = None
     estimated_age_months: Optional[int] = None
     mother_id: Optional[int] = None
@@ -77,6 +87,21 @@ class AnimalsUpdateSchemaIn(Schema):
     is_quarantine: Optional[bool] = None
     is_active: Optional[bool] = None
     notes: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def empty_strings_to_none(cls, values):
+        optional_fields = {
+            "dob", "estimated_age_months", "mother_id", "notes",
+            "status", "gender", "source", "farm_id", "unit_id",
+            "tag_id", "species_id", "breed_id", "health_status",
+            "is_pregnant", "is_lactating", "is_quarantine", "is_active",
+        }
+        for field in optional_fields:
+            if isinstance(values, dict) and values.get(field) == "":
+                values[field] = None
+        return values
+
     @model_validator(mode="after")
     def validate_source_rules(self):
 

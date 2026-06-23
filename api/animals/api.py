@@ -82,7 +82,7 @@ router = Router(tags=["Animals"])
 @router.post("/animal/", response={200: APIResponse, 403: APIResponse})
 def new_animal(
     request,
-    payload: AnimalsSchemaIn = Form(...),
+    payload: AnimalsSchemaIn,
     image: UploadedFile = File(None),
 ):
     user_id = get_current_user(request)
@@ -90,15 +90,21 @@ def new_animal(
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         return 403, APIResponse(success=False, message="Permission denied", data=None)
+    
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Animal.CREATE)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Animal.CREATE)
-        raise HttpError(404, f"you are not admin {perm}")
-    if Animal.objects.filter(tag_id__iexact=payload.tag_id).exists():
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+
+    farm = get_object_or_404(Farm, id =payload.farm_id, organization = org)  
+    if Animal.objects.filter(tag_id__iexact=payload.tag_id, farm = farm).exists():
         raise HttpError(409, "tag ID already exists")
-    farm = get_object_or_404(Farm, id =payload.farm_id)
+    
     unit = get_object_or_404(FarmUnit, id = payload.unit_id)
     species = get_object_or_404(Species, id = payload.species_id)
     breed = get_object_or_404(Breed, id = payload.breed_id)
@@ -119,7 +125,7 @@ def new_animal(
         "is_active": payload.is_active,
     }
     if payload.mother_id:
-        mother = get_object_or_404(Animal, id = payload.mother_id)
+        mother = get_object_or_404(Animal, id = payload.mother_id, farm = farm)
         animal_data["mother"] = mother
     if payload.dob:
         animal_data["dob"] = payload.dob
@@ -164,12 +170,17 @@ def get_animal(
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(400, "Login Failed")
+    
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Animal.VIEW)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Animal.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+
     farm = get_object_or_404(Farm, id =farm_id, organization = org)
     animals = Animal.objects.filter(farm = farm)
     paginator = Paginator(animals, page_size)
@@ -225,10 +236,13 @@ def get_animal_by_id(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Animal.VIEW)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Animal.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
-  
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+
     data = get_object_or_404(Animal, id = animal_id)
     serialized = {
         "id":data.id,
@@ -255,126 +269,31 @@ def get_animal_by_id(
         data=serialized
     )
 
-
-@router.get("/dashboard/{farm_id}", response={200: APIResponse, 403: APIResponse})
-def animal_dashboard(request, farm_id: int):
-    user_id = get_current_user(request)
-    try:
-        user = users.objects.get(Q(id=user_id))
-    except users.DoesNotExist:
-        raise HttpError(403, "Permission denied")
-    org = user.organization
-    if not org:
-        org = user.organizations.first()
-    if not user.organizations.first():
-        perm = user_has_permission(user, Permissions.Animal.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
-
-    # lazy import to avoid cycles
-    from .models import AnimalDashboard
-    from .signals import recalc_dashboard_for_farm
-    from health.models import VaccinationRecord, TreatmentRecord
-
-    dashboard = AnimalDashboard.objects.filter(farm_id=farm_id).first()
-    if not dashboard:
-        # create and calculate on demand
-        recalc_dashboard_for_farm(farm_id)
-        dashboard = AnimalDashboard.objects.get(farm_id=farm_id)
-
-    upcoming_records = VaccinationRecord.objects.select_related("animal", "group").filter(
-        farm_id=farm_id,
-        next_due_date__isnull=False,
-        next_due_date__gte=timezone.localdate(),
-    ).order_by("next_due_date")[:5]
-
-    vaccination_upcoming_records = [
-        {
-            "id": record.id,
-            "animal_id": record.animal.id if record.animal else None,
-            "animal_tag": record.animal.tag_id if record.animal else None,
-            "group_id": record.group.id if record.group else None,
-            "group_name": record.group.name if record.group else None,
-            "vaccine_name": record.vaccine_name,
-            "date_given": record.date_given,
-            "next_due_date": record.next_due_date,
-            "notes": record.notes,
-        }
-        for record in upcoming_records
-    ]
-
-    # Treatment follow-ups
-    treatment_followups_qs = TreatmentRecord.objects.select_related("animal", "group").filter(
-        farm_id=farm_id,
-        next_follow_up_date__isnull=False,
-    ).order_by("-next_follow_up_date")[:3]
-
-    treatment_followups = [
-        {
-            "id": record.id,
-            "animal_id": record.animal.id if record.animal else None,
-            "animal_tag": record.animal.tag_id if record.animal else None,
-            "group_id": record.group.id if record.group else None,
-            "group_name": record.group.name if record.group else None,
-            "diagnosis": record.diagnosis,
-            "treatment": record.treatment,
-            "severity": record.severity,
-            "treatment_date": record.treatment_date,
-            "next_follow_up_date": record.next_follow_up_date,
-            "notes": record.notes,
-        }
-        for record in treatment_followups_qs
-    ]
-
-    # Species distribution
-    from django.db.models import Count
-    species_dist = Animal.objects.filter(
-        farm_id=farm_id
-    ).values('species__id', 'species__name').annotate(count=Count('id')).order_by('-count')
-
-    species_distribution = [
-        {
-            "species_id": item['species__id'],
-            "species_name": item['species__name'],
-            "count": item['count'],
-        }
-        for item in species_dist
-    ]
-
-    data = {
-        "total": dashboard.total_animals,
-        "active": dashboard.active,
-        "healthy": dashboard.healthy,
-        "lactating": dashboard.lactating,
-        "pregnant": dashboard.pregnant,
-        "sick": dashboard.sick,
-        "quarantine": dashboard.quarantine,
-        "deaths": dashboard.deaths,
-        "sales": dashboard.sales,
-        "species_distribution": species_distribution,
-        "treatment_followups": treatment_followups,
-        "vaccination_upcoming_records": vaccination_upcoming_records,
-        "updated_at": dashboard.updated_at,
-    }
-    return 200, APIResponse(success=True, message="Animal dashboard", data=data)
-
-@router.patch("/animal/{animal_id}", response={200: APIResponse, 403: APIResponse},)
+@router.patch("/animal/{animal_id}/{farm_id}", response={200: APIResponse, 403: APIResponse},)
 def update_animal(
     request,
     payload:AnimalsUpdateSchemaIn,
-    animal_id: int
+    animal_id: int,
+    farm_id: int
     ):
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         return 403, APIResponse(success=False, message="Permission denied", data=None)
+    
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Animal.UPDATE)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Animal.CREATE)
-        raise HttpError(404, f"you are not admin {perm}")
-    animal = get_object_or_404(Animal.objects.select_related("farm", "unit"), id = animal_id)
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+
+    farm = get_object_or_404(Farm, id= farm_id, organization = org)
+    animal = get_object_or_404(Animal.objects.select_related("farm", "unit"), id = animal_id, farm = farm)
     if payload.tag_id:
         if Animal.objects.filter(
             tag_id__iexact=payload.tag_id,
@@ -383,7 +302,7 @@ def update_animal(
             raise HttpError(409, "tag ID already exists")
         animal.tag_id = payload.tag_id
 
-    if payload.farm_id:
+    if payload.new_farm_id:
         animal.farm = get_object_or_404(Farm, id=payload.farm_id)
 
     if payload.unit_id:
@@ -442,10 +361,11 @@ def update_animal(
         data=data
     )
     
-@router.post("/animal-profile-attribute/", response={200: APIResponse, 403: APIResponse},)
+@router.post("/animal-profile-attribute/{farm_id}", response={200: APIResponse, 403: APIResponse},)
 def animal_profile_attribute(
     request,
-    payload:AnimalProfileAttributeSchemaIn
+    payload:AnimalProfileAttributeSchemaIn,
+    farm_id: int
     ):
     user_id = get_current_user(request)
     try:
@@ -455,12 +375,16 @@ def animal_profile_attribute(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Animal.CREATE)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Animal.CREATE)
-        raise HttpError(404, f"you are not admin {perm}")
- 
-    animal = get_object_or_404(Animal, id = payload.animal_id)
-    if AnimalProfileAttribute.objects.filter(attribute_key__iexact=payload.attribute_key, animal = animal).exists():
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    animal = get_object_or_404(Animal, id=payload.animal_id, farm=farm)
+    if AnimalProfileAttribute.objects.filter(attribute_key__iexact=payload.attribute_key, animal=animal).exists():
         raise HttpError(409, "attribute key already exists")
     profile = AnimalProfileAttribute.objects.create(
         animal = animal,
@@ -495,9 +419,12 @@ def get_animal_at_proile(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Animal.VIEW)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Animal.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
+        if not perm:
+            raise HttpError(404, f"Permission denied")
     animal = AnimalProfileAttribute.objects.filter(animal_id = animal_id)
     paginator = Paginator(animal, page_size)
     page_obj = paginator.page(page)
@@ -523,7 +450,7 @@ def get_animal_at_proile(
         )
 
 @router.delete(
-    "/animal-profile-attribute/{animal_attribute_id}",
+    "/animal-profile-attribute/delete/{animal_attribute_id}",
     response={200: APIResponse, 403: APIResponse},
 )
 def delete_animal_at_proile(
@@ -535,12 +462,17 @@ def delete_animal_at_proile(
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(400, "Login Failed")
+    
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Animal.DELETE)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Animal.DELETE)
-        raise HttpError(404, f"you are not admin {perm}")
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+        
     attr = get_object_or_404(AnimalProfileAttribute, id = animal_attribute_id)
     attr.delete()
     return 200,APIResponse(
@@ -548,7 +480,7 @@ def delete_animal_at_proile(
         message="animal profile attribute deleted successfully",
         data=None
     )
-    
+
 @router.post(
     "/animal-group/",
     response={200: APIResponse, 403: APIResponse},
@@ -565,10 +497,14 @@ def animal_group(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Animal.CREATE)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Animal.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
-    if not Farm.objects.filter(id=payload.farm_id).exists():
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+        
+    if not Farm.objects.filter(id=payload.farm_id, organization=org).exists():
         raise HttpError(400, "Invalid farm_id")
     if not GroupType.objects.filter(id=payload.group_type_id).exists():
         raise HttpError(400, "Invalid group_type_id")
@@ -601,10 +537,14 @@ def get_animal_group(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Animal.VIEW)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Animal.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
-    group = AnimalGroup.objects.select_related("farm", "group_type").filter(farm_id = farm_id)
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    farm = get_object_or_404(Farm, id = farm_id, organization = org)
+    group = AnimalGroup.objects.select_related("farm", "group_type").filter(farm = farm)
     paginator = Paginator(group, page_size)
     page_obj = paginator.page(page)
     # Serialization
@@ -648,9 +588,13 @@ def update_animal_group(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Animal.UPDATE)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Animal.UPDATE)
-        raise HttpError(404, f"you are not admin {perm}")
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+        
     group = get_object_or_404(AnimalGroup, id=group_id)
     update_data = payload.dict(exclude_unset=True)
     for attr, value in update_data.items():
@@ -681,9 +625,13 @@ def animal_group(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Animal.CREATE)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Animal.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+        
     if not Farm.objects.filter(id=payload.farm_id).exists():
         raise HttpError(400, "Invalid farm_id")
     if not GroupType.objects.filter(id=payload.group_type_id).exists():
@@ -714,9 +662,13 @@ def animal_group_member(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Animal.CREATE)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Animal.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    
     if not Animal.objects.filter(id=payload.animal_id).exists():
         raise HttpError(400, "Invalid animal_id")
     if not AnimalGroup.objects.filter(id=payload.group_id).exists():
@@ -749,9 +701,13 @@ def get_animal_group_member(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Animal.CREATE)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Animal.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    
     #>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
     query = Q()
     if filters.group_id is not None:
@@ -827,9 +783,13 @@ def update_animal_group_member(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Animal.UPDATE)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Animal.UPDATE)
-        raise HttpError(404, f"you are not admin {perm}")
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    
     group = get_object_or_404(AnimalGroupMember, id=member_id)
     if payload.status==AnimalGroupMember.Status.REMOVED:
         group.remove()
@@ -869,9 +829,13 @@ def get_animal_event(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Animal.VIEW)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Reproduction.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    
     event = AnimalEvent.objects.select_related("group", "animal", "event_type", "created_by").filter(farm_id = farm_id)
     paginator = Paginator(event, page_size)
     page_obj = paginator.page(page)
@@ -919,9 +883,12 @@ def weight(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Animal.CREATE)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Animal.CREATE)
-        raise HttpError(404, f"you are not admin {perm}")
+        if not perm:
+            raise HttpError(404, f"Permission denied")
     
     farm = get_object_or_404(Farm, id =payload.farm_id)
     animal = get_object_or_404(Animal, id = payload.animal_id, farm = farm)
@@ -971,9 +938,12 @@ def get_animal_weight(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Animal.VIEW)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Reproduction.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
+        if not perm:
+            raise HttpError(404, f"Permission denied")
     weight = AnimalWeight.objects.select_related("animal").filter(farm_id = farm_id)
     paginator = Paginator(weight, page_size)
     page_obj = paginator.page(page)
@@ -1049,11 +1019,15 @@ def milk(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Production.CREATE)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Health.CREATE)
-        raise HttpError(404, f"you are not admin {perm}")
+        if not perm:
+            raise HttpError(404, f"Permission denied")
     
-    farm = get_object_or_404(Farm, id =payload.farm_id)
+
+    farm = get_object_or_404(Farm, id =payload.farm_id, organization = org)
     animal = get_object_or_404(Animal, id = payload.animal_id, farm = farm)
     milk_data = {
     "farm": farm,
@@ -1129,10 +1103,14 @@ def get_milk(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Production.VIEW)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Health.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
-    milk = MilkRecord.objects.select_related("animal__species", "created_by").filter(farm_id = farm_id)
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    milk = MilkRecord.objects.select_related("animal__species", "created_by").filter(farm = farm)
     paginator = Paginator(milk, page_size)
     page_obj = paginator.page(page)
     # Serialization
@@ -1171,14 +1149,22 @@ def animal_profile(request, animal_id: int):
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
-    if not user.organizations.first():
-        raise HttpError(403, "Permission denied")
 
     from reproduction.models import InseminationRecord, PregnancyRecord
     from health.models import VaccinationRecord, TreatmentRecord
     from feed.models import FeedIssuanceRecord, FeedPlan
     from movement_records.models import MovementRecord
 
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Animal.VIEW)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    
     animal = get_object_or_404(
         Animal.objects.select_related("species", "breed", "farm", "unit", "mother"),
         id=animal_id,

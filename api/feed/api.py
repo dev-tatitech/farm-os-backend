@@ -85,11 +85,14 @@ def feed_inventory(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Feed.CREATE)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Feed.CREATE)
-        raise HttpError(404, f"you are not admin {perm}")
-    
-    farm = get_object_or_404(Farm, id =payload.farm_id)
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+        
+    farm = get_object_or_404(Farm, id =payload.farm_id, organization = org)
     feed_data = {
     "farm": farm,
     "feed_name": payload.feed_name,
@@ -135,10 +138,15 @@ def get_feed(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Feed.VIEW)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Feed.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
-    fi = FeedInventory.objects.filter(farm_id = farm_id)
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+        
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    fi = FeedInventory.objects.filter(farm=farm)
     paginator = Paginator(fi, page_size)
     page_obj = paginator.page(page)
     # Serialization
@@ -182,11 +190,13 @@ def feed_plan(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Feed.CREATE)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Feed.CREATE)
-        raise HttpError(404, f"you are not admin {perm}")
-    
-    farm = get_object_or_404(Farm, id =payload.farm_id)
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    farm = get_object_or_404(Farm, id =payload.farm_id, organization = org)
     feed_inventory = get_object_or_404(FeedInventory, id =payload.feed_inventory_id)
     feed_data = {
     "farm": farm,
@@ -201,7 +211,7 @@ def feed_plan(
         species = get_object_or_404(Species, id = payload.species_id)
         feed_data["species"] = species
     if payload.group_id:
-        group = get_object_or_404(AnimalGroup, id = payload.group_id)
+        group = get_object_or_404(AnimalGroup, id = payload.group_id, farm=farm)
         feed_data["group"] = group
     if payload.end_date:
         feed_data["end_date"] = payload.end_date
@@ -246,10 +256,14 @@ def get_feed_plan(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Feed.VIEW)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Feed.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
-    fp = FeedPlan.objects.filter(farm_id = farm_id)
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    fp = FeedPlan.objects.filter(farm=farm)
     paginator = Paginator(fp, page_size)
     page_obj = paginator.page(page)
     # Serialization
@@ -298,11 +312,13 @@ def feed_issue(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Feed.CREATE)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Feed.CREATE)
-        raise HttpError(404, f"you are not admin {perm}")
-    
-    farm = get_object_or_404(Farm, id =payload.farm_id)
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    farm = get_object_or_404(Farm, id =payload.farm_id, organization = org)
     feed_inventory = get_object_or_404(FeedInventory, id =payload.feed_inventory_id)
     feed_data = {
     "farm": farm,
@@ -313,10 +329,10 @@ def feed_issue(
     "issued_by": user
     }
     if payload.animal_id:
-        animal = get_object_or_404(Animal, id = payload.animal_id)
+        animal = get_object_or_404(Animal, id = payload.animal_id, farm = farm)
         feed_data["animal"] = animal
     if payload.group_id:
-        group = get_object_or_404(AnimalGroup, id = payload.group_id)
+        group = get_object_or_404(AnimalGroup, id = payload.group_id, farm=farm)
         feed_data["group"] = group
   
     if payload.notes:
@@ -377,10 +393,14 @@ def get_feed_issue(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Feed.VIEW)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Feed.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
-    fp = FeedIssuanceRecord.objects.filter(farm_id = farm_id)
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    fp = FeedIssuanceRecord.objects.filter(farm=farm)
     paginator = Paginator(fp, page_size)
     page_obj = paginator.page(page)
     # Serialization
@@ -426,10 +446,14 @@ def feed_confirmation(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Feed.CREATE)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Feed.CREATE)
-        raise HttpError(404, f"you are not admin {perm}")
-    farm = get_object_or_404(Farm, id =payload.farm_id)
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+        
+    farm = get_object_or_404(Farm, id =payload.farm_id, organization = org)
     feed_issue = get_object_or_404(FeedIssuanceRecord, id =payload.issuance_id)
     feed_data = {
     "farm": farm,
@@ -497,10 +521,14 @@ def get_feed_confirmatione(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Feed.VIEW)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Feed.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
-    fp = FeedConfirmationRecord.objects.select_related("issuance__feed_inventory").filter(farm_id = farm_id)
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    fp = FeedConfirmationRecord.objects.select_related("issuance__feed_inventory").filter(farm=farm)
     paginator = Paginator(fp, page_size)
     page_obj = paginator.page(page)
     # Serialization

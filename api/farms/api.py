@@ -107,13 +107,17 @@ def get_farm_unit(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.FarmUnit.VIEW)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.FarmUnit.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
+        if not perm:
+            raise HttpError(404, f"Permission denied")
     farm_unit = FarmUnit.objects.filter(organization = org)
     paginator = Paginator(farm_unit, page_size)
     page_obj = paginator.page(page)
     # Serialization
+
     serialized = []
     for data in page_obj.object_list:
         serialized.append(
@@ -151,13 +155,18 @@ def get_farm_unit_by_farm(
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(400, "Login Failed")
+
     org = user.organization
     if not org:
         org = user.organizations.first()
-    if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.FarmUnit.VIEW)
+    if not org:
         raise HttpError(404, f"Permission denied")
-    farm_unit = FarmUnit.objects.filter(farm_id = farm_id)
+    perm = user_has_permission(user,Permissions.FarmUnit.VIEW)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+          
+    farm_unit = FarmUnit.objects.filter(farm_id = farm_id, organization = org)
     paginator = Paginator(farm_unit, page_size)
     page_obj = paginator.page(page)
     # Serialization

@@ -85,11 +85,13 @@ def treatment(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Health.CREATE)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Health.CREATE)
-        raise HttpError(404, f"you are not admin {perm}")
-    
-    farm = get_object_or_404(Farm, id =payload.farm_id)
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    farm = get_object_or_404(Farm, id =payload.farm_id, organization = org)
     group = None
     animal = None
     treatment_data = {
@@ -174,10 +176,14 @@ def get_treatment(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Health.VIEW)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Health.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
-    birth = TreatmentRecord.objects.select_related("animal__species", "created_by", "group__group_type").filter(farm_id = farm_id)
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    birth = TreatmentRecord.objects.select_related("animal__species", "created_by", "group__group_type").filter(farm=farm)
     paginator = Paginator(birth, page_size)
     page_obj = paginator.page(page)
     # Serialization
@@ -225,11 +231,14 @@ def vaccination(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Health.CREATE)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Health.CREATE)
-        raise HttpError(404, f"you are not admin {perm}")
-    
-    farm = get_object_or_404(Farm, id =payload.farm_id)
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+        
+    farm = get_object_or_404(Farm, id =payload.farm_id, organization = org)
     group = None
     animal = None
     vaccination_data = {
@@ -312,10 +321,14 @@ def get_vaccination(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Health.VIEW)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Health.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
-    vaccin = VaccinationRecord.objects.select_related("animal__species", "created_by", "group__group_type").filter(farm_id = farm_id)
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    vaccin = VaccinationRecord.objects.select_related("animal__species", "created_by", "group__group_type").filter(farm=farm)
     paginator = Paginator(vaccin, page_size)
     page_obj = paginator.page(page)
     # Serialization
@@ -362,11 +375,13 @@ def quarantine(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Health.CREATE)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Health.CREATE)
-        raise HttpError(404, f"you are not admin {perm}")
-    
-    farm = get_object_or_404(Farm, id =payload.farm_id)
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    farm = get_object_or_404(Farm, id =payload.farm_id, organization = org)
     animal = get_object_or_404(Animal, id = payload.animal_id, farm = farm)
     vaccination_data = {
     "farm": farm,
@@ -441,10 +456,14 @@ def get_quarantine(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Health.VIEW)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Health.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
-    qr = QuarantineRecord.objects.select_related("animal__species", "created_by").filter(farm_id = farm_id)
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    qr = QuarantineRecord.objects.select_related("animal__species", "created_by").filter(farm=farm)
     paginator = Paginator(qr, page_size)
     page_obj = paginator.page(page)
     # Serialization
@@ -490,11 +509,13 @@ def mortality(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Health.CREATE)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Health.CREATE)
-        raise HttpError(404, f"you are not admin {perm}")
-    
-    farm = get_object_or_404(Farm, id =payload.farm_id)
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    farm = get_object_or_404(Farm, id =payload.farm_id, organization = org)
     animal = get_object_or_404(Animal, id = payload.animal_id, farm = farm)
     mortality_data = {
     "farm": farm,
@@ -542,8 +563,8 @@ def mortality(
     group=None  # optional
 )
     data={
-        "reason":quarantine.reason,
-        "start_date": quarantine.start_date
+        "reason":mortality.cause,
+        "start_date": mortality.death_date
     }
     return 200,APIResponse(
         success=True,
@@ -569,10 +590,14 @@ def get_mortality(
     org = user.organization
     if not org:
         org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user,Permissions.Health.VIEW)
     if not user.organizations.first():
-        perm = user_has_permission(user,Permissions.Health.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
-    mt = MortalityRecord.objects.select_related("animal__species", "created_by").filter(farm_id = farm_id)
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    mt = MortalityRecord.objects.select_related("animal__species", "created_by").filter(farm=farm)
     paginator = Paginator(mt, page_size)
     page_obj = paginator.page(page)
     # Serialization

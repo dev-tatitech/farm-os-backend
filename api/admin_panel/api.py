@@ -48,8 +48,9 @@ from .models import (
 )
 from subcriptions.models import SubscriptionPlan, Subscription
 from common.utils import generate_ref
-from dateutil.relativedelta import relativedelta
-from django.utils import timezone
+import inspect
+from common.permissions import Permissions
+from role.models import Permission
 from django.http import JsonResponse
 from .schema import (
     ListResponseSchema,
@@ -318,4 +319,43 @@ def update_unit_type(request, payload: UnitTypeUpdateSchema):
   
     return 200, APIResponse(
         success=True, message="unit type update successfully", data=data
+    )
+
+@router.post("/seed-permissions/", response={200: APIResponse, 403: APIResponse})
+def seed_permissions(request):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+
+    if not user.is_superuser:
+        raise HttpError(403, "Permission Denied")
+
+    to_create = []
+    for module_name in dir(Permissions):
+        if module_name.startswith("_"):
+            continue
+        module_cls = getattr(Permissions, module_name)
+        if not inspect.isclass(module_cls):
+            continue
+        for attr_name, code in vars(module_cls).items():
+            if attr_name.startswith("_") or not isinstance(code, str):
+                continue
+            to_create.append(Permission(
+                code=code,
+                name=f"{attr_name.replace('_', ' ').title()} {module_name}",
+                module=module_name,
+                description="",
+            ))
+
+    existing_codes = set(Permission.objects.values_list("code", flat=True))
+    new_permissions = [p for p in to_create if p.code not in existing_codes]
+    skipped = len(to_create) - len(new_permissions)
+
+    Permission.objects.bulk_create(new_permissions)
+    return 200, APIResponse(
+        success=True,
+        message=f"{len(new_permissions)} permission(s) seeded, {skipped} skipped (already exist)",
+        data={"seeded": len(new_permissions), "skipped": skipped, "total": len(to_create)},
     )

@@ -439,6 +439,7 @@ def animal_dashboard(request, farm_id: int):
     )
     recent_animals = [
         {
+            "animal_id":a.id,
             "tag_id": a.tag_id,
             "species": a.species.name,
             "breed": a.breed.name,

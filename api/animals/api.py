@@ -554,7 +554,7 @@ def get_animal_group(
             {
                 "id":data.id,
                 "farm": data.farm.name,
-                "group_type": data.group_type.name,
+                "group_type": data.group_type.name if data.group_type else None,
                 "name": data.name,
                 "description": data.description,
                 "status": data.status,

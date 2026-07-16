@@ -52,6 +52,7 @@ from .models import (
     FarmHousingUnit,
     AnimalClassification,
     ContactEnquiry,
+    NewsletterSubscriber,
 )
 from subcriptions.models import SubscriptionPlan, Subscription
 from common.utils import generate_ref
@@ -74,6 +75,7 @@ from .schema import (
     FarmHousingUnitUpdate,
     ContactEnquiryIn,
     ContactEnquiryStatusUpdate,
+    NewsletterSubscribeIn,
 )
 from organization.models import Farm
 router = Router(tags=["Admin panel"])
@@ -931,4 +933,36 @@ def update_enquiry_status(request, enquiry_id: int, payload: ContactEnquiryStatu
         success=True,
         message="Enquiry status updated",
         data={"id": e.id, "status": e.status, "notes": e.notes},
+    )
+
+
+# ─── Newsletter Subscribe ─────────────────────────────────────────────────────
+
+@router.post(
+    "/subscribe/",
+    response={200: APIResponse, 400: APIResponse},
+    auth=None,
+    tags=["Contact"],
+)
+def newsletter_subscribe(request, payload: NewsletterSubscribeIn):
+    subscriber, created = NewsletterSubscriber.objects.get_or_create(
+        email=payload.email,
+        defaults={"is_active": True},
+    )
+
+    if not created and subscriber.is_active:
+        return 200, APIResponse(
+            success=True,
+            message="You are already subscribed.",
+            data={"email": subscriber.email, "already_subscribed": True},
+        )
+
+    if not created and not subscriber.is_active:
+        subscriber.is_active = True
+        subscriber.save(update_fields=["is_active"])
+
+    return 200, APIResponse(
+        success=True,
+        message="Successfully subscribed.",
+        data={"email": subscriber.email, "already_subscribed": False},
     )

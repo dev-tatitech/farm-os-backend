@@ -102,3 +102,9 @@ class ContactEnquiryIn(Schema):
 class ContactEnquiryStatusUpdate(Schema):
     status: Literal["new", "in_review", "contacted", "converted", "closed"]
     notes: Optional[str] = None
+
+
+# ─── Newsletter Subscription Schema ──────────────────────────────────────────
+
+class NewsletterSubscribeIn(Schema):
+    email: EmailStr

@@ -34,6 +34,20 @@ class MovementRecord(models.Model):
         blank=True,
         related_name="movement_to_records",
     )
+    from_housing_unit = models.ForeignKey(
+        "admin_panel.FarmHousingUnit",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="movement_from_records",
+    )
+    to_housing_unit = models.ForeignKey(
+        "admin_panel.FarmHousingUnit",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="movement_to_records",
+    )
     move_date = models.DateTimeField()
     reason = models.TextField(blank=True, null=True)
     created_by = models.ForeignKey(

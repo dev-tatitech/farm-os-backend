@@ -170,6 +170,83 @@ class AnimalWeightIn(Schema):
             raise ValueError("Weight must be greater than 0")
         return value
     
+# ─── v2 Schemas (Livestock Master Data) ──────────────────────────────────────
+
+class AnimalsUpdateSchemaInV2(Schema):
+    status: Optional[Literal["active", "pregnant", "lactating", "sick", "quarantine", "sold", "dead"]] = None
+    gender: Optional[Literal["male", "female"]] = None
+    source: Optional[Literal["born", "purchased", "imported"]] = None
+    new_farm_id: Optional[int] = None
+    tag_id: Optional[str] = None
+    livestock_species_id: Optional[int] = None
+    livestock_breed_id: Optional[int] = None
+    housing_unit_id: Optional[int] = None
+    classification_id: Optional[int] = None
+    dob: Optional[date] = None
+    estimated_age_months: Optional[int] = None
+    mother_id: Optional[int] = None
+    health_status: Optional[Literal["healthy", "sick", "recovering", "at_risk"]] = None
+    is_pregnant: Optional[bool] = None
+    is_lactating: Optional[bool] = None
+    is_quarantine: Optional[bool] = None
+    is_active: Optional[bool] = None
+    notes: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def empty_strings_to_none(cls, values):
+        for field in list(values.keys()) if isinstance(values, dict) else []:
+            if values.get(field) == "":
+                values[field] = None
+        return values
+
+class AnimalsSchemaInV2(Schema):
+    status: Literal["active", "pregnant", "lactating", "sick", "quarantine", "sold", "dead"]
+    gender: Literal["male", "female"]
+    source: Literal["born", "purchased", "imported"]
+    farm_id: int
+    tag_id: str
+    livestock_species_id: int
+    livestock_breed_id: int
+    housing_unit_id: int
+    classification_id: Optional[int] = None
+    dob: Optional[date] = None
+    estimated_age_months: Optional[int] = None
+    mother_id: Optional[int] = None
+    health_status: Literal["healthy", "sick", "recovering", "at_risk"]
+    is_pregnant: bool
+    is_lactating: bool
+    is_quarantine: bool
+    is_active: bool
+    notes: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def empty_strings_to_none(cls, values):
+        optional_fields = {
+            "dob", "estimated_age_months", "mother_id",
+            "notes", "classification_id",
+        }
+        for field in optional_fields:
+            if isinstance(values, dict) and values.get(field) == "":
+                values[field] = None
+        return values
+
+    @model_validator(mode="after")
+    def validate_source_rules(self):
+        if self.source == "born":
+            if not self.mother_id:
+                raise ValueError("mother_id is required when source is 'born'")
+            if not self.dob:
+                raise ValueError("dob is required when source is 'born'")
+        if self.source in ["purchased", "imported"]:
+            if not self.dob and not self.estimated_age_months:
+                raise ValueError(
+                    "Either dob or estimated_age_months is required for purchased/imported"
+                )
+        return self
+
+
 class MilkRecordSchema(Schema):
     farm_id: int
     animal_id: int

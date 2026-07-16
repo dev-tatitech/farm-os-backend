@@ -21,3 +21,13 @@ class SalesRecordSchema(Schema):
     sale_date: datetime
     reason: Optional[str] = None
     notes: str
+
+
+class MoveSchemaV2(Schema):
+    farm_id: int
+    animal_id: Optional[int] = None
+    group_id: Optional[int] = None
+    from_housing_unit_id: int
+    to_housing_unit_id: int
+    move_date: datetime
+    reason: Optional[str] = None

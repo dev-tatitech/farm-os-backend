@@ -104,6 +104,13 @@ class FeedPlan(models.Model):
         blank=True,
         related_name="feed_plans"
     )
+    livestock_species = models.ForeignKey(
+        "admin_panel.LivestockSpecies",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="feed_plans"
+    )
     group = models.ForeignKey(
         "animals.AnimalGroup",
         on_delete=models.SET_NULL,

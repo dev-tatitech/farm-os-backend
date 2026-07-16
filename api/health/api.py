@@ -47,7 +47,7 @@ from account.models import (
 from animals.models import Animal, AnimalWeight, AnimalGroup
 from django.db import IntegrityError
 import uuid
-from admin_panel.models import UnitType, Species, Breed
+from admin_panel.models import UnitType, Species, Breed, LivestockSpecies, LivestockBreed, FarmHousingUnit, AnimalClassification
 from subcriptions.models import SubscriptionPlan, Subscription
 from common.utils import generate_ref
 from dateutil.relativedelta import relativedelta
@@ -620,6 +620,272 @@ def get_mortality(
     return 200, ListResponseSchema(
             success=True,
             message=f"Mortality fetch successfully",
+            data=serialized,
+            num_pages=paginator.num_pages,
+            current_page=page_obj.number,
+            total_items=paginator.count,
+            has_next=page_obj.has_next,
+            has_previous=page_obj.has_previous,
+        )
+
+
+# ── v2 endpoints ─────────────────────────────────────────────────────────────
+
+@router.get(
+    "/treatment/v2/{page}/{page_size}/{farm_id}",
+    response={200: ListResponseSchema, 403: APIResponse},
+)
+def get_treatment_v2(
+    request,
+    page: int,
+    page_size: int,
+    farm_id: int
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user, Permissions.Health.VIEW)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    records = TreatmentRecord.objects.select_related(
+        "animal__livestock_species",
+        "animal__livestock_breed",
+        "animal__classification",
+        "animal__species",
+        "animal__breed",
+        "created_by",
+        "group__group_type",
+    ).filter(farm=farm)
+    paginator = Paginator(records, page_size)
+    page_obj = paginator.page(page)
+    serialized = []
+    for r in page_obj.object_list:
+        serialized.append(
+            {
+                "id": r.id,
+                "animal_tag": r.animal.tag_id if r.animal else None,
+                "species": (r.animal.livestock_species.name if r.animal.livestock_species else (r.animal.species.name if r.animal.species else None)) if r.animal else None,
+                "breed": (r.animal.livestock_breed.name if r.animal.livestock_breed else (r.animal.breed.name if r.animal.breed else None)) if r.animal else None,
+                "classification": (r.animal.classification.name if r.animal.classification else None) if r.animal else None,
+                "group": r.group.name if r.group else None,
+                "group_type": r.group.group_type.name if r.group else None,
+                "diagnosis": r.diagnosis,
+                "treatment": r.treatment,
+                "severity": r.severity,
+                "treatment_date": r.treatment_date,
+                "next_follow_up_date": r.next_follow_up_date,
+                "notes": r.notes,
+                "created_at": r.created_at,
+                "created_by": r.created_by.email,
+            }
+        )
+    return 200, ListResponseSchema(
+            success=True,
+            message="treatment fetch successfully",
+            data=serialized,
+            num_pages=paginator.num_pages,
+            current_page=page_obj.number,
+            total_items=paginator.count,
+            has_next=page_obj.has_next,
+            has_previous=page_obj.has_previous,
+        )
+
+
+@router.get(
+    "/vaccination/v2/{page}/{page_size}/{farm_id}",
+    response={200: ListResponseSchema, 403: APIResponse},
+)
+def get_vaccination_v2(
+    request,
+    page: int,
+    page_size: int,
+    farm_id: int
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user, Permissions.Health.VIEW)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    records = VaccinationRecord.objects.select_related(
+        "animal__livestock_species",
+        "animal__livestock_breed",
+        "animal__classification",
+        "animal__species",
+        "animal__breed",
+        "created_by",
+        "group__group_type",
+    ).filter(farm=farm)
+    paginator = Paginator(records, page_size)
+    page_obj = paginator.page(page)
+    serialized = []
+    for r in page_obj.object_list:
+        serialized.append(
+            {
+                "id": r.id,
+                "animal_tag": r.animal.tag_id if r.animal else None,
+                "species": (r.animal.livestock_species.name if r.animal.livestock_species else (r.animal.species.name if r.animal.species else None)) if r.animal else None,
+                "breed": (r.animal.livestock_breed.name if r.animal.livestock_breed else (r.animal.breed.name if r.animal.breed else None)) if r.animal else None,
+                "classification": (r.animal.classification.name if r.animal.classification else None) if r.animal else None,
+                "group": r.group.name if r.group else None,
+                "group_type": r.group.group_type.name if r.group else None,
+                "vaccine_name": r.vaccine_name,
+                "date_given": r.date_given,
+                "next_due_date": r.next_due_date,
+                "notes": r.notes,
+                "created_at": r.created_at,
+                "created_by": r.created_by.email,
+            }
+        )
+    return 200, ListResponseSchema(
+            success=True,
+            message="vaccination fetch successfully",
+            data=serialized,
+            num_pages=paginator.num_pages,
+            current_page=page_obj.number,
+            total_items=paginator.count,
+            has_next=page_obj.has_next,
+            has_previous=page_obj.has_previous,
+        )
+
+
+@router.get(
+    "/quarantine/v2/{page}/{page_size}/{farm_id}",
+    response={200: ListResponseSchema, 403: APIResponse},
+)
+def get_quarantine_v2(
+    request,
+    page: int,
+    page_size: int,
+    farm_id: int
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user, Permissions.Health.VIEW)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    records = QuarantineRecord.objects.select_related(
+        "animal__livestock_species",
+        "animal__livestock_breed",
+        "animal__classification",
+        "animal__species",
+        "animal__breed",
+        "created_by",
+    ).filter(farm=farm)
+    paginator = Paginator(records, page_size)
+    page_obj = paginator.page(page)
+    serialized = []
+    for r in page_obj.object_list:
+        serialized.append(
+            {
+                "id": r.id,
+                "animal_tag": r.animal.tag_id if r.animal else None,
+                "species": (r.animal.livestock_species.name if r.animal.livestock_species else (r.animal.species.name if r.animal.species else None)) if r.animal else None,
+                "breed": (r.animal.livestock_breed.name if r.animal.livestock_breed else (r.animal.breed.name if r.animal.breed else None)) if r.animal else None,
+                "classification": (r.animal.classification.name if r.animal.classification else None) if r.animal else None,
+                "reason": r.reason,
+                "start_date": r.start_date,
+                "end_date": r.end_date,
+                "status": r.status,
+                "notes": r.notes,
+                "created_at": r.created_at,
+                "created_by": r.created_by.email,
+            }
+        )
+    return 200, ListResponseSchema(
+            success=True,
+            message="QuarantineRecord fetch successfully",
+            data=serialized,
+            num_pages=paginator.num_pages,
+            current_page=page_obj.number,
+            total_items=paginator.count,
+            has_next=page_obj.has_next,
+            has_previous=page_obj.has_previous,
+        )
+
+
+@router.get(
+    "/mortality/v2/{page}/{page_size}/{farm_id}",
+    response={200: ListResponseSchema, 403: APIResponse},
+)
+def get_mortality_v2(
+    request,
+    page: int,
+    page_size: int,
+    farm_id: int
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user, Permissions.Health.VIEW)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    records = MortalityRecord.objects.select_related(
+        "animal__livestock_species",
+        "animal__livestock_breed",
+        "animal__classification",
+        "animal__species",
+        "animal__breed",
+        "created_by",
+    ).filter(farm=farm)
+    paginator = Paginator(records, page_size)
+    page_obj = paginator.page(page)
+    serialized = []
+    for r in page_obj.object_list:
+        serialized.append(
+            {
+                "id": r.id,
+                "animal_tag": r.animal.tag_id if r.animal else None,
+                "species": (r.animal.livestock_species.name if r.animal.livestock_species else (r.animal.species.name if r.animal.species else None)) if r.animal else None,
+                "breed": (r.animal.livestock_breed.name if r.animal.livestock_breed else (r.animal.breed.name if r.animal.breed else None)) if r.animal else None,
+                "classification": (r.animal.classification.name if r.animal.classification else None) if r.animal else None,
+                "cause": r.cause,
+                "death_date": r.death_date,
+                "notes": r.notes,
+                "created_at": r.created_at,
+                "created_by": r.created_by.email,
+            }
+        )
+    return 200, ListResponseSchema(
+            success=True,
+            message="Mortality fetch successfully",
             data=serialized,
             num_pages=paginator.num_pages,
             current_page=page_obj.number,

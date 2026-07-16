@@ -42,7 +42,7 @@ from organization.models import (
 )
 from common.permission_checker import user_has_permission
 from common.permissions import Permissions
-from admin_panel.models import UnitType
+from admin_panel.models import UnitType, FarmHousingUnit, HousingUnitType, LivestockSpecies
 import uuid
 from .models import (
     FarmUnit,
@@ -55,7 +55,8 @@ from django.http import JsonResponse
 from .schema import (
     ListResponseSchema,
     APIResponse,
-    FarmSchemaIn
+    FarmSchemaIn,
+    FarmUnitSchemaV2
 )
 router = Router(tags=["Farm"])
 @router.post(
@@ -192,3 +193,153 @@ def get_farm_unit_by_farm(
             has_next=page_obj.has_next,
             has_previous=page_obj.has_previous,
         )
+
+
+# ---------------------------------------------------------------------------
+# v2 endpoints
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/farm-unit/v2/",
+    response={200: APIResponse, 403: APIResponse},
+)
+def add_farm_unit_v2(request, payload: FarmUnitSchemaV2):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not user.organizations.first():
+        perm = user_has_permission(user, Permissions.FarmUnit.CREATE)
+        raise HttpError(404, f"you are not admin {perm}")
+
+    farm = get_object_or_404(Farm, id=payload.farm_id, organization=org)
+    housing_unit_type = get_object_or_404(HousingUnitType, id=payload.housing_unit_type_id)
+
+    housing_unit = FarmHousingUnit(
+        farm=farm,
+        name=payload.name,
+        unit_type=housing_unit_type,
+        capacity=payload.capacity,
+        location=payload.location,
+    )
+    housing_unit.save()
+
+    if payload.allowed_species_ids:
+        species_qs = LivestockSpecies.objects.filter(id__in=payload.allowed_species_ids)
+        housing_unit.allowed_species.set(species_qs)
+
+    return 200, APIResponse(success=True, message="Farm housing unit added successfully", data={"id": housing_unit.id})
+
+
+@router.get(
+    "/all-farm-unit/v2/{page}/{page_size}",
+    response={200: ListResponseSchema, 403: APIResponse},
+)
+def get_farm_unit_v2(request, page: int, page_size: int):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.FarmUnit.VIEW)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(404, "Permission denied")
+
+    farm_ids = Farm.objects.filter(organization=org).values_list("id", flat=True)
+    units = FarmHousingUnit.objects.select_related("farm", "unit_type").prefetch_related(
+        "allowed_species"
+    ).filter(farm_id__in=farm_ids)
+
+    paginator = Paginator(units, page_size)
+    page_obj = paginator.page(page)
+    serialized = []
+    for u in page_obj.object_list:
+        serialized.append(
+            {
+                "id": u.id,
+                "name": u.name,
+                "farm": u.farm.name if u.farm else None,
+                "unit_type": u.unit_type.name if u.unit_type else None,
+                "unit_type_id": u.unit_type_id,
+                "capacity": u.capacity,
+                "occupancy": u.animals.filter(is_active=True).count(),
+                "location": u.location,
+                "status": u.status,
+                "allowed_species": [s.name for s in u.allowed_species.all()],
+            }
+        )
+    return 200, ListResponseSchema(
+        success=True,
+        message="farm housing units fetched successfully",
+        data=serialized,
+        num_pages=paginator.num_pages,
+        current_page=page_obj.number,
+        total_items=paginator.count,
+        has_next=page_obj.has_next,
+        has_previous=page_obj.has_previous,
+    )
+
+
+@router.get(
+    "/all-farm-unit-by-farm/v2/{page}/{page_size}/{farm_id}",
+    response={200: ListResponseSchema, 403: APIResponse},
+)
+def get_farm_unit_by_farm_v2(request, page: int, page_size: int, farm_id: int):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.FarmUnit.VIEW)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(404, "Permission denied")
+
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    units = FarmHousingUnit.objects.select_related("farm", "unit_type").prefetch_related(
+        "allowed_species"
+    ).filter(farm=farm)
+
+    paginator = Paginator(units, page_size)
+    page_obj = paginator.page(page)
+    serialized = []
+    for u in page_obj.object_list:
+        serialized.append(
+            {
+                "id": u.id,
+                "name": u.name,
+                "farm": u.farm.name if u.farm else None,
+                "unit_type": u.unit_type.name if u.unit_type else None,
+                "unit_type_id": u.unit_type_id,
+                "capacity": u.capacity,
+                "occupancy": u.animals.filter(is_active=True).count(),
+                "location": u.location,
+                "status": u.status,
+                "allowed_species": [s.name for s in u.allowed_species.all()],
+            }
+        )
+    return 200, ListResponseSchema(
+        success=True,
+        message="farm housing units fetched successfully",
+        data=serialized,
+        num_pages=paginator.num_pages,
+        current_page=page_obj.number,
+        total_items=paginator.count,
+        has_next=page_obj.has_next,
+        has_previous=page_obj.has_previous,
+    )

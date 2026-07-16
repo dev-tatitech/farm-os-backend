@@ -47,7 +47,7 @@ from account.models import (
 from animals.models import Animal, AnimalWeight, AnimalGroup
 from django.db import IntegrityError
 import uuid
-from admin_panel.models import UnitType, Species, Breed
+from admin_panel.models import UnitType, Species, Breed, LivestockSpecies
 from subcriptions.models import SubscriptionPlan, Subscription
 from common.utils import generate_ref
 from dateutil.relativedelta import relativedelta
@@ -66,6 +66,7 @@ from .schema import (
     APIResponse,
     FeedInventorySchema,
     FeedPlanSchema,
+    FeedPlanSchemaV2,
     FeedIssuanceRecordSchema,
     FeedConfirmationRecordSchema
 )
@@ -560,4 +561,196 @@ def get_feed_confirmatione(
             has_next=page_obj.has_next,
             has_previous=page_obj.has_previous,
         )
-    
+
+
+# ---------------------------------------------------------------------------
+# v2 endpoints
+# ---------------------------------------------------------------------------
+
+@router.post("/feed-plan/v2/", response={200: APIResponse, 403: APIResponse})
+def feed_plan_v2(request, payload: FeedPlanSchemaV2):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Feed.CREATE)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(404, "Permission denied")
+    farm = get_object_or_404(Farm, id=payload.farm_id, organization=org)
+    feed_inventory = get_object_or_404(FeedInventory, id=payload.feed_inventory_id)
+    feed_data = {
+        "farm": farm,
+        "plan_type": payload.plan_type,
+        "feed_inventory": feed_inventory,
+        "daily_feed_quantity": payload.daily_feed_quantity,
+        "unit": payload.unit,
+        "start_date": payload.start_date,
+        "created_by": user,
+    }
+    if payload.species_id:
+        species = get_object_or_404(Species, id=payload.species_id)
+        feed_data["species"] = species
+    if payload.livestock_species_id:
+        livestock_species = get_object_or_404(LivestockSpecies, id=payload.livestock_species_id)
+        feed_data["livestock_species"] = livestock_species
+    if payload.group_id:
+        group = get_object_or_404(AnimalGroup, id=payload.group_id, farm=farm)
+        feed_data["group"] = group
+    if payload.end_date:
+        feed_data["end_date"] = payload.end_date
+    if payload.notes:
+        feed_data["notes"] = payload.notes
+    feed = FeedPlan(**feed_data)
+    try:
+        feed.full_clean()
+        feed.save()
+    except ValidationError as e:
+        return JsonResponse({"errors": e.message_dict}, status=400)
+    data = {
+        "daily_feed_quantity": feed.daily_feed_quantity,
+        "unit": feed.unit,
+    }
+    return 200, APIResponse(success=True, message="Feed plan created successfully", data=data)
+
+
+@router.get(
+    "/feed-plan/v2/{page}/{page_size}/{farm_id}",
+    response={200: ListResponseSchema, 403: APIResponse},
+)
+def get_feed_plan_v2(request, page: int, page_size: int, farm_id: int):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Feed.VIEW)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(404, "Permission denied")
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    fp = FeedPlan.objects.select_related(
+        "livestock_species", "species", "group", "feed_inventory", "created_by"
+    ).filter(farm=farm)
+    paginator = Paginator(fp, page_size)
+    page_obj = paginator.page(page)
+    serialized = []
+    for p in page_obj.object_list:
+        serialized.append(
+            {
+                "id": p.id,
+                "plan_type": p.plan_type,
+                "livestock_species": (
+                    p.livestock_species.name if p.livestock_species
+                    else (p.species.name if p.species else None)
+                ),
+                "unit": p.unit,
+                "group": p.group.name if p.group else None,
+                "feed_inventory": p.feed_inventory.feed_name,
+                "daily_feed_quantity": p.daily_feed_quantity,
+                "start_date": p.start_date,
+                "end_date": p.end_date,
+                "notes": p.notes,
+                "created_by": p.created_by.email,
+                "status": p.status,
+                "created_at": p.created_at,
+            }
+        )
+    return 200, ListResponseSchema(
+        success=True,
+        message="feed plan fetch successfully",
+        data=serialized,
+        num_pages=paginator.num_pages,
+        current_page=page_obj.number,
+        total_items=paginator.count,
+        has_next=page_obj.has_next,
+        has_previous=page_obj.has_previous,
+    )
+
+
+@router.get(
+    "/feed-issue/v2/{page}/{page_size}/{farm_id}",
+    response={200: ListResponseSchema, 403: APIResponse},
+)
+def get_feed_issue_v2(request, page: int, page_size: int, farm_id: int):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Feed.VIEW)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(404, "Permission denied")
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    fp = FeedIssuanceRecord.objects.select_related(
+        "animal__livestock_species",
+        "animal__livestock_breed",
+        "animal__classification",
+        "animal__species",
+        "animal__breed",
+        "group",
+        "feed_inventory",
+        "issued_by",
+    ).filter(farm=farm)
+    paginator = Paginator(fp, page_size)
+    page_obj = paginator.page(page)
+    serialized = []
+    for r in page_obj.object_list:
+        animal = r.animal
+        if animal:
+            animal_data = {
+                "id": animal.id,
+                "tag_id": getattr(animal, "tag_id", None),
+                "species": (
+                    animal.livestock_species.name if animal.livestock_species
+                    else (animal.species.name if animal.species else None)
+                ),
+                "breed": (
+                    animal.livestock_breed.name if animal.livestock_breed
+                    else (animal.breed.name if animal.breed else None)
+                ),
+                "classification": animal.classification.name if animal.classification else None,
+            }
+        else:
+            animal_data = None
+        serialized.append(
+            {
+                "id": r.id,
+                "target_type": r.target_type,
+                "animal": animal_data,
+                "quantity_issued": r.quantity_issued,
+                "group": r.group.name if r.group else None,
+                "feed_inventory": r.feed_inventory.feed_name,
+                "issue_date": r.issue_date,
+                "notes": r.notes,
+                "issued_by": r.issued_by.email,
+                "created_at": r.created_at,
+            }
+        )
+    return 200, ListResponseSchema(
+        success=True,
+        message="feed issue fetch successfully",
+        data=serialized,
+        num_pages=paginator.num_pages,
+        current_page=page_obj.number,
+        total_items=paginator.count,
+        has_next=page_obj.has_next,
+        has_previous=page_obj.has_previous,
+    )

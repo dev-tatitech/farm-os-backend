@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python manage.py makemigrations admin_panel --name livestock_master_data)",
+      "Bash(python manage.py migrate admin_panel)",
+      "Bash(python manage.py makemigrations animals --name add_livestock_master_fks)",
+      "Bash(python manage.py makemigrations feed --name add_livestock_species_to_feedplan)",
+      "Bash(python manage.py makemigrations movement_records --name add_housing_unit_to_movement)",
+      "Skill(artifact-design)",
+      "Skill(artifact-design:*)",
+      "Bash(python3 -c \"import weasyprint; print\\('weasyprint ok'\\)\")",
+      "Bash(python3 -c \"import pdfkit; print\\('pdfkit ok'\\)\")",
+      "Bash('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' --headless=new --no-sandbox --disable-gpu --print-to-pdf=/Users/apple/Documents/backend/Ninja/farmos/FarmOS_v2_API_Reference.pdf --no-pdf-header-footer --print-to-pdf-no-header file:///private/tmp/claude-501/-Users-apple-Documents-backend-Ninja-farmos/63070e6a-09d1-4721-9849-820f94bb7e66/scratchpad/farmos-v2-api.html)"
+    ]
+  }
+}

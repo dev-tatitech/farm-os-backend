@@ -47,7 +47,7 @@ from account.models import (
 from animals.models import Animal, AnimalWeight
 from django.db import IntegrityError
 import uuid
-from admin_panel.models import UnitType, Species, Breed
+from admin_panel.models import UnitType, Species, Breed, LivestockSpecies, LivestockBreed, FarmHousingUnit, AnimalClassification
 from subcriptions.models import SubscriptionPlan, Subscription
 from common.utils import generate_ref
 from dateutil.relativedelta import relativedelta
@@ -601,6 +601,379 @@ def get_birth_offspring(
     return 200, ListResponseSchema(
             success=True,
             message=f"birth offspring fetch successfully",
+            data=serialized,
+            num_pages=paginator.num_pages,
+            current_page=page_obj.number,
+            total_items=paginator.count,
+            has_next=page_obj.has_next,
+            has_previous=page_obj.has_previous,
+        )
+
+
+# ── v2 endpoints ─────────────────────────────────────────────────────────────
+
+@router.get(
+    "/insemination/v2/{page}/{page_size}/{farm_id}",
+    response={200: ListResponseSchema, 403: APIResponse},
+)
+def get_insemination_v2(
+    request,
+    page: int,
+    page_size: int,
+    farm_id: int
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user, Permissions.Reproduction.VIEW)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    insemination = InseminationRecord.objects.select_related(
+        "animal__livestock_species",
+        "animal__livestock_breed",
+        "animal__classification",
+        "animal__species",
+        "animal__breed",
+        "created_by",
+    ).filter(farm=farm)
+    paginator = Paginator(insemination, page_size)
+    page_obj = paginator.page(page)
+    serialized = []
+    for r in page_obj.object_list:
+        serialized.append(
+            {
+                "id": r.id,
+                "animal_tag": r.animal.tag_id,
+                "species": r.animal.livestock_species.name if r.animal.livestock_species else (r.animal.species.name if r.animal.species else None),
+                "breed": r.animal.livestock_breed.name if r.animal.livestock_breed else (r.animal.breed.name if r.animal.breed else None),
+                "classification": r.animal.classification.name if r.animal.classification else None,
+                "date": r.service_date,
+                "method": r.method,
+                "sire_reference": r.sire_reference,
+                "technician_name": r.technician_name,
+                "notes": r.notes,
+                "created_at": r.created_at,
+                "created_by": r.created_by.email,
+            }
+        )
+    return 200, ListResponseSchema(
+            success=True,
+            message="insemination fetch successfully",
+            data=serialized,
+            num_pages=paginator.num_pages,
+            current_page=page_obj.number,
+            total_items=paginator.count,
+            has_next=page_obj.has_next,
+            has_previous=page_obj.has_previous,
+        )
+
+
+@router.get(
+    "/pregnancy/v2/{page}/{page_size}/{farm_id}",
+    response={200: ListResponseSchema, 403: APIResponse},
+)
+def get_pregnancy_v2(
+    request,
+    page: int,
+    page_size: int,
+    farm_id: int
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user, Permissions.Reproduction.VIEW)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    pregnancy = PregnancyRecord.objects.select_related(
+        "animal__livestock_species",
+        "animal__livestock_breed",
+        "animal__classification",
+        "animal__species",
+        "animal__breed",
+        "insemination",
+        "created_by",
+    ).filter(farm=farm)
+    paginator = Paginator(pregnancy, page_size)
+    page_obj = paginator.page(page)
+    serialized = []
+    for r in page_obj.object_list:
+        serialized.append(
+            {
+                "id": r.id,
+                "animal_tag": r.animal.tag_id,
+                "species": r.animal.livestock_species.name if r.animal.livestock_species else (r.animal.species.name if r.animal.species else None),
+                "breed": r.animal.livestock_breed.name if r.animal.livestock_breed else (r.animal.breed.name if r.animal.breed else None),
+                "classification": r.animal.classification.name if r.animal.classification else None,
+                "date": r.check_date,
+                "result": r.result,
+                "expected_delivery_date": r.expected_delivery_date,
+                "notes": r.notes,
+                "created_at": r.created_at,
+                "created_by": r.created_by.email,
+            }
+        )
+    return 200, ListResponseSchema(
+            success=True,
+            message="pregnancy fetch successfully",
+            data=serialized,
+            num_pages=paginator.num_pages,
+            current_page=page_obj.number,
+            total_items=paginator.count,
+            has_next=page_obj.has_next,
+            has_previous=page_obj.has_previous,
+        )
+
+
+@router.get(
+    "/birth/v2/{page}/{page_size}/{farm_id}",
+    response={200: ListResponseSchema, 403: APIResponse},
+)
+def get_birth_v2(
+    request,
+    page: int,
+    page_size: int,
+    farm_id: int
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user, Permissions.Reproduction.VIEW)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    birth = BirthRecord.objects.select_related(
+        "mother__livestock_species",
+        "mother__livestock_breed",
+        "mother__classification",
+        "mother__species",
+        "mother__breed",
+        "created_by",
+    ).filter(farm=farm)
+    paginator = Paginator(birth, page_size)
+    page_obj = paginator.page(page)
+    serialized = []
+    for r in page_obj.object_list:
+        serialized.append(
+            {
+                "id": r.id,
+                "mother_tag": r.mother.tag_id,
+                "species": r.mother.livestock_species.name if r.mother.livestock_species else (r.mother.species.name if r.mother.species else None),
+                "breed": r.mother.livestock_breed.name if r.mother.livestock_breed else (r.mother.breed.name if r.mother.breed else None),
+                "classification": r.mother.classification.name if r.mother.classification else None,
+                "birth_date": r.birth_date,
+                "number_of_offspring": r.number_of_offspring,
+                "number_alive": r.number_alive,
+                "number_dead": r.number_dead,
+                "notes": r.notes,
+                "created_at": r.created_at,
+                "created_by": r.created_by.email,
+            }
+        )
+    return 200, ListResponseSchema(
+            success=True,
+            message="birth fetch successfully",
+            data=serialized,
+            num_pages=paginator.num_pages,
+            current_page=page_obj.number,
+            total_items=paginator.count,
+            has_next=page_obj.has_next,
+            has_previous=page_obj.has_previous,
+        )
+
+
+@router.post("/birth-offspring/v2/", response={200: APIResponse, 403: APIResponse},)
+def birth_offspring_v2(
+    request,
+    payload:BirthOffspringRecordIn
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user, Permissions.Reproduction.CREATE)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+
+    farm = get_object_or_404(Farm, id=payload.farm_id, organization=org)
+    birth_details = get_object_or_404(
+        BirthRecord.objects.select_related(
+            "mother__unit",
+            "mother__species",
+            "mother__breed",
+            "mother__livestock_species",
+            "mother__livestock_breed",
+            "mother__housing_unit",
+        ),
+        id=payload.birth_record_id,
+    )
+    animal_data = {
+        "status": "active",
+        "gender": payload.gender,
+        "source_type": "born",
+        "farm": farm,
+        "unit": birth_details.mother.unit,
+        "tag_id": payload.tag_id,
+        "species": birth_details.mother.species,
+        "breed": birth_details.mother.breed,
+        "mother": birth_details.mother,
+        "dob": birth_details.birth_date,
+        "health_status": payload.health_status,
+        "is_pregnant": False,
+        "is_lactating": False,
+        "is_quarantine": False,
+        "is_active": True,
+    }
+    if birth_details.mother.livestock_species:
+        animal_data["livestock_species"] = birth_details.mother.livestock_species
+    if birth_details.mother.livestock_breed:
+        animal_data["livestock_breed"] = birth_details.mother.livestock_breed
+    if birth_details.mother.housing_unit:
+        animal_data["housing_unit"] = birth_details.mother.housing_unit
+    with db_transaction.atomic():
+        animal = Animal(
+            **animal_data
+        )
+        try:
+            animal.full_clean()
+            animal.save()
+        except ValidationError as e:
+            return JsonResponse({
+            "errors": e.message_dict
+            }, status=400)
+
+        birth_data = {
+        "farm": farm,
+        "offspring_animal": animal,
+        "birth_record": birth_details,
+        "gender": payload.gender,
+        "birth_weight": payload.birth_weight,
+        }
+        birth = BirthOffspringRecord(
+            **birth_data
+        )
+        try:
+            birth.clean()
+            birth.save()
+        except ValidationError as e:
+            return JsonResponse({
+            "errors": e.message_dict
+            }, status=400)
+
+        birth_data = {
+            "farm": farm,
+            "animal": animal,
+            "weight": payload.birth_weight,
+            "date": birth_details.birth_date
+         }
+
+    try:
+        weight = AnimalWeight(
+        **birth_data
+    )
+        weight.full_clean()
+        weight.save()
+
+    except ValidationError as e:
+        return JsonResponse({
+        "errors": e.message_dict
+        }, status=400)
+
+    data={
+        "name": birth.offspring_animal.tag_id,
+        "gender": birth.birth_weight
+    }
+    return 200, APIResponse(
+        success=True,
+        message="birth offspring create successfully",
+        data=data
+    )
+
+
+@router.get(
+    "/birth-offspring/v2/{page}/{page_size}/{farm_id}",
+    response={200: ListResponseSchema, 403: APIResponse},
+)
+def get_birth_offspring_v2(
+    request,
+    page: int,
+    page_size: int,
+    farm_id: int
+    ):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    perm = user_has_permission(user, Permissions.Reproduction.VIEW)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(404, f"Permission denied")
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    birth = BirthOffspringRecord.objects.select_related(
+        "offspring_animal__livestock_species",
+        "offspring_animal__livestock_breed",
+        "offspring_animal__classification",
+        "offspring_animal__species",
+        "offspring_animal__breed",
+        "birth_record",
+    ).filter(farm=farm)
+    paginator = Paginator(birth, page_size)
+    page_obj = paginator.page(page)
+    serialized = []
+    for r in page_obj.object_list:
+        serialized.append(
+            {
+                "id": r.id,
+                "offspring_tag": r.offspring_animal.tag_id,
+                "species": r.offspring_animal.livestock_species.name if r.offspring_animal.livestock_species else (r.offspring_animal.species.name if r.offspring_animal.species else None),
+                "breed": r.offspring_animal.livestock_breed.name if r.offspring_animal.livestock_breed else (r.offspring_animal.breed.name if r.offspring_animal.breed else None),
+                "classification": r.offspring_animal.classification.name if r.offspring_animal.classification else None,
+                "gender": r.gender,
+                "birth_weight": r.birth_weight,
+                "created_at": r.created_at,
+            }
+        )
+    return 200, ListResponseSchema(
+            success=True,
+            message="birth offspring fetch successfully",
             data=serialized,
             num_pages=paginator.num_pages,
             current_page=page_obj.number,

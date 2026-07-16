@@ -65,6 +65,24 @@ class Animal(TimeStampedModel):
 
     notes = models.TextField(blank=True)
     image = models.ImageField(upload_to="animals/", null=True, blank=True)
+
+    # v2 master data references
+    livestock_species = models.ForeignKey(
+        "admin_panel.LivestockSpecies", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="animals"
+    )
+    livestock_breed = models.ForeignKey(
+        "admin_panel.LivestockBreed", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="animals"
+    )
+    housing_unit = models.ForeignKey(
+        "admin_panel.FarmHousingUnit", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="animals"
+    )
+    classification = models.ForeignKey(
+        "admin_panel.AnimalClassification", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="animals"
+    )
     class Meta:
         ordering = ["-created_at"]
         indexes = [

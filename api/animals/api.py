@@ -68,6 +68,7 @@ from .schema import (
     ListResponseSchema,
     APIResponse,
     AnimalsSchemaIn,
+    AnimalsSchemaInV2,
     AnimalProfileAttributeSchemaIn,
     AnimalGroupSchemaIn,
     AnimalGroupMemberSchemaIn,
@@ -75,8 +76,16 @@ from .schema import (
     AnimalGroupMemberFilterSchema,
     UpdateAnimalGroupMemberSchemaIn,
     AnimalsUpdateSchemaIn,
+    AnimalsUpdateSchemaInV2,
     AnimalWeightIn,
     MilkRecordSchema
+)
+from admin_panel.models import (
+    LivestockSpecies,
+    LivestockBreed,
+    HousingUnitType,
+    FarmHousingUnit,
+    AnimalClassification,
 )
 router = Router(tags=["Animals"])
 @router.post("/animal/", response={200: APIResponse, 403: APIResponse})
@@ -1353,3 +1362,709 @@ def animal_profile(request, animal_id: int):
     }
     return 200, APIResponse(success=True, message="Animal profile", data=data)
     
+
+# ─── v2 Endpoints (Livestock Master Data) ────────────────────────────────────
+
+@router.post("/animal/v2/", response={200: APIResponse, 403: APIResponse})
+def new_animal_v2(
+    request,
+    payload: AnimalsSchemaInV2 = Form(...),
+    image: UploadedFile = File(None),
+):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Animal.CREATE)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(403, "Permission denied")
+
+    farm = get_object_or_404(Farm, id=payload.farm_id, organization=org)
+
+    if Animal.objects.filter(tag_id__iexact=payload.tag_id, farm=farm).exists():
+        raise HttpError(409, "Tag ID already exists")
+
+    # ── Validate master data references ──────────────────────────────────────
+    livestock_species = get_object_or_404(LivestockSpecies, id=payload.livestock_species_id, is_active=True)
+
+    livestock_breed = get_object_or_404(LivestockBreed, id=payload.livestock_breed_id, is_active=True)
+    if livestock_breed.species_id != livestock_species.id:
+        raise HttpError(422, f"Breed '{livestock_breed.name}' does not belong to species '{livestock_species.name}'")
+    if livestock_breed.farm and livestock_breed.farm_id != farm.id:
+        raise HttpError(422, "This breed is not available for your farm")
+
+    housing_unit = get_object_or_404(FarmHousingUnit, id=payload.housing_unit_id, farm=farm, status="active")
+    allowed = housing_unit.allowed_species.filter(id=livestock_species.id).exists()
+    unit_type_species = housing_unit.unit_type.species_id == livestock_species.id
+    if not allowed and not unit_type_species:
+        raise HttpError(422, f"Housing unit '{housing_unit.name}' does not support species '{livestock_species.name}'")
+
+    classification = None
+    if payload.classification_id:
+        classification = get_object_or_404(AnimalClassification, id=payload.classification_id, is_active=True)
+        if classification.species_id != livestock_species.id:
+            raise HttpError(422, "Classification does not belong to the selected species")
+        if classification.sex != payload.gender:
+            raise HttpError(422, f"Classification '{classification.name}' is for {classification.sex}, not {payload.gender}")
+
+    # ── Build animal ──────────────────────────────────────────────────────────
+    animal_data = {
+        "status": payload.status,
+        "gender": payload.gender,
+        "source_type": payload.source,
+        "farm": farm,
+        "unit": housing_unit,          # keep legacy unit field pointing to FarmHousingUnit via SET_NULL
+        "tag_id": payload.tag_id,
+        "species": livestock_species,  # legacy field (FarmUnit → LivestockSpecies is compatible via SET_NULL)
+        "breed": livestock_breed,
+        "health_status": payload.health_status,
+        "is_pregnant": payload.is_pregnant,
+        "is_lactating": payload.is_lactating,
+        "is_quarantine": payload.is_quarantine,
+        "is_active": payload.is_active,
+        "livestock_species": livestock_species,
+        "livestock_breed": livestock_breed,
+        "housing_unit": housing_unit,
+        "classification": classification,
+    }
+    if payload.mother_id:
+        mother = get_object_or_404(Animal, id=payload.mother_id, farm=farm)
+        animal_data["mother"] = mother
+    if payload.dob:
+        animal_data["dob"] = payload.dob
+    if payload.estimated_age_months:
+        animal_data["estimated_age_months"] = payload.estimated_age_months
+    if payload.notes:
+        animal_data["notes"] = payload.notes
+    if image:
+        animal_data["image"] = image
+
+    animal = Animal(**animal_data)
+    try:
+        animal.full_clean()
+        animal.save()
+    except ValidationError as e:
+        return JsonResponse({"errors": e.message_dict}, status=400)
+
+    return 200, APIResponse(
+        success=True,
+        message="Animal created successfully",
+        data={
+            "id": animal.id,
+            "tag_id": animal.tag_id,
+            "gender": animal.gender,
+            "species": livestock_species.name,
+            "breed": livestock_breed.name,
+            "housing_unit": housing_unit.name,
+            "classification": classification.name if classification else None,
+        },
+    )
+
+
+@router.get(
+    "/animal/v2/{page}/{page_size}/{farm_id}",
+    response={200: ListResponseSchema, 403: APIResponse},
+)
+def get_animal_v2(request, page: int, page_size: int, farm_id: int):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Animal.VIEW)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(403, "Permission denied")
+
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    qs = Animal.objects.select_related(
+        "livestock_species", "livestock_breed", "housing_unit",
+        "housing_unit__unit_type", "classification", "mother",
+    ).filter(farm=farm)
+
+    paginator = Paginator(qs, page_size)
+    page_obj = paginator.page(page)
+
+    serialized = []
+    for a in page_obj.object_list:
+        serialized.append({
+            "id": a.id,
+            "tag_id": a.tag_id,
+            "gender": a.gender,
+            "species": a.livestock_species.name if a.livestock_species else (a.species.name if a.species else None),
+            "breed": a.livestock_breed.name if a.livestock_breed else (a.breed.name if a.breed else None),
+            "housing_unit": a.housing_unit.name if a.housing_unit else (a.unit.name if a.unit else None),
+            "housing_unit_type": a.housing_unit.unit_type.name if a.housing_unit else None,
+            "classification": a.classification.name if a.classification else None,
+            "mother_tag": a.mother.tag_id if a.mother else None,
+            "source_type": a.source_type,
+            "dob": a.dob,
+            "estimated_age_months": a.estimated_age_months,
+            "status": a.status,
+            "health_status": a.health_status,
+            "is_pregnant": a.is_pregnant,
+            "is_lactating": a.is_lactating,
+            "is_quarantine": a.is_quarantine,
+            "is_active": a.is_active,
+            "notes": a.notes,
+        })
+
+    return 200, ListResponseSchema(
+        success=True,
+        message="Animals fetched successfully",
+        data=serialized,
+        num_pages=paginator.num_pages,
+        current_page=page_obj.number,
+        total_items=paginator.count,
+        has_next=page_obj.has_next,
+        has_previous=page_obj.has_previous,
+    )
+
+
+@router.get("/animal-profile/v2/{animal_id}", response={200: APIResponse, 403: APIResponse})
+def animal_profile_v2(request, animal_id: int):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(403, "Permission denied")
+
+    from reproduction.models import InseminationRecord, PregnancyRecord
+    from health.models import VaccinationRecord, TreatmentRecord
+    from feed.models import FeedIssuanceRecord
+    from movement_records.models import MovementRecord
+
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Animal.VIEW)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(403, "Permission denied")
+
+    animal = get_object_or_404(
+        Animal.objects.select_related(
+            "livestock_species", "livestock_breed", "housing_unit",
+            "housing_unit__unit_type", "classification",
+            "species", "breed", "farm", "unit", "mother",
+        ),
+        id=animal_id,
+    )
+
+    # ── Age ────────────────────────────────────────────────────────────────────
+    today = timezone.localdate()
+    if animal.dob:
+        from dateutil.relativedelta import relativedelta as rdelta
+        diff = rdelta(today, animal.dob)
+        age_months = diff.years * 12 + diff.months
+    else:
+        age_months = animal.estimated_age_months or 0
+
+    if age_months <= 3:
+        lifecycle_stage, lifecycle_label = 1, "Newborn"
+    elif age_months <= 6:
+        lifecycle_stage, lifecycle_label = 2, "Calf"
+    elif age_months <= 12:
+        lifecycle_stage, lifecycle_label = 3, "Weaner"
+    elif age_months <= 24:
+        lifecycle_stage, lifecycle_label = 4, "Yearling"
+    else:
+        lifecycle_stage, lifecycle_label = 5, "Adult"
+
+    species_name = (animal.livestock_species.name if animal.livestock_species else (animal.species.name if animal.species else None))
+    breed_name = (animal.livestock_breed.name if animal.livestock_breed else (animal.breed.name if animal.breed else None))
+    unit_name = (animal.housing_unit.name if animal.housing_unit else (animal.unit.name if animal.unit else None))
+    unit_type_name = animal.housing_unit.unit_type.name if animal.housing_unit else None
+    classification_name = animal.classification.name if animal.classification else None
+
+    # ── Card ───────────────────────────────────────────────────────────────────
+    image_url = None
+    if animal.image:
+        image_url = animal.image.url
+
+    card = {
+        "tag_id": animal.tag_id,
+        "species": species_name,
+        "breed": breed_name,
+        "gender": animal.gender,
+        "classification": classification_name,
+        "status": animal.status,
+        "age_months": age_months,
+        "lifecycle_stage": lifecycle_stage,
+        "lifecycle_label": lifecycle_label,
+        "housing_unit": unit_name,
+        "housing_unit_type": unit_type_name,
+        "image_url": image_url,
+    }
+
+    # ── Overview ───────────────────────────────────────────────────────────────
+    overview = {
+        "species": species_name,
+        "breed": breed_name,
+        "classification": classification_name,
+        "mother_tag": animal.mother.tag_id if animal.mother else None,
+        "source": animal.get_source_type_display(),
+        "housing_unit": unit_name,
+        "housing_unit_type": unit_type_name,
+        "farm": animal.farm.name,
+        "entry_date": animal.created_at.date(),
+    }
+
+    # ── Reproduction ───────────────────────────────────────────────────────────
+    last_insemination = (
+        InseminationRecord.objects.filter(animal=animal)
+        .order_by("-service_date")
+        .values("service_date", "method")
+        .first()
+    )
+    pregnancy = (
+        PregnancyRecord.objects.filter(animal=animal)
+        .order_by("-check_date")
+        .values("result", "expected_delivery_date")
+        .first()
+    )
+    if animal.is_lactating:
+        preg_status = "Lactating"
+    elif animal.is_pregnant:
+        preg_status = "Pregnant"
+    else:
+        preg_status = "Not Pregnant"
+
+    reproduction = {
+        "last_insemination_date": last_insemination["service_date"] if last_insemination else None,
+        "expected_delivery_date": pregnancy["expected_delivery_date"] if pregnancy else None,
+        "pregnancy_status": preg_status,
+    }
+
+    # ── Production ─────────────────────────────────────────────────────────────
+    milk_today = (
+        MilkRecord.objects.filter(animal=animal, record_date=today)
+        .aggregate(total=Sum("quantity"))["total"] or 0
+    )
+    production = {
+        "lactation_status": "Lactating" if animal.is_lactating else "Not Lactating",
+        "milk_production_today": milk_today,
+    }
+
+    # ── Health ─────────────────────────────────────────────────────────────────
+    last_vaccination = (
+        VaccinationRecord.objects.filter(animal=animal)
+        .order_by("-date_given")
+        .values("vaccine_name", "date_given", "next_due_date")
+        .first()
+    )
+    last_treatment = (
+        TreatmentRecord.objects.filter(animal=animal)
+        .order_by("-treatment_date")
+        .values("diagnosis", "treatment_date", "severity")
+        .first()
+    )
+    health = {
+        "health_status": animal.health_status,
+        "is_quarantine": animal.is_quarantine,
+        "last_vaccination": last_vaccination,
+        "last_treatment": last_treatment,
+    }
+
+    # ── Feeding ────────────────────────────────────────────────────────────────
+    last_feed = (
+        FeedIssuanceRecord.objects.filter(animal=animal)
+        .order_by("-issuance_date")
+        .values("issuance_date", "quantity_issued")
+        .first()
+    )
+    feeding = {"last_feed_issuance": last_feed}
+
+    # ── Movement ───────────────────────────────────────────────────────────────
+    last_movement = (
+        MovementRecord.objects.filter(animal=animal)
+        .select_related("from_unit", "to_unit")
+        .order_by("-move_date")
+        .first()
+    )
+    movement = {
+        "last_move_date": last_movement.move_date if last_movement else None,
+        "from_unit": last_movement.from_unit.name if last_movement and last_movement.from_unit else None,
+        "to_unit": last_movement.to_unit.name if last_movement and last_movement.to_unit else None,
+    }
+
+    data = {
+        "card": card,
+        "overview": overview,
+        "reproduction": reproduction,
+        "production": production,
+        "health": health,
+        "feeding": feeding,
+        "movement": movement,
+    }
+    return 200, APIResponse(success=True, message="Animal profile", data=data)
+
+
+# ─── v2 Additional Endpoints ──────────────────────────────────────────────────
+
+@router.get("/animal-by-id/v2/{animal_id}", response={200: APIResponse, 403: APIResponse})
+def get_animal_by_id_v2(request, animal_id: int):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Animal.VIEW)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(403, "Permission denied")
+
+    a = get_object_or_404(
+        Animal.objects.select_related(
+            "livestock_species", "livestock_breed",
+            "housing_unit", "housing_unit__unit_type",
+            "classification", "species", "breed", "unit", "mother",
+        ),
+        id=animal_id,
+    )
+
+    serialized = {
+        "id": a.id,
+        "tag_id": a.tag_id,
+        "gender": a.gender,
+        "source_type": a.source_type,
+        "dob": a.dob,
+        "estimated_age_months": a.estimated_age_months,
+        "status": a.status,
+        "health_status": a.health_status,
+        "is_pregnant": a.is_pregnant,
+        "is_lactating": a.is_lactating,
+        "is_quarantine": a.is_quarantine,
+        "is_active": a.is_active,
+        "notes": a.notes,
+        "mother": a.mother.tag_id if a.mother else None,
+        "species": a.livestock_species.name if a.livestock_species else (a.species.name if a.species else None),
+        "breed": a.livestock_breed.name if a.livestock_breed else (a.breed.name if a.breed else None),
+        "housing_unit": a.housing_unit.name if a.housing_unit else (a.unit.name if a.unit else None),
+        "housing_unit_type": a.housing_unit.unit_type.name if a.housing_unit and a.housing_unit.unit_type else None,
+        "classification": a.classification.name if a.classification else None,
+        "livestock_species_id": a.livestock_species_id,
+        "livestock_breed_id": a.livestock_breed_id,
+        "housing_unit_id": a.housing_unit_id,
+        "classification_id": a.classification_id,
+    }
+
+    return 200, APIResponse(success=True, message="Animal details successfully", data=serialized)
+
+
+@router.patch("/animal/v2/{animal_id}/{farm_id}", response={200: APIResponse, 403: APIResponse})
+def update_animal_v2(
+    request,
+    payload: AnimalsUpdateSchemaInV2,
+    animal_id: int,
+    farm_id: int,
+):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Animal.UPDATE)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(403, "Permission denied")
+
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    animal = get_object_or_404(
+        Animal.objects.select_related(
+            "farm", "housing_unit", "livestock_species", "livestock_breed", "classification",
+            "unit", "species", "breed",
+        ),
+        id=animal_id,
+        farm=farm,
+    )
+
+    if payload.tag_id:
+        if Animal.objects.filter(tag_id__iexact=payload.tag_id, farm=animal.farm).exclude(id=animal.id).exists():
+            raise HttpError(409, "Tag ID already exists")
+        animal.tag_id = payload.tag_id
+
+    if payload.new_farm_id:
+        animal.farm = get_object_or_404(Farm, id=payload.new_farm_id)
+
+    if payload.housing_unit_id:
+        housing_unit = get_object_or_404(FarmHousingUnit, id=payload.housing_unit_id, farm=farm)
+        animal.housing_unit = housing_unit
+        animal.unit = housing_unit  # keep legacy field in sync
+
+    if payload.livestock_species_id:
+        livestock_species = get_object_or_404(LivestockSpecies, id=payload.livestock_species_id, is_active=True)
+        animal.livestock_species = livestock_species
+        animal.species = livestock_species  # keep legacy field in sync
+        if payload.livestock_breed_id:
+            livestock_breed = get_object_or_404(LivestockBreed, id=payload.livestock_breed_id, is_active=True)
+            if livestock_breed.species_id != livestock_species.id:
+                raise HttpError(422, f"Breed '{livestock_breed.name}' does not belong to species '{livestock_species.name}'")
+            animal.livestock_breed = livestock_breed
+            animal.breed = livestock_breed  # keep legacy field in sync
+    elif payload.livestock_breed_id:
+        livestock_breed = get_object_or_404(LivestockBreed, id=payload.livestock_breed_id, is_active=True)
+        animal.livestock_breed = livestock_breed
+        animal.breed = livestock_breed  # keep legacy field in sync
+
+    if payload.classification_id:
+        classification = get_object_or_404(AnimalClassification, id=payload.classification_id, is_active=True)
+        gender = payload.gender if payload.gender is not None else animal.gender
+        if classification.sex != gender:
+            raise HttpError(422, f"Classification '{classification.name}' is for {classification.sex}, not {gender}")
+        animal.classification = classification
+
+    if payload.mother_id:
+        animal.mother = get_object_or_404(Animal, id=payload.mother_id)
+
+    if payload.gender is not None:
+        animal.gender = payload.gender
+
+    if payload.source is not None:
+        animal.source_type = payload.source
+
+    if payload.dob is not None:
+        animal.dob = payload.dob
+
+    if payload.estimated_age_months is not None:
+        animal.estimated_age_months = payload.estimated_age_months
+
+    if payload.status is not None:
+        animal.status = payload.status
+
+    if payload.health_status is not None:
+        animal.health_status = payload.health_status
+
+    if payload.is_pregnant is not None:
+        animal.is_pregnant = payload.is_pregnant
+
+    if payload.is_lactating is not None:
+        animal.is_lactating = payload.is_lactating
+
+    if payload.is_quarantine is not None:
+        animal.is_quarantine = payload.is_quarantine
+
+    if payload.is_active is not None:
+        animal.is_active = payload.is_active
+
+    if payload.notes is not None:
+        animal.notes = payload.notes
+
+    animal.save()
+
+    return 200, APIResponse(
+        success=True,
+        message="Animal updated successfully",
+        data={
+            "id": animal.id,
+            "tag_id": animal.tag_id,
+            "gender": animal.gender,
+            "species": animal.livestock_species.name if animal.livestock_species else (animal.species.name if animal.species else None),
+            "breed": animal.livestock_breed.name if animal.livestock_breed else (animal.breed.name if animal.breed else None),
+            "housing_unit": animal.housing_unit.name if animal.housing_unit else (animal.unit.name if animal.unit else None),
+            "classification": animal.classification.name if animal.classification else None,
+        },
+    )
+
+
+@router.get(
+    "/animal-event/v2/{page}/{page_size}/{farm_id}",
+    response={200: ListResponseSchema, 403: APIResponse},
+)
+def get_animal_event_v2(request, page: int, page_size: int, farm_id: int):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Animal.VIEW)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(403, "Permission denied")
+
+    event = AnimalEvent.objects.select_related(
+        "group", "event_type", "created_by",
+        "animal", "animal__livestock_species", "animal__livestock_breed",
+        "animal__species", "animal__breed",
+    ).filter(farm_id=farm_id)
+
+    paginator = Paginator(event, page_size)
+    page_obj = paginator.page(page)
+
+    serialized = []
+    for data in page_obj.object_list:
+        a = data.animal
+        serialized.append({
+            "id": data.id,
+            "group": data.group.name if data.group else None,
+            "tag": a.tag_id if a else None,
+            "species": (
+                (a.livestock_species.name if a.livestock_species else (a.species.name if a.species else None))
+                if a else None
+            ),
+            "breed": (
+                (a.livestock_breed.name if a.livestock_breed else (a.breed.name if a.breed else None))
+                if a else None
+            ),
+            "livestock_species": a.livestock_species.name if a and a.livestock_species else None,
+            "livestock_breed": a.livestock_breed.name if a and a.livestock_breed else None,
+            "event_type": data.event_type.name,
+            "event_title": data.event_title,
+            "event_summary": data.event_summary,
+            "reference_table": data.reference_table,
+            "reference_id": data.reference_id,
+            "created_at": data.created_at,
+            "created_by": data.created_by.email,
+        })
+
+    return 200, ListResponseSchema(
+        success=True,
+        message="Animal events fetched successfully",
+        data=serialized,
+        num_pages=paginator.num_pages,
+        current_page=page_obj.number,
+        total_items=paginator.count,
+        has_next=page_obj.has_next,
+        has_previous=page_obj.has_previous,
+    )
+
+
+@router.get(
+    "/animal-weight/v2/{page}/{page_size}/{farm_id}",
+    response={200: ListResponseSchema, 403: APIResponse},
+)
+def get_animal_weight_v2(request, page: int, page_size: int, farm_id: int):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Animal.VIEW)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(403, "Permission denied")
+
+    weight = AnimalWeight.objects.select_related(
+        "animal", "animal__livestock_species", "animal__livestock_breed",
+        "animal__classification", "animal__species", "animal__breed",
+    ).filter(farm_id=farm_id)
+
+    paginator = Paginator(weight, page_size)
+    page_obj = paginator.page(page)
+
+    serialized = []
+    for data in page_obj.object_list:
+        a = data.animal
+        serialized.append({
+            "id": data.id,
+            "tag": a.tag_id,
+            "species": a.livestock_species.name if a.livestock_species else (a.species.name if a.species else None),
+            "breed": a.livestock_breed.name if a.livestock_breed else (a.breed.name if a.breed else None),
+            "livestock_species": a.livestock_species.name if a.livestock_species else None,
+            "livestock_breed": a.livestock_breed.name if a.livestock_breed else None,
+            "classification": a.classification.name if a.classification else None,
+            "date": data.date,
+            "weight": data.weight,
+            "created_at": data.created_at,
+        })
+
+    return 200, ListResponseSchema(
+        success=True,
+        message="Animal weight fetched successfully",
+        data=serialized,
+        num_pages=paginator.num_pages,
+        current_page=page_obj.number,
+        total_items=paginator.count,
+        has_next=page_obj.has_next,
+        has_previous=page_obj.has_previous,
+    )
+
+
+@router.get(
+    "/milk/v2/{page}/{page_size}/{farm_id}",
+    response={200: ListResponseSchema, 403: APIResponse},
+    tags=["Production"],
+)
+def get_milk_v2(request, page: int, page_size: int, farm_id: int):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Production.VIEW)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(403, "Permission denied")
+
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    milk = MilkRecord.objects.select_related(
+        "animal", "animal__livestock_species", "animal__livestock_breed",
+        "animal__species", "animal__breed", "created_by",
+    ).filter(farm=farm)
+
+    paginator = Paginator(milk, page_size)
+    page_obj = paginator.page(page)
+
+    serialized = []
+    for data in page_obj.object_list:
+        a = data.animal
+        serialized.append({
+            "id": data.id,
+            "animal_tag": a.tag_id if a else None,
+            "species": (
+                (a.livestock_species.name if a.livestock_species else (a.species.name if a.species else None))
+                if a else None
+            ),
+            "breed": (
+                (a.livestock_breed.name if a.livestock_breed else (a.breed.name if a.breed else None))
+                if a else None
+            ),
+            "livestock_species": a.livestock_species.name if a and a.livestock_species else None,
+            "livestock_breed": a.livestock_breed.name if a and a.livestock_breed else None,
+            "record_date": data.record_date,
+            "session": data.session,
+            "quantity": data.quantity,
+            "created_at": data.created_at,
+            "created_by": data.created_by.email,
+        })
+
+    return 200, ListResponseSchema(
+        success=True,
+        message="Milk records fetched successfully",
+        data=serialized,
+        num_pages=paginator.num_pages,
+        current_page=page_obj.number,
+        total_items=paginator.count,
+        has_next=page_obj.has_next,
+        has_previous=page_obj.has_previous,
+    )

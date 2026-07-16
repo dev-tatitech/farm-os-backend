@@ -143,3 +143,70 @@ class AnimalClassification(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.species.name} / {self.sex})"
+
+
+# ─── Contact Enquiry ─────────────────────────────────────────────────────────
+
+class ContactEnquiry(models.Model):
+    FARM_TYPE_CHOICES = [
+        ("livestock", "Livestock"),
+        ("poultry", "Poultry"),
+        ("fishery", "Fishery"),
+        ("crop", "Crop"),
+        ("mixed_farming", "Mixed Farming"),
+        ("cooperative", "Cooperative"),
+        ("government", "Government"),
+        ("ngo", "NGO"),
+        ("other", "Other"),
+    ]
+    FARM_SIZE_CHOICES = [
+        ("small", "Small"),
+        ("medium", "Medium"),
+        ("large", "Large"),
+        ("enterprise", "Enterprise"),
+    ]
+    RECORD_METHOD_CHOICES = [
+        ("paper", "Paper"),
+        ("excel", "Excel"),
+        ("existing_software", "Existing Software"),
+        ("combination", "Combination"),
+        ("other", "Other"),
+    ]
+    CONTACT_METHOD_CHOICES = [
+        ("phone", "Phone"),
+        ("email", "Email"),
+        ("whatsapp", "WhatsApp"),
+    ]
+    STATUS_CHOICES = [
+        ("new", "New"),
+        ("in_review", "In Review"),
+        ("contacted", "Contacted"),
+        ("converted", "Converted"),
+        ("closed", "Closed"),
+    ]
+
+    full_name = models.CharField(max_length=200)
+    farm_name = models.CharField(max_length=200, blank=True, null=True)
+    email = models.EmailField()
+    phone = models.CharField(max_length=50, blank=True, null=True)
+    country = models.CharField(max_length=100, blank=True, null=True)
+    region = models.CharField(max_length=100, blank=True, null=True)
+    farm_type = models.CharField(max_length=50, choices=FARM_TYPE_CHOICES, blank=True, null=True)
+    farm_size = models.CharField(max_length=20, choices=FARM_SIZE_CHOICES, blank=True, null=True)
+    record_method = models.CharField(max_length=30, choices=RECORD_METHOD_CHOICES, blank=True, null=True)
+    modules_of_interest = models.JSONField(default=list, blank=True)
+    challenges = models.TextField(blank=True, null=True)
+    preferred_contact_method = models.CharField(max_length=20, choices=CONTACT_METHOD_CHOICES, blank=True, null=True)
+    consultation_date = models.DateTimeField(blank=True, null=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="new")
+    notes = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Contact Enquiry"
+        verbose_name_plural = "Contact Enquiries"
+
+    def __str__(self):
+        return f"{self.full_name} — {self.email} ({self.created_at.date()})"

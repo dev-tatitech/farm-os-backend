@@ -51,6 +51,7 @@ from .models import (
     HousingUnitType,
     FarmHousingUnit,
     AnimalClassification,
+    ContactEnquiry,
 )
 from subcriptions.models import SubscriptionPlan, Subscription
 from common.utils import generate_ref
@@ -71,6 +72,8 @@ from .schema import (
     LivestockBreedUpdate,
     FarmHousingUnitIn,
     FarmHousingUnitUpdate,
+    ContactEnquiryIn,
+    ContactEnquiryStatusUpdate,
 )
 from organization.models import Farm
 router = Router(tags=["Admin panel"])
@@ -741,4 +744,191 @@ def update_farm_housing_unit(request, unit_id: int, payload: FarmHousingUnitUpda
         success=True,
         message="Housing unit updated",
         data={"id": unit.id, "name": unit.name, "status": unit.status},
+    )
+
+
+# ─── Contact Enquiry Endpoints ────────────────────────────────────────────────
+
+@router.post(
+    "/contact/enquiry/",
+    response={200: APIResponse, 400: APIResponse},
+    auth=None,
+    tags=["Contact"],
+)
+def submit_contact_enquiry(request, payload: ContactEnquiryIn):
+    from dateutil.parser import parse as parse_dt
+    from dateutil.parser import ParserError
+
+    consultation_date = None
+    if payload.consultation_date:
+        try:
+            consultation_date = parse_dt(payload.consultation_date)
+        except (ParserError, ValueError):
+            return 400, APIResponse(
+                success=False,
+                message="Invalid consultation_date format. Use ISO 8601 (e.g. 2025-08-01T10:00:00).",
+                data=None,
+            )
+
+    enquiry = ContactEnquiry.objects.create(
+        full_name=payload.full_name,
+        farm_name=payload.farm_name,
+        email=payload.email,
+        phone=payload.phone,
+        country=payload.country,
+        region=payload.region,
+        farm_type=payload.farm_type,
+        farm_size=payload.farm_size,
+        record_method=payload.record_method,
+        modules_of_interest=payload.modules_of_interest or [],
+        challenges=payload.challenges,
+        preferred_contact_method=payload.preferred_contact_method,
+        consultation_date=consultation_date,
+    )
+
+    return 200, APIResponse(
+        success=True,
+        message="Enquiry submitted successfully. Our team will be in touch shortly.",
+        data={
+            "id": enquiry.id,
+            "full_name": enquiry.full_name,
+            "email": enquiry.email,
+            "status": enquiry.status,
+            "created_at": str(enquiry.created_at),
+        },
+    )
+
+
+@router.get(
+    "/contact/enquiries/",
+    response={200: ListResponseSchema, 403: APIResponse},
+    tags=["Contact"],
+)
+def list_contact_enquiries(
+    request,
+    page: int = 1,
+    page_size: int = 20,
+    status: Optional[str] = None,
+    search: Optional[str] = None,
+):
+    user = get_current_user(request)
+    if not user or not user.is_staff:
+        return 403, APIResponse(success=False, message="Staff access required", data=None)
+
+    qs = ContactEnquiry.objects.all()
+
+    if status:
+        qs = qs.filter(status=status)
+
+    if search:
+        qs = qs.filter(
+            Q(full_name__icontains=search)
+            | Q(email__icontains=search)
+            | Q(farm_name__icontains=search)
+            | Q(country__icontains=search)
+        )
+
+    paginator = Paginator(qs, page_size)
+    page_obj = paginator.get_page(page)
+
+    data = [
+        {
+            "id": e.id,
+            "full_name": e.full_name,
+            "farm_name": e.farm_name,
+            "email": e.email,
+            "phone": e.phone,
+            "country": e.country,
+            "region": e.region,
+            "farm_type": e.farm_type,
+            "farm_size": e.farm_size,
+            "record_method": e.record_method,
+            "modules_of_interest": e.modules_of_interest,
+            "challenges": e.challenges,
+            "preferred_contact_method": e.preferred_contact_method,
+            "consultation_date": str(e.consultation_date) if e.consultation_date else None,
+            "status": e.status,
+            "notes": e.notes,
+            "created_at": str(e.created_at),
+        }
+        for e in page_obj.object_list
+    ]
+
+    return 200, ListResponseSchema(
+        success=True,
+        message="Enquiries fetched",
+        data=data,
+        num_pages=paginator.num_pages,
+        current_page=page,
+        total_items=paginator.count,
+        has_next=page_obj.has_next(),
+        has_previous=page_obj.has_previous(),
+    )
+
+
+@router.get(
+    "/contact/enquiry/{enquiry_id}/",
+    response={200: APIResponse, 403: APIResponse, 404: APIResponse},
+    tags=["Contact"],
+)
+def get_contact_enquiry(request, enquiry_id: int):
+    user = get_current_user(request)
+    if not user or not user.is_staff:
+        return 403, APIResponse(success=False, message="Staff access required", data=None)
+
+    try:
+        e = ContactEnquiry.objects.get(id=enquiry_id)
+    except ContactEnquiry.DoesNotExist:
+        return 404, APIResponse(success=False, message="Enquiry not found", data=None)
+
+    return 200, APIResponse(
+        success=True,
+        message="Enquiry fetched",
+        data={
+            "id": e.id,
+            "full_name": e.full_name,
+            "farm_name": e.farm_name,
+            "email": e.email,
+            "phone": e.phone,
+            "country": e.country,
+            "region": e.region,
+            "farm_type": e.farm_type,
+            "farm_size": e.farm_size,
+            "record_method": e.record_method,
+            "modules_of_interest": e.modules_of_interest,
+            "challenges": e.challenges,
+            "preferred_contact_method": e.preferred_contact_method,
+            "consultation_date": str(e.consultation_date) if e.consultation_date else None,
+            "status": e.status,
+            "notes": e.notes,
+            "created_at": str(e.created_at),
+            "updated_at": str(e.updated_at),
+        },
+    )
+
+
+@router.patch(
+    "/contact/enquiry/{enquiry_id}/status/",
+    response={200: APIResponse, 403: APIResponse, 404: APIResponse},
+    tags=["Contact"],
+)
+def update_enquiry_status(request, enquiry_id: int, payload: ContactEnquiryStatusUpdate):
+    user = get_current_user(request)
+    if not user or not user.is_staff:
+        return 403, APIResponse(success=False, message="Staff access required", data=None)
+
+    try:
+        e = ContactEnquiry.objects.get(id=enquiry_id)
+    except ContactEnquiry.DoesNotExist:
+        return 404, APIResponse(success=False, message="Enquiry not found", data=None)
+
+    e.status = payload.status
+    if payload.notes is not None:
+        e.notes = payload.notes
+    e.save(update_fields=["status", "notes", "updated_at"])
+
+    return 200, APIResponse(
+        success=True,
+        message="Enquiry status updated",
+        data={"id": e.id, "status": e.status, "notes": e.notes},
     )

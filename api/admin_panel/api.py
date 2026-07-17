@@ -813,8 +813,12 @@ def list_contact_enquiries(
     status: Optional[str] = None,
     search: Optional[str] = None,
 ):
-    user = get_current_user(request)
-    if not user or not user.is_staff:
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(id=user_id)
+    except users.DoesNotExist:
+        raise HttpError(401, "User not found")
+    if not user.is_superuser and not user.is_staff:
         return 403, APIResponse(success=False, message="Staff access required", data=None)
 
     qs = ContactEnquiry.objects.all()
@@ -874,8 +878,12 @@ def list_contact_enquiries(
     tags=["Contact"],
 )
 def get_contact_enquiry(request, enquiry_id: int):
-    user = get_current_user(request)
-    if not user or not user.is_staff:
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(id=user_id)
+    except users.DoesNotExist:
+        raise HttpError(401, "User not found")
+    if not user.is_superuser and not user.is_staff:
         return 403, APIResponse(success=False, message="Staff access required", data=None)
 
     try:
@@ -915,8 +923,12 @@ def get_contact_enquiry(request, enquiry_id: int):
     tags=["Contact"],
 )
 def update_enquiry_status(request, enquiry_id: int, payload: ContactEnquiryStatusUpdate):
-    user = get_current_user(request)
-    if not user or not user.is_staff:
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(id=user_id)
+    except users.DoesNotExist:
+        raise HttpError(401, "User not found")
+    if not user.is_superuser and not user.is_staff:
         return 403, APIResponse(success=False, message="Staff access required", data=None)
 
     try:

@@ -1419,10 +1419,7 @@ def new_animal_v2(
         "gender": payload.gender,
         "source_type": payload.source,
         "farm": farm,
-        "unit": housing_unit,          # keep legacy unit field pointing to FarmHousingUnit via SET_NULL
         "tag_id": payload.tag_id,
-        "species": livestock_species,  # legacy field (FarmUnit → LivestockSpecies is compatible via SET_NULL)
-        "breed": livestock_breed,
         "health_status": payload.health_status,
         "is_pregnant": payload.is_pregnant,
         "is_lactating": payload.is_lactating,
@@ -1679,8 +1676,8 @@ def animal_profile_v2(request, animal_id: int):
     # ── Feeding ────────────────────────────────────────────────────────────────
     last_feed = (
         FeedIssuanceRecord.objects.filter(animal=animal)
-        .order_by("-issuance_date")
-        .values("issuance_date", "quantity_issued")
+        .order_by("-issue_date")
+        .values("issue_date", "quantity_issued")
         .first()
     )
     feeding = {"last_feed_issuance": last_feed}
@@ -1766,12 +1763,11 @@ def get_animal_by_id_v2(request, animal_id: int):
     return 200, APIResponse(success=True, message="Animal details successfully", data=serialized)
 
 
-@router.patch("/animal/v2/{animal_id}/{farm_id}", response={200: APIResponse, 403: APIResponse})
+@router.patch("/update-animal/v2/{animal_id}", response={200: APIResponse, 403: APIResponse})
 def update_animal_v2(
     request,
     payload: AnimalsUpdateSchemaInV2,
     animal_id: int,
-    farm_id: int,
 ):
     user_id = get_current_user(request)
     try:
@@ -1786,16 +1782,14 @@ def update_animal_v2(
     if not user.organizations.first():
         if not perm:
             raise HttpError(403, "Permission denied")
-
-    farm = get_object_or_404(Farm, id=farm_id, organization=org)
     animal = get_object_or_404(
         Animal.objects.select_related(
             "farm", "housing_unit", "livestock_species", "livestock_breed", "classification",
             "unit", "species", "breed",
         ),
         id=animal_id,
-        farm=farm,
     )
+    farm = animal.farm
 
     if payload.tag_id:
         if Animal.objects.filter(tag_id__iexact=payload.tag_id, farm=animal.farm).exclude(id=animal.id).exists():

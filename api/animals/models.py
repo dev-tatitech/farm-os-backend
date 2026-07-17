@@ -32,9 +32,9 @@ class Animal(TimeStampedModel):
     
     # Relationships
     farm = models.ForeignKey("organization.Farm", on_delete=models.CASCADE)
-    unit = models.ForeignKey("farms.FarmUnit", on_delete=models.SET_NULL, null=True)
-    species = models.ForeignKey("admin_panel.Species", on_delete=models.CASCADE, related_name="animals_species")
-    breed = models.ForeignKey("admin_panel.Breed", on_delete=models.CASCADE, related_name="animal_breeds")
+    unit = models.ForeignKey("farms.FarmUnit", on_delete=models.SET_NULL, null=True, blank=True)
+    species = models.ForeignKey("admin_panel.Species", on_delete=models.SET_NULL, null=True, blank=True, related_name="animals_species")
+    breed = models.ForeignKey("admin_panel.Breed", on_delete=models.SET_NULL, null=True, blank=True, related_name="animal_breeds")
     mother = models.ForeignKey(
         "self",
         null=True,

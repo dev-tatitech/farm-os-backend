@@ -1685,14 +1685,20 @@ def animal_profile_v2(request, animal_id: int):
     # ── Movement ───────────────────────────────────────────────────────────────
     last_movement = (
         MovementRecord.objects.filter(animal=animal)
-        .select_related("from_unit", "to_unit")
+        .select_related("from_housing_unit", "to_housing_unit", "from_unit", "to_unit")
         .order_by("-move_date")
         .first()
     )
     movement = {
         "last_move_date": last_movement.move_date if last_movement else None,
-        "from_unit": last_movement.from_unit.name if last_movement and last_movement.from_unit else None,
-        "to_unit": last_movement.to_unit.name if last_movement and last_movement.to_unit else None,
+        "from_unit": (
+            (last_movement.from_housing_unit.name if last_movement.from_housing_unit else None)
+            or (last_movement.from_unit.name if last_movement.from_unit else None)
+        ) if last_movement else None,
+        "to_unit": (
+            (last_movement.to_housing_unit.name if last_movement.to_housing_unit else None)
+            or (last_movement.to_unit.name if last_movement.to_unit else None)
+        ) if last_movement else None,
     }
 
     data = {
@@ -1802,22 +1808,18 @@ def update_animal_v2(
     if payload.housing_unit_id:
         housing_unit = get_object_or_404(FarmHousingUnit, id=payload.housing_unit_id, farm=farm)
         animal.housing_unit = housing_unit
-        animal.unit = housing_unit  # keep legacy field in sync
 
     if payload.livestock_species_id:
         livestock_species = get_object_or_404(LivestockSpecies, id=payload.livestock_species_id, is_active=True)
         animal.livestock_species = livestock_species
-        animal.species = livestock_species  # keep legacy field in sync
         if payload.livestock_breed_id:
             livestock_breed = get_object_or_404(LivestockBreed, id=payload.livestock_breed_id, is_active=True)
             if livestock_breed.species_id != livestock_species.id:
                 raise HttpError(422, f"Breed '{livestock_breed.name}' does not belong to species '{livestock_species.name}'")
             animal.livestock_breed = livestock_breed
-            animal.breed = livestock_breed  # keep legacy field in sync
     elif payload.livestock_breed_id:
         livestock_breed = get_object_or_404(LivestockBreed, id=payload.livestock_breed_id, is_active=True)
         animal.livestock_breed = livestock_breed
-        animal.breed = livestock_breed  # keep legacy field in sync
 
     if payload.classification_id:
         classification = get_object_or_404(AnimalClassification, id=payload.classification_id, is_active=True)

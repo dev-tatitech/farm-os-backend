@@ -1881,6 +1881,40 @@ def update_animal_v2(
     )
 
 
+@router.post("/animal/image/{animal_id}", response={200: APIResponse, 403: APIResponse})
+def update_animal_image(
+    request,
+    animal_id: int,
+    image: UploadedFile = File(...),
+):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+
+    animal = get_object_or_404(Animal, id=animal_id)
+
+    if animal.image:
+        try:
+            animal.image.delete(save=False)
+        except Exception:
+            pass
+
+    animal.image = image
+    animal.save(update_fields=["image"])
+
+    return 200, APIResponse(
+        success=True,
+        message="Animal image updated successfully",
+        data={"id": animal.id, "image_url": animal.image.url},
+    )
+
+
 @router.get(
     "/animal-event/v2/{page}/{page_size}/{farm_id}",
     response={200: ListResponseSchema, 403: APIResponse},

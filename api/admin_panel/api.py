@@ -919,18 +919,11 @@ def get_contact_enquiry(request, enquiry_id: int):
 
 @router.patch(
     "/contact/enquiry/{enquiry_id}/status/",
-    response={200: APIResponse, 403: APIResponse, 404: APIResponse},
+    response={200: APIResponse, 404: APIResponse},
     tags=["Contact"],
+    auth=None,
 )
 def update_enquiry_status(request, enquiry_id: int, payload: ContactEnquiryStatusUpdate):
-    user_id = get_current_user(request)
-    try:
-        user = users.objects.get(id=user_id)
-    except users.DoesNotExist:
-        raise HttpError(401, "User not found")
-    if not user.is_superuser and not user.is_staff:
-        return 403, APIResponse(success=False, message="Staff access required", data=None)
-
     try:
         e = ContactEnquiry.objects.get(id=enquiry_id)
     except ContactEnquiry.DoesNotExist:

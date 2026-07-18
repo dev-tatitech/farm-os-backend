@@ -356,9 +356,13 @@ class MilkRecord(models.Model):
             )
         ]
     def clean(self):
-        # 🐄 Must be cow
-        if self.animal.species.name.lower() != "cow":
-            raise ValidationError(f"Milk can only be recorded for cows. {self.animal.species.name}")
+        species_name = (
+            self.animal.livestock_species.name
+            if self.animal.livestock_species
+            else (self.animal.species.name if self.animal.species else None)
+        )
+        if species_name is None or species_name.lower() != "cattle":
+            raise ValidationError(f"Milk can only be recorded for cattle. Got: {species_name}")
         if not self.animal.is_lactating:
             raise ValidationError("Milk can only be recorded for lactating animals.")
         if self.animal.status == "dead" or not self.animal.is_active:

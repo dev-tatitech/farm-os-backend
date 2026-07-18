@@ -411,7 +411,10 @@ def get_feed_issue(
             {
                 "id":data.id,
                 "target_type": data.target_type,
-                "animal": data.animal.species.name if data.animal else None,
+                "animal": (
+                    (data.animal.livestock_species.name if data.animal.livestock_species else (data.animal.species.name if data.animal.species else None))
+                    if data.animal else None
+                ),
                 "quantity_issued": data.quantity_issued,
                 "group": data.group.name if data.group else None,
                 "feed_inventory": data.feed_inventory.feed_name,

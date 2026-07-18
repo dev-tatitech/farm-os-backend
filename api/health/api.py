@@ -183,7 +183,7 @@ def get_treatment(
         if not perm:
             raise HttpError(404, f"Permission denied")
     farm = get_object_or_404(Farm, id=farm_id, organization=org)
-    birth = TreatmentRecord.objects.select_related("animal__species", "created_by", "group__group_type").filter(farm=farm)
+    birth = TreatmentRecord.objects.select_related("animal__species", "animal__breed", "animal__livestock_species", "animal__livestock_breed", "created_by", "group__group_type").filter(farm=farm)
     paginator = Paginator(birth, page_size)
     page_obj = paginator.page(page)
     # Serialization
@@ -193,8 +193,14 @@ def get_treatment(
             {
                 "id":data.id,
                 "animal_tag": data.animal.tag_id if data.animal else None,
-                "species": data.animal.species.name if data.animal else None,
-                "breed": data.animal.breed.name if data.animal else None,
+                "species": (
+                    (data.animal.livestock_species.name if data.animal.livestock_species else (data.animal.species.name if data.animal.species else None))
+                    if data.animal else None
+                ),
+                "breed": (
+                    (data.animal.livestock_breed.name if data.animal.livestock_breed else (data.animal.breed.name if data.animal.breed else None))
+                    if data.animal else None
+                ),
                 "group": data.group.name if data.group else None,
                 "group_type": data.group.group_type.name if data.group else None,
                 "diagnosis": data.diagnosis,
@@ -328,7 +334,7 @@ def get_vaccination(
         if not perm:
             raise HttpError(404, f"Permission denied")
     farm = get_object_or_404(Farm, id=farm_id, organization=org)
-    vaccin = VaccinationRecord.objects.select_related("animal__species", "created_by", "group__group_type").filter(farm=farm)
+    vaccin = VaccinationRecord.objects.select_related("animal__species", "animal__breed", "animal__livestock_species", "animal__livestock_breed", "created_by", "group__group_type").filter(farm=farm)
     paginator = Paginator(vaccin, page_size)
     page_obj = paginator.page(page)
     # Serialization
@@ -338,8 +344,14 @@ def get_vaccination(
             {
                 "id":data.id,
                 "animal_tag": data.animal.tag_id if data.animal else None,
-                "species": data.animal.species.name if data.animal else None,
-                "breed": data.animal.breed.name if data.animal else None,
+                "species": (
+                    (data.animal.livestock_species.name if data.animal.livestock_species else (data.animal.species.name if data.animal.species else None))
+                    if data.animal else None
+                ),
+                "breed": (
+                    (data.animal.livestock_breed.name if data.animal.livestock_breed else (data.animal.breed.name if data.animal.breed else None))
+                    if data.animal else None
+                ),
                 "group": data.group.name if data.group else None,
                 "group_type": data.group.group_type.name if data.group else None,
                 "vaccine_name": data.vaccine_name,
@@ -463,7 +475,7 @@ def get_quarantine(
         if not perm:
             raise HttpError(404, f"Permission denied")
     farm = get_object_or_404(Farm, id=farm_id, organization=org)
-    qr = QuarantineRecord.objects.select_related("animal__species", "created_by").filter(farm=farm)
+    qr = QuarantineRecord.objects.select_related("animal__species", "animal__breed", "animal__livestock_species", "animal__livestock_breed", "created_by").filter(farm=farm)
     paginator = Paginator(qr, page_size)
     page_obj = paginator.page(page)
     # Serialization
@@ -473,8 +485,14 @@ def get_quarantine(
             {
                 "id":data.id,
                 "animal_tag": data.animal.tag_id if data.animal else None,
-                "species": data.animal.species.name if data.animal else None,
-                "breed": data.animal.breed.name if data.animal else None,
+                "species": (
+                    (data.animal.livestock_species.name if data.animal.livestock_species else (data.animal.species.name if data.animal.species else None))
+                    if data.animal else None
+                ),
+                "breed": (
+                    (data.animal.livestock_breed.name if data.animal.livestock_breed else (data.animal.breed.name if data.animal.breed else None))
+                    if data.animal else None
+                ),
                 "reason": data.reason,
                 "start_date": data.start_date,
                 "end_date": data.end_date,
@@ -597,7 +615,7 @@ def get_mortality(
         if not perm:
             raise HttpError(404, f"Permission denied")
     farm = get_object_or_404(Farm, id=farm_id, organization=org)
-    mt = MortalityRecord.objects.select_related("animal__species", "created_by").filter(farm=farm)
+    mt = MortalityRecord.objects.select_related("animal__species", "animal__breed", "animal__livestock_species", "animal__livestock_breed", "created_by").filter(farm=farm)
     paginator = Paginator(mt, page_size)
     page_obj = paginator.page(page)
     # Serialization
@@ -607,8 +625,14 @@ def get_mortality(
             {
                 "id":data.id,
                 "animal_tag": data.animal.tag_id if data.animal else None,
-                "species": data.animal.species.name if data.animal else None,
-                "breed": data.animal.breed.name if data.animal else None,
+                "species": (
+                    (data.animal.livestock_species.name if data.animal.livestock_species else (data.animal.species.name if data.animal.species else None))
+                    if data.animal else None
+                ),
+                "breed": (
+                    (data.animal.livestock_breed.name if data.animal.livestock_breed else (data.animal.breed.name if data.animal.breed else None))
+                    if data.animal else None
+                ),
                 "cause": data.cause,
                 "death_date": data.death_date,
                 "notes": data.notes,

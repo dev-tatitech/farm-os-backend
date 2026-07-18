@@ -170,17 +170,23 @@ def get_insemination(
         if not perm:
             raise HttpError(404, f"Permission denied")
     farm = get_object_or_404(Farm, id=farm_id, organization=org)
-    insemination = InseminationRecord.objects.select_related("animal__breed").filter(farm=farm)
+    insemination = InseminationRecord.objects.select_related(
+        "animal__breed", "animal__livestock_breed", "created_by",
+    ).filter(farm=farm)
     paginator = Paginator(insemination, page_size)
     page_obj = paginator.page(page)
     # Serialization
     serialized = []
     for data in page_obj.object_list:
+        a = data.animal
         serialized.append(
             {
-                "id":data.id,
-                "animal_tag": data.animal.tag_id,
-                "breed": data.animal.breed.name,
+                "id": data.id,
+                "animal_tag": a.tag_id if a else None,
+                "breed": (
+                    (a.livestock_breed.name if a.livestock_breed else (a.breed.name if a.breed else None))
+                    if a else None
+                ),
                 "date": data.service_date,
                 "method": data.method,
                 "sire_reference": data.sire_reference,
@@ -299,16 +305,22 @@ def get_pregnancy(
         if not perm:
             raise HttpError(404, f"Permission denied")
     farm = get_object_or_404(Farm, id=farm_id, organization=org)
-    pregnancy = PregnancyRecord.objects.select_related("animal__species", "insemination", "created_by").filter(farm=farm)
+    pregnancy = PregnancyRecord.objects.select_related(
+        "animal__species", "animal__livestock_species", "insemination", "created_by",
+    ).filter(farm=farm)
     paginator = Paginator(pregnancy, page_size)
     page_obj = paginator.page(page)
     # Serialization
     serialized = []
     for data in page_obj.object_list:
+        a = data.animal
         serialized.append(
             {
-                "id":data.id,
-                "animal": data.animal.species.name,
+                "id": data.id,
+                "animal": (
+                    (a.livestock_species.name if a.livestock_species else (a.species.name if a.species else None))
+                    if a else None
+                ),
                 "date": data.check_date,
                 "result": data.result,
                 "expected_delivery_date": data.expected_delivery_date,
@@ -423,18 +435,29 @@ def get_birth(
         if not perm:
             raise HttpError(404, f"Permission denied")
     farm = get_object_or_404(Farm, id=farm_id, organization=org)
-    birth = BirthRecord.objects.select_related("mother__species", "created_by").filter(farm=farm)
+    birth = BirthRecord.objects.select_related(
+        "mother__species", "mother__breed",
+        "mother__livestock_species", "mother__livestock_breed",
+        "created_by",
+    ).filter(farm=farm)
     paginator = Paginator(birth, page_size)
     page_obj = paginator.page(page)
     # Serialization
     serialized = []
     for data in page_obj.object_list:
+        m = data.mother
         serialized.append(
             {
-                "id":data.id,
-                "mother_tag": data.mother.tag_id,
-                "species": data.mother.species.name,
-                "breed": data.mother.breed.name,
+                "id": data.id,
+                "mother_tag": m.tag_id if m else None,
+                "species": (
+                    (m.livestock_species.name if m.livestock_species else (m.species.name if m.species else None))
+                    if m else None
+                ),
+                "breed": (
+                    (m.livestock_breed.name if m.livestock_breed else (m.breed.name if m.breed else None))
+                    if m else None
+                ),
                 "birth_date": data.birth_date,
                 "number_of_offspring": data.number_of_offspring,
                 "number_alive": data.number_alive,
@@ -442,7 +465,6 @@ def get_birth(
                 "notes": data.notes,
                 "created_at": data.created_at,
                 "created_by": data.created_by.email,
-             
             }
         )
     return 200, ListResponseSchema(
@@ -579,18 +601,29 @@ def get_birth_offspring(
         if not perm:
             raise HttpError(404, f"Permission denied")
     farm = get_object_or_404(Farm, id=farm_id, organization=org)
-    birth = BirthOffspringRecord.objects.select_related("offspring_animal", "birth_record").filter(farm=farm)
+    birth = BirthOffspringRecord.objects.select_related(
+        "offspring_animal__species", "offspring_animal__breed",
+        "offspring_animal__livestock_species", "offspring_animal__livestock_breed",
+        "birth_record",
+    ).filter(farm=farm)
     paginator = Paginator(birth, page_size)
     page_obj = paginator.page(page)
     # Serialization
     serialized = []
     for data in page_obj.object_list:
+        oa = data.offspring_animal
         serialized.append(
             {
-                "id":data.id,
-                "mother_tag": data.offspring_animal.tag_id,
-                "species": data.offspring_animal.species.name,
-                "breed": data.offspring_animal.breed.name,
+                "id": data.id,
+                "mother_tag": oa.tag_id if oa else None,
+                "species": (
+                    (oa.livestock_species.name if oa.livestock_species else (oa.species.name if oa.species else None))
+                    if oa else None
+                ),
+                "breed": (
+                    (oa.livestock_breed.name if oa.livestock_breed else (oa.breed.name if oa.breed else None))
+                    if oa else None
+                ),
                 "gender": data.gender,
                 "birth_weight": data.birth_weight,
                 "created_at": data.created_at,

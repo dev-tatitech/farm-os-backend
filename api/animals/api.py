@@ -278,6 +278,40 @@ def get_animal_by_id(
         data=serialized
     )
 
+@router.post("/animal/image/{animal_id}", response={200: APIResponse, 403: APIResponse})
+def update_animal_image(
+    request,
+    animal_id: int,
+    image: UploadedFile = File(...),
+):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+
+    animal = get_object_or_404(Animal, id=animal_id)
+
+    if animal.image:
+        try:
+            animal.image.delete(save=False)
+        except Exception:
+            pass
+
+    animal.image = image
+    animal.save(update_fields=["image"])
+
+    return 200, APIResponse(
+        success=True,
+        message="Animal image updated successfully",
+        data={"id": animal.id, "image_url": animal.image.url},
+    )
+
+
 @router.patch("/animal/{animal_id}/{farm_id}", response={200: APIResponse, 403: APIResponse},)
 def update_animal(
     request,
@@ -1878,40 +1912,6 @@ def update_animal_v2(
             "housing_unit": animal.housing_unit.name if animal.housing_unit else (animal.unit.name if animal.unit else None),
             "classification": animal.classification.name if animal.classification else None,
         },
-    )
-
-
-@router.post("/animal/image/{animal_id}", response={200: APIResponse, 403: APIResponse})
-def update_animal_image(
-    request,
-    animal_id: int,
-    image: UploadedFile = File(...),
-):
-    user_id = get_current_user(request)
-    try:
-        user = users.objects.get(Q(id=user_id))
-    except users.DoesNotExist:
-        return 403, APIResponse(success=False, message="Permission denied", data=None)
-
-    org = user.organization or user.organizations.first()
-    if not org:
-        raise HttpError(404, "Permission denied")
-
-    animal = get_object_or_404(Animal, id=animal_id)
-
-    if animal.image:
-        try:
-            animal.image.delete(save=False)
-        except Exception:
-            pass
-
-    animal.image = image
-    animal.save(update_fields=["image"])
-
-    return 200, APIResponse(
-        success=True,
-        message="Animal image updated successfully",
-        data={"id": animal.id, "image_url": animal.image.url},
     )
 
 

@@ -5,6 +5,94 @@ User = get_user_model()
 from django.utils import timezone
 from django.db import models, transaction
 
+
+class FeedCategory(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    is_system = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name_plural = "Feed Categories"
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
+class FeedUnit(models.Model):
+    name = models.CharField(max_length=50)
+    abbreviation = models.CharField(max_length=20, blank=True, null=True)
+    farm = models.ForeignKey(
+        "organization.Farm",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="custom_feed_units",
+    )
+    is_system = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["farm", "name"],
+                name="unique_feed_unit_per_farm",
+            )
+        ]
+
+    def __str__(self):
+        return self.name
+
+
+class FeedType(models.Model):
+    name = models.CharField(max_length=150)
+    category = models.ForeignKey(
+        FeedCategory,
+        on_delete=models.PROTECT,
+        related_name="feed_types",
+    )
+    species = models.ManyToManyField(
+        "admin_panel.LivestockSpecies",
+        related_name="feed_types",
+        blank=True,
+    )
+    farm = models.ForeignKey(
+        "organization.Farm",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="custom_feed_types",
+    )
+    description = models.TextField(null=True, blank=True)
+    manufacturer = models.CharField(max_length=150, null=True, blank=True)
+    is_system = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_feed_types",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["farm", "name"],
+                name="unique_feed_type_per_farm",
+            )
+        ]
+
+    def __str__(self):
+        return self.name
+
+
 class FeedInventory(models.Model):
     STATUS_CHOICES = [
         ("normal", "Normal"),
@@ -17,12 +105,26 @@ class FeedInventory(models.Model):
         related_name="feed_inventories"
     )
     feed_name = models.CharField(max_length=255)
+    feed_type = models.ForeignKey(
+        FeedType,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="inventories",
+    )
     quantity_available = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         default=0
     )
     unit = models.CharField(max_length=50)  # e.g. kg, bags, tons
+    feed_unit = models.ForeignKey(
+        FeedUnit,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="inventories",
+    )
     reorder_level = models.DecimalField(
         max_digits=10,
         decimal_places=2,

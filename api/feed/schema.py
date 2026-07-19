@@ -70,3 +70,37 @@ class FeedPlanSchemaV2(Schema):
     start_date: date
     end_date: Optional[date] = None
     notes: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# v3 schemas — Feed Master Data Framework
+# ---------------------------------------------------------------------------
+
+class FeedUnitSchemaIn(Schema):
+    name: str
+    abbreviation: Optional[str] = None
+
+
+class FeedTypeSchemaIn(Schema):
+    name: str
+    category_id: int
+    species_ids: List[int]
+    description: Optional[str] = None
+    manufacturer: Optional[str] = None
+
+
+class FeedTypeUpdateSchemaIn(Schema):
+    name: Optional[str] = None
+    category_id: Optional[int] = None
+    species_ids: Optional[List[int]] = None
+    description: Optional[str] = None
+    manufacturer: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class FeedInventorySchemaV3(Schema):
+    farm_id: int
+    feed_type_id: int
+    quantity_available: float
+    feed_unit_id: int
+    reorder_level: Optional[float] = None

@@ -345,28 +345,22 @@ def refresh_token(request):
 
 @router.post("/signout")
 def signout(request):
-    # Get refresh token from cookie
-    token = request.COOKIES.get("refresh_token")
+    domain = get_cookie_domain(request)
+    app_type = get_app_type(request)
+    ACCESS_COOKIE = f"{app_type}_access_token"
+    REFRESH_COOKIE = f"{app_type}_refresh_token"
+    CSRF_COOKIE = f"{app_type}_csrf_token"
+
     user_id = get_current_user(request)
     if user_id:
+        RefreshSession.objects.filter(user_id=user_id, is_active=True).update(is_active=False)
 
-        try:
-            session = RefreshSession.objects.get(user_id=user_id, is_active=True)
-            session.is_active = False
-            session.save()
-
-        except RefreshSession.DoesNotExist:
-            pass
     response = JsonResponse({"message": f"Signed out successfully"})
 
-    # Delete refresh token cookie by setting it to expired
-    response.delete_cookie("refresh_token", path="/")  # match your cookie path
-
-    # Also delete access token cookie
-    response.delete_cookie("access_token", path="/")
-
-    # Delete CSRF token cookie if applicable
-    response.delete_cookie("csrf_token", path="/")
+    # Delete cookies, matching the name/path/domain used when they were set
+    response.delete_cookie(REFRESH_COOKIE, path="/api/auth/refresh-token", domain=domain)
+    response.delete_cookie(ACCESS_COOKIE, path="/", domain=domain)
+    response.delete_cookie(CSRF_COOKIE, path="/", domain=domain)
 
     return response
 

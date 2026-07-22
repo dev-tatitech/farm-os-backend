@@ -218,8 +218,12 @@ def get_organization(request):
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(400, "Permission denied")
-    org = get_object_or_404(Organization, user =user)
-   
+    #org = get_object_or_404(Organization, user =user)
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not org:
+        raise HttpError(404, f"Permission denied")
     data = {
          "id": org.id,
          "name": org.name,
@@ -309,8 +313,16 @@ def get_farm(request):
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         return 403, APIResponse(success=False, message="Permission denied", data=None)
-    org = get_object_or_404(Organization, user =user)
-    farms = Farm.objects.filter(organization=org)
+    org = user.organization
+    farms = Farm.objects.filter(
+    userrole__user=user
+    ).distinct()
+    if not org:
+        org = user.organizations.first()
+        farms = Farm.objects.filter(organization=org)
+    if not org:
+        raise HttpError(404, f"Permission denied")
+    
     data = [
         {
             "id": farm.id,

@@ -36,7 +36,7 @@ import hmac
 import hashlib
 import json
 import os
-from account.helper import generate_unique_username, email_sender, send_account_otp_email, get_cookie_domain, get_app_type, save_uploaded_file
+from account.helper import generate_unique_username, email_sender, send_sub_account_otp_email, get_cookie_domain, get_app_type, save_uploaded_file
 from common.utils import generate_strong_password
 from django.db.models.functions import Round
 from django.db.models import Value
@@ -216,7 +216,7 @@ def add_user(request, payload: NewUserIn):
         organization = org,
         account_status = "inactive"
     )
-    send_account_otp_email(client,client.email)
+    send_sub_account_otp_email(client,client.email)
     return 200, APIResponse(
         success=True, message="New User added successfully", data=None
     )
@@ -267,7 +267,7 @@ def resent_otp_new_user(request, email: EmailStr):
     user = get_object_or_404(User, email = email)
     if user.account_status != "inactive":
         raise HttpError(400, "account already active")
-    send_account_otp_email(user,user.email)
+    send_sub_account_otp_email(user,user.email)
 
     return 200,APIResponse(
         success=True,

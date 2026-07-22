@@ -416,3 +416,115 @@ If you didn’t request this, please ignore this email.
         recipient_list=[email],
         fail_silently=False,
     )
+
+
+def send_sub_account_otp_email(user, email):
+    import random
+    from datetime import timedelta
+    from urllib.parse import urlencode
+    from django.utils import timezone
+    from django.core.mail import send_mail
+    from .models import EmailValidation
+
+    """
+    Sends account activation email (Tati FarmOS branded) for a new sub-account
+    or a resent activation request.
+    """
+
+    # Remove existing OTPs
+    EmailValidation.objects.filter(email=email).delete()
+
+    # Generate OTP
+    otp_code = str(random.randint(100000, 999999))
+    expires_at = timezone.now() + timedelta(minutes=10)
+
+    # Save OTP
+    EmailValidation.objects.create(
+        email=email,
+        code=otp_code,
+        expires_at=expires_at
+    )
+
+    activation_url = "https://www.tatifarmos.com/auth/activate?" + urlencode({
+        "email": email,
+        "otp": otp_code,
+    })
+
+    # Plain text email
+    plain_message = f"""
+Tati FarmOS
+
+Hi {user.first_name or "there"},
+
+An account on Tati FarmOS is waiting for you to activate. Open the link below to activate your account and set your password:
+
+{activation_url}
+
+This link expires in 10 minutes.
+
+If you didn’t request this, please ignore this email.
+
+— Tati FarmOS
+"""
+
+    # HTML email
+    html_message = f"""
+    <html>
+    <body style="margin:0;padding:0;background:#f9fafb;font-family:Arial, sans-serif;">
+
+        <div style="max-width:480px;margin:40px auto;background:#ffffff;
+                    padding:30px;border-radius:12px;
+                    box-shadow:0 2px 10px rgba(0,0,0,0.05);text-align:center;">
+
+            <!-- Brand -->
+            <p style="font-size:13px;color:#888;margin-bottom:5px;">
+                Tati FarmOS
+            </p>
+
+            <h2 style="margin:0 0 10px 0;color:#111;">
+                Activate your account
+            </h2>
+
+            <p style="color:#555;font-size:14px;">
+                Hi {user.first_name or "there"}, an account on Tati FarmOS is waiting for you to activate. Click the button below to activate your account and set your password.
+            </p>
+
+            <!-- CTA -->
+            <a href="{activation_url}" style="
+                display:inline-block;
+                margin:30px 0;
+                padding:14px 32px;
+                background:#111;
+                color:#ffffff;
+                font-size:16px;
+                font-weight:700;
+                text-decoration:none;
+                border-radius:8px;
+            ">
+                Activate Account
+            </a>
+
+            <p style="font-size:13px;color:#888;">
+                Expires in 10 minutes
+            </p>
+
+            <hr style="border:none;border-top:1px solid #eee;margin:25px 0;">
+
+            <p style="font-size:12px;color:#aaa;">
+                If you didn’t request this, you can safely ignore it.
+            </p>
+
+        </div>
+
+    </body>
+    </html>
+    """
+
+    send_mail(
+        subject="Activate your Tati FarmOS account",
+        message=plain_message,
+        html_message=html_message,
+        from_email="Tati FarmOS <noreply@shababhalal.com>",
+        recipient_list=[email],
+        fail_silently=False,
+    )

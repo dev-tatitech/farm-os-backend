@@ -47,6 +47,7 @@ from .models import (
     FarmType,
     Farm
 )
+from role.models import Role, UserRole
 from subcriptions.models import SubscriptionPlan, Subscription
 from common.utils import generate_ref
 from dateutil.relativedelta import relativedelta
@@ -344,3 +345,142 @@ def get_farm(request):
     return 200, APIResponse(
         success=True, message="farm fetch successfully", data=data
     )
+
+
+@router.get(
+    "/organization/dashboard/",
+    response={200: APIResponse, 403: APIResponse},
+)
+def organization_dashboard(request):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related(
+            "organization__industry_type", "organization__country", "organization__state_region"
+        ).get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+
+    org = user.organization or user.organizations.select_related(
+        "industry_type", "country", "state_region"
+    ).first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+
+    farms = Farm.objects.filter(organization=org).select_related("farm_type", "country", "state_region")
+
+    all_users = users.objects.filter(
+        Q(organization=org) | Q(id=org.user_id)
+    ).distinct().prefetch_related("user_roles__role", "user_roles__farm")
+
+    roles = Role.objects.filter(organization=org).annotate(user_count=Count("userrole", distinct=True))
+
+    subscription = Subscription.objects.select_related("plan").filter(organization=org).order_by("-start_date").first()
+
+    farm_type_counts = (
+        farms.values("farm_type__id", "farm_type__name", "farm_type__code")
+        .annotate(farm_count=Count("id"))
+        .order_by("-farm_count")
+    )
+
+    farms_data = [
+        {
+            "id": f.id,
+            "name": f.name,
+            "farm_code": f.farm_code,
+            "farm_type": f.farm_type.name if f.farm_type else None,
+            "farm_type_id": f.farm_type_id,
+            "country": f.country.name if f.country else None,
+            "state_region": f.state_region.name if f.state_region else None,
+            "city": f.city,
+            "is_primary": f.is_primary,
+            "status": f.status,
+            "created_at": f.created_at,
+        }
+        for f in farms
+    ]
+
+    users_data = []
+    for u in all_users:
+        assignments = [
+            {
+                "role": ur.role.name,
+                "farm": ur.farm.name if ur.farm else None,
+                "farm_id": ur.farm_id,
+            }
+            for ur in u.user_roles.all()
+        ]
+        users_data.append({
+            "id": u.id,
+            "email": u.email,
+            "username": u.username,
+            "account_status": u.account_status,
+            "is_owner": u.id == org.user_id,
+            "assignments": assignments,
+        })
+
+    roles_data = [
+        {
+            "id": r.id,
+            "name": r.name,
+            "code": r.code,
+            "description": r.description,
+            "user_count": r.user_count,
+        }
+        for r in roles
+    ]
+
+    farm_types_data = [
+        {
+            "id": row["farm_type__id"],
+            "name": row["farm_type__name"],
+            "code": row["farm_type__code"],
+            "farm_count": row["farm_count"],
+        }
+        for row in farm_type_counts
+        if row["farm_type__id"] is not None
+    ]
+
+    subscription_data = None
+    if subscription:
+        subscription_data = {
+            "plan": subscription.plan.name,
+            "billing_cycle": subscription.billing_cycle,
+            "price": subscription.price,
+            "status": subscription.status,
+            "start_date": subscription.start_date,
+            "end_date": subscription.end_date,
+            "auto_renew": subscription.auto_renew,
+            "max_users": subscription.plan.max_users,
+            "max_farms": subscription.plan.max_farms,
+            "max_batches": subscription.plan.max_batches,
+        }
+
+    data = {
+        "organization": {
+            "id": org.id,
+            "name": org.name,
+            "code": org.code,
+            "industry_type": org.industry_type.name if org.industry_type else None,
+            "country": org.country.name if org.country else None,
+            "state_region": org.state_region.name if org.state_region else None,
+            "status": org.status,
+            "created_at": org.created_at,
+        },
+        "subscription": subscription_data,
+        "summary": {
+            "total_farms": len(farms_data),
+            "active_farms": sum(1 for f in farms_data if f["status"] == "active"),
+            "total_users": len(users_data),
+            "active_users": sum(1 for u in users_data if u["account_status"] not in ("inactive", "Deleted")),
+            "total_roles": len(roles_data),
+        },
+        "farms": farms_data,
+        "farm_types": farm_types_data,
+        "users": users_data,
+        "roles": roles_data,
+    }
+
+    return 200, APIResponse(
+        success=True, message="organization dashboard fetch successfully", data=data
+    )
+

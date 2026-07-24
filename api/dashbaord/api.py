@@ -49,7 +49,7 @@ import uuid
 from admin_panel.models import UnitType, Species, Breed
 from admin_panel.models import LivestockSpecies, LivestockBreed, FarmHousingUnit, AnimalClassification
 from subcriptions.models import SubscriptionPlan, Subscription
-from common.utils import generate_ref
+from common.utils import generate_ref, resolve_trend_start, daily_trend_range, monthly_trend_range
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from django.http import JsonResponse
@@ -153,7 +153,10 @@ def main_dashboard(request, farm_id: int):
     milk_summary = DailyMilkSummary.objects.filter(farm_id=farm_id, date=today).first()
     milk_today = milk_summary.total_litres if milk_summary else 0
 
-    seven_days_ago = today - timedelta(days=6)
+    nominal_seven_days_ago = today - timedelta(days=6)
+    seven_days_ago = resolve_trend_start(
+        DailyMilkSummary.objects.filter(farm_id=farm_id), "date", nominal_seven_days_ago, today
+    )
     summaries = {
         s.date: s.total_litres
         for s in DailyMilkSummary.objects.filter(
@@ -164,10 +167,10 @@ def main_dashboard(request, farm_id: int):
     }
     production_trend = [
         {
-            "date": (seven_days_ago + timedelta(days=i)).isoformat(),
-            "total_litres": float(summaries.get(seven_days_ago + timedelta(days=i), 0)),
+            "date": d.isoformat(),
+            "total_litres": float(summaries.get(d, 0)),
         }
-        for i in range(7)
+        for d in daily_trend_range(seven_days_ago, today)
     ]
 
     from feed.models import FeedInventory, FeedIssuanceRecord, FeedConfirmationRecord
@@ -287,7 +290,7 @@ def livestock_dashboard(request, farm_id: int):
         {
             "id": a.id,
             "tag_id": a.tag_id,
-            "species": a.species.name,
+            "species": a.species.name if a.species else None,
             "health_status": a.health_status,
             "is_quarantine": a.is_quarantine,
         }
@@ -310,8 +313,8 @@ def livestock_dashboard(request, farm_id: int):
         {
             "id": a.id,
             "tag_id": a.tag_id,
-            "species": a.species.name,
-            "breed": a.breed.name,
+            "species": a.species.name if a.species else None,
+            "breed": a.breed.name if a.breed else None,
             "gender": a.gender,
             "dob": a.dob,
         }
@@ -320,9 +323,11 @@ def livestock_dashboard(request, farm_id: int):
 
     # ── Livestock population trend (last 12 months) ────────────────────────────
     today = timezone.localdate()
+    nominal_month_start = today.replace(day=1) - relativedelta(months=11)
+    current_month_start = today.replace(day=1)
+    population_window_start = resolve_trend_start(base_qs, "created_at", nominal_month_start, current_month_start)
     population_trend = []
-    for i in range(11, -1, -1):
-        month_start = (today.replace(day=1) - relativedelta(months=i))
+    for month_start in monthly_trend_range(population_window_start, current_month_start):
         month_end = month_start + relativedelta(months=1)
         count = base_qs.filter(created_at__date__gte=month_start, created_at__date__lt=month_end).count()
         population_trend.append({
@@ -332,13 +337,13 @@ def livestock_dashboard(request, farm_id: int):
 
     # ── Birth trend Mon–Sun this week ──────────────────────────────────────────
     week_monday = today - timedelta(days=today.weekday())
-    birth_by_day = {
-        (week_monday + timedelta(days=i)): 0 for i in range(7)
-    }
-    births_qs = base_qs.filter(
-        source_type="born",
-        dob__gte=week_monday,
-        dob__lte=week_monday + timedelta(days=6),
+    week_sunday = week_monday + timedelta(days=6)
+    births_base_qs = base_qs.filter(source_type="born")
+    birth_week_start = resolve_trend_start(births_base_qs, "dob", week_monday, week_sunday)
+    birth_by_day = {d: 0 for d in daily_trend_range(birth_week_start, week_sunday)}
+    births_qs = births_base_qs.filter(
+        dob__gte=birth_week_start,
+        dob__lte=week_sunday,
     ).values("dob").annotate(count=Count("id"))
     for row in births_qs:
         if row["dob"] in birth_by_day:
@@ -349,13 +354,12 @@ def livestock_dashboard(request, farm_id: int):
     ]
 
     # ── Mortality trend Mon–Sun this week ──────────────────────────────────────
-    mortality_by_day = {
-        (week_monday + timedelta(days=i)): 0 for i in range(7)
-    }
-    mortality_qs = MortalityRecord.objects.filter(
-        farm_id=farm_id,
-        death_date__gte=week_monday,
-        death_date__lte=week_monday + timedelta(days=6),
+    mortality_base_qs = MortalityRecord.objects.filter(farm_id=farm_id)
+    mortality_week_start = resolve_trend_start(mortality_base_qs, "death_date", week_monday, week_sunday)
+    mortality_by_day = {d: 0 for d in daily_trend_range(mortality_week_start, week_sunday)}
+    mortality_qs = mortality_base_qs.filter(
+        death_date__gte=mortality_week_start,
+        death_date__lte=week_sunday,
     ).values("death_date").annotate(count=Count("id"))
     for row in mortality_qs:
         if row["death_date"] in mortality_by_day:
@@ -375,7 +379,7 @@ def livestock_dashboard(request, farm_id: int):
         {
             "id": a.id,
             "tag_id": a.tag_id,
-            "species": a.species.name,
+            "species": a.species.name if a.species else None,
             "health_status": a.health_status,
             "is_quarantine": a.is_quarantine,
             "status": a.status,
@@ -645,11 +649,12 @@ def health_dashboard(request, farm_id: int):
     recovered = Animal.objects.filter(farm_id=farm_id, health_status="recovering").count()
 
     # ── Disease trend Mon–Sun this week ────────────────────────────────────────
-    disease_by_day = {week_monday + timedelta(days=i): 0 for i in range(7)}
+    disease_base_qs = TreatmentRecord.objects.filter(farm_id=farm_id)
+    disease_week_start = resolve_trend_start(disease_base_qs, "treatment_date", week_monday, week_sunday)
+    disease_by_day = {d: 0 for d in daily_trend_range(disease_week_start, week_sunday)}
     disease_qs = (
-        TreatmentRecord.objects.filter(
-            farm_id=farm_id,
-            treatment_date__gte=week_monday,
+        disease_base_qs.filter(
+            treatment_date__gte=disease_week_start,
             treatment_date__lte=week_sunday,
         )
         .values("treatment_date")
@@ -934,11 +939,12 @@ def transaction_dashboard(request, farm_id: int):
         })
 
     # ── Sales trend Mon–Sun this week ──────────────────────────────────────────
-    sales_by_day = {week_monday + timedelta(days=i): 0 for i in range(7)}
+    sales_base_qs = SalesRecord.objects.filter(farm_id=farm_id)
+    sales_week_start = resolve_trend_start(sales_base_qs, "sale_date", week_monday, week_sunday)
+    sales_by_day = {d: 0 for d in daily_trend_range(sales_week_start, week_sunday)}
     sales_trend_qs = (
-        SalesRecord.objects.filter(
-            farm_id=farm_id,
-            sale_date__date__gte=week_monday,
+        sales_base_qs.filter(
+            sale_date__date__gte=sales_week_start,
             sale_date__date__lte=week_sunday,
         )
         .values("sale_date__date")
@@ -954,11 +960,12 @@ def transaction_dashboard(request, farm_id: int):
     ]
 
     # ── Mortality trend Mon–Sun this week ──────────────────────────────────────
-    mortality_by_day = {week_monday + timedelta(days=i): 0 for i in range(7)}
+    mortality_base_qs = MortalityRecord.objects.filter(farm_id=farm_id)
+    mortality_week_start = resolve_trend_start(mortality_base_qs, "death_date", week_monday, week_sunday)
+    mortality_by_day = {d: 0 for d in daily_trend_range(mortality_week_start, week_sunday)}
     mortality_trend_qs = (
-        MortalityRecord.objects.filter(
-            farm_id=farm_id,
-            death_date__gte=week_monday,
+        mortality_base_qs.filter(
+            death_date__gte=mortality_week_start,
             death_date__lte=week_sunday,
         )
         .values("death_date")
@@ -1227,11 +1234,12 @@ def feed_inventory_dashboard(request, farm_id: int):
     )
 
     # ── Stock trend Mon–Sun this week ──────────────────────────────────────────
-    stock_by_day = {week_monday + timedelta(days=i): 0 for i in range(7)}
+    issuance_base_qs = FeedIssuanceRecord.objects.filter(farm_id=farm_id)
+    feed_week_start = resolve_trend_start(issuance_base_qs, "issue_date", week_monday, week_sunday)
+    stock_by_day = {d: 0 for d in daily_trend_range(feed_week_start, week_sunday)}
     stock_trend_qs = (
-        FeedIssuanceRecord.objects.filter(
-            farm_id=farm_id,
-            issue_date__gte=week_monday,
+        issuance_base_qs.filter(
+            issue_date__gte=feed_week_start,
             issue_date__lte=week_sunday,
         )
         .values("issue_date")
@@ -1266,8 +1274,10 @@ def feed_inventory_dashboard(request, farm_id: int):
     ]
 
     # ── Issued vs Used Feed Mon–Sun this week ──────────────────────────────────
-    issued_by_day = {week_monday + timedelta(days=i): 0 for i in range(7)}
-    used_by_day = {week_monday + timedelta(days=i): 0 for i in range(7)}
+    # shares feed_week_start with the stock trend above so both series cover the
+    # same days (used_by_day must have every key issued_by_day has)
+    issued_by_day = {d: 0 for d in daily_trend_range(feed_week_start, week_sunday)}
+    used_by_day = {d: 0 for d in daily_trend_range(feed_week_start, week_sunday)}
 
     for row in stock_trend_qs:
         if row["issue_date"] in issued_by_day:
@@ -1276,7 +1286,7 @@ def feed_inventory_dashboard(request, farm_id: int):
     used_qs = (
         FeedConfirmationRecord.objects.filter(
             farm__id=farm_id,
-            confirmation_date__gte=week_monday,
+            confirmation_date__gte=feed_week_start,
             confirmation_date__lte=week_sunday,
         )
         .values("confirmation_date")
@@ -1868,9 +1878,10 @@ def livestock_report_dashboard(
             return 4
         return 5
 
-    lifecycle_by_day = {week_monday + timedelta(days=i): 0 for i in range(7)}
+    lifecycle_week_start = resolve_trend_start(base_qs, "created_at", week_monday, week_sunday)
+    lifecycle_by_day = {d: 0 for d in daily_trend_range(lifecycle_week_start, week_sunday)}
     new_animals_qs = base_qs.filter(
-        created_at__date__gte=week_monday,
+        created_at__date__gte=lifecycle_week_start,
         created_at__date__lte=week_sunday,
     ).values("created_at__date").annotate(count=Count("id"))
     for row in new_animals_qs:
@@ -2022,10 +2033,11 @@ def production_report(
     ).count()
 
     # ── Milk trend Mon–Sun this week ───────────────────────────────────────────
-    milk_by_day = {week_monday + timedelta(days=i): 0.0 for i in range(7)}
-    milk_trend_qs = DailyMilkSummary.objects.filter(
-        farm_id=farm_id,
-        date__gte=week_monday,
+    milk_base_qs = DailyMilkSummary.objects.filter(farm_id=farm_id)
+    milk_week_start = resolve_trend_start(milk_base_qs, "date", week_monday, week_sunday)
+    milk_by_day = {d: 0.0 for d in daily_trend_range(milk_week_start, week_sunday)}
+    milk_trend_qs = milk_base_qs.filter(
+        date__gte=milk_week_start,
         date__lte=week_sunday,
     ).values("date", "total_litres")
     for row in milk_trend_qs:
@@ -2176,11 +2188,12 @@ def health_report(
     mortality = MortalityRecord.objects.filter(farm_id=farm_id).count()
 
     # ── Disease trend Mon–Sun this week ────────────────────────────────────────
-    disease_by_day = {week_monday + timedelta(days=i): 0 for i in range(7)}
+    disease_base_qs = TreatmentRecord.objects.filter(farm_id=farm_id)
+    disease_week_start = resolve_trend_start(disease_base_qs, "treatment_date", week_monday, week_sunday)
+    disease_by_day = {d: 0 for d in daily_trend_range(disease_week_start, week_sunday)}
     disease_qs = (
-        TreatmentRecord.objects.filter(
-            farm_id=farm_id,
-            treatment_date__gte=week_monday,
+        disease_base_qs.filter(
+            treatment_date__gte=disease_week_start,
             treatment_date__lte=week_sunday,
         )
         .values("treatment_date")
@@ -2338,11 +2351,14 @@ def feed_report(
     low_stock = FeedInventory.objects.filter(farm_id=farm_id, status="low_stock").count()
 
     # ── Feed consumption trend Mon–Sun this week ───────────────────────────────
-    consumption_by_day = {week_monday + timedelta(days=i): 0.0 for i in range(7)}
+    confirmation_base_qs = FeedConfirmationRecord.objects.filter(farm__id=farm_id)
+    consumption_week_start = resolve_trend_start(
+        confirmation_base_qs, "confirmation_date", week_monday, week_sunday
+    )
+    consumption_by_day = {d: 0.0 for d in daily_trend_range(consumption_week_start, week_sunday)}
     consumption_qs = (
-        FeedConfirmationRecord.objects.filter(
-            farm__id=farm_id,
-            confirmation_date__gte=week_monday,
+        confirmation_base_qs.filter(
+            confirmation_date__gte=consumption_week_start,
             confirmation_date__lte=week_sunday,
         )
         .values("confirmation_date")
@@ -2357,13 +2373,16 @@ def feed_report(
     ]
 
     # ── Issued vs Used Feed Mon–Sun this week ──────────────────────────────────
-    issued_by_day = {week_monday + timedelta(days=i): 0.0 for i in range(7)}
-    used_by_day = {week_monday + timedelta(days=i): 0.0 for i in range(7)}
+    # issued_by_day/used_by_day share one window (based on issuance data) since
+    # issued_vs_used below indexes both dicts by the same day
+    issuance_base_qs = FeedIssuanceRecord.objects.filter(farm_id=farm_id)
+    feed_week_start = resolve_trend_start(issuance_base_qs, "issue_date", week_monday, week_sunday)
+    issued_by_day = {d: 0.0 for d in daily_trend_range(feed_week_start, week_sunday)}
+    used_by_day = {d: 0.0 for d in daily_trend_range(feed_week_start, week_sunday)}
 
     issued_qs = (
-        FeedIssuanceRecord.objects.filter(
-            farm_id=farm_id,
-            issue_date__gte=week_monday,
+        issuance_base_qs.filter(
+            issue_date__gte=feed_week_start,
             issue_date__lte=week_sunday,
         )
         .values("issue_date")
@@ -2373,7 +2392,15 @@ def feed_report(
         if row["issue_date"] in issued_by_day:
             issued_by_day[row["issue_date"]] = float(row["total"])
 
-    for row in consumption_qs:
+    used_qs = (
+        confirmation_base_qs.filter(
+            confirmation_date__gte=feed_week_start,
+            confirmation_date__lte=week_sunday,
+        )
+        .values("confirmation_date")
+        .annotate(total=Sum("actual_used_quantity"))
+    )
+    for row in used_qs:
         if row["confirmation_date"] in used_by_day:
             used_by_day[row["confirmation_date"]] = float(row["total"])
 
@@ -2550,7 +2577,10 @@ def main_dashboard_v2(request, farm_id: int):
     milk_summary = DailyMilkSummary.objects.filter(farm_id=farm_id, date=today).first()
     milk_today = milk_summary.total_litres if milk_summary else 0
 
-    seven_days_ago = today - timedelta(days=6)
+    nominal_seven_days_ago = today - timedelta(days=6)
+    seven_days_ago = resolve_trend_start(
+        DailyMilkSummary.objects.filter(farm_id=farm_id), "date", nominal_seven_days_ago, today
+    )
     summaries = {
         s.date: s.total_litres
         for s in DailyMilkSummary.objects.filter(
@@ -2561,10 +2591,10 @@ def main_dashboard_v2(request, farm_id: int):
     }
     production_trend = [
         {
-            "date": (seven_days_ago + timedelta(days=i)).isoformat(),
-            "total_litres": float(summaries.get(seven_days_ago + timedelta(days=i), 0)),
+            "date": d.isoformat(),
+            "total_litres": float(summaries.get(d, 0)),
         }
-        for i in range(7)
+        for d in daily_trend_range(seven_days_ago, today)
     ]
 
     from feed.models import FeedInventory, FeedIssuanceRecord, FeedConfirmationRecord
@@ -2727,9 +2757,11 @@ def livestock_dashboard_v2(request, farm_id: int):
 
     # ── Livestock population trend (last 12 months) ────────────────────────────
     today = timezone.localdate()
+    nominal_month_start = today.replace(day=1) - relativedelta(months=11)
+    current_month_start = today.replace(day=1)
+    population_window_start = resolve_trend_start(base_qs, "created_at", nominal_month_start, current_month_start)
     population_trend = []
-    for i in range(11, -1, -1):
-        month_start = (today.replace(day=1) - relativedelta(months=i))
+    for month_start in monthly_trend_range(population_window_start, current_month_start):
         month_end = month_start + relativedelta(months=1)
         count = base_qs.filter(created_at__date__gte=month_start, created_at__date__lt=month_end).count()
         population_trend.append({
@@ -2739,13 +2771,13 @@ def livestock_dashboard_v2(request, farm_id: int):
 
     # ── Birth trend Mon–Sun this week ──────────────────────────────────────────
     week_monday = today - timedelta(days=today.weekday())
-    birth_by_day = {
-        (week_monday + timedelta(days=i)): 0 for i in range(7)
-    }
-    births_qs = base_qs.filter(
-        source_type="born",
-        dob__gte=week_monday,
-        dob__lte=week_monday + timedelta(days=6),
+    week_sunday = week_monday + timedelta(days=6)
+    births_base_qs = base_qs.filter(source_type="born")
+    birth_week_start = resolve_trend_start(births_base_qs, "dob", week_monday, week_sunday)
+    birth_by_day = {d: 0 for d in daily_trend_range(birth_week_start, week_sunday)}
+    births_qs = births_base_qs.filter(
+        dob__gte=birth_week_start,
+        dob__lte=week_sunday,
     ).values("dob").annotate(count=Count("id"))
     for row in births_qs:
         if row["dob"] in birth_by_day:
@@ -2756,13 +2788,12 @@ def livestock_dashboard_v2(request, farm_id: int):
     ]
 
     # ── Mortality trend Mon–Sun this week ──────────────────────────────────────
-    mortality_by_day = {
-        (week_monday + timedelta(days=i)): 0 for i in range(7)
-    }
-    mortality_qs = MortalityRecord.objects.filter(
-        farm_id=farm_id,
-        death_date__gte=week_monday,
-        death_date__lte=week_monday + timedelta(days=6),
+    mortality_base_qs = MortalityRecord.objects.filter(farm_id=farm_id)
+    mortality_week_start = resolve_trend_start(mortality_base_qs, "death_date", week_monday, week_sunday)
+    mortality_by_day = {d: 0 for d in daily_trend_range(mortality_week_start, week_sunday)}
+    mortality_qs = mortality_base_qs.filter(
+        death_date__gte=mortality_week_start,
+        death_date__lte=week_sunday,
     ).values("death_date").annotate(count=Count("id"))
     for row in mortality_qs:
         if row["death_date"] in mortality_by_day:
@@ -3059,11 +3090,12 @@ def health_dashboard_v2(request, farm_id: int):
     recovered = Animal.objects.filter(farm_id=farm_id, health_status="recovering").count()
 
     # ── Disease trend Mon–Sun this week ────────────────────────────────────────
-    disease_by_day = {week_monday + timedelta(days=i): 0 for i in range(7)}
+    disease_base_qs = TreatmentRecord.objects.filter(farm_id=farm_id)
+    disease_week_start = resolve_trend_start(disease_base_qs, "treatment_date", week_monday, week_sunday)
+    disease_by_day = {d: 0 for d in daily_trend_range(disease_week_start, week_sunday)}
     disease_qs = (
-        TreatmentRecord.objects.filter(
-            farm_id=farm_id,
-            treatment_date__gte=week_monday,
+        disease_base_qs.filter(
+            treatment_date__gte=disease_week_start,
             treatment_date__lte=week_sunday,
         )
         .values("treatment_date")
@@ -3364,11 +3396,12 @@ def transaction_dashboard_v2(request, farm_id: int):
         })
 
     # ── Sales trend Mon–Sun this week ──────────────────────────────────────────
-    sales_by_day = {week_monday + timedelta(days=i): 0 for i in range(7)}
+    sales_base_qs = SalesRecord.objects.filter(farm_id=farm_id)
+    sales_week_start = resolve_trend_start(sales_base_qs, "sale_date", week_monday, week_sunday)
+    sales_by_day = {d: 0 for d in daily_trend_range(sales_week_start, week_sunday)}
     sales_trend_qs = (
-        SalesRecord.objects.filter(
-            farm_id=farm_id,
-            sale_date__date__gte=week_monday,
+        sales_base_qs.filter(
+            sale_date__date__gte=sales_week_start,
             sale_date__date__lte=week_sunday,
         )
         .values("sale_date__date")
@@ -3384,11 +3417,12 @@ def transaction_dashboard_v2(request, farm_id: int):
     ]
 
     # ── Mortality trend Mon–Sun this week ──────────────────────────────────────
-    mortality_by_day = {week_monday + timedelta(days=i): 0 for i in range(7)}
+    mortality_base_qs = MortalityRecord.objects.filter(farm_id=farm_id)
+    mortality_week_start = resolve_trend_start(mortality_base_qs, "death_date", week_monday, week_sunday)
+    mortality_by_day = {d: 0 for d in daily_trend_range(mortality_week_start, week_sunday)}
     mortality_trend_qs = (
-        MortalityRecord.objects.filter(
-            farm_id=farm_id,
-            death_date__gte=week_monday,
+        mortality_base_qs.filter(
+            death_date__gte=mortality_week_start,
             death_date__lte=week_sunday,
         )
         .values("death_date")
@@ -3673,11 +3707,12 @@ def feed_inventory_dashboard_v2(request, farm_id: int):
     )
 
     # ── Stock trend Mon–Sun this week ──────────────────────────────────────────
-    stock_by_day = {week_monday + timedelta(days=i): 0 for i in range(7)}
+    issuance_base_qs = FeedIssuanceRecord.objects.filter(farm_id=farm_id)
+    feed_week_start = resolve_trend_start(issuance_base_qs, "issue_date", week_monday, week_sunday)
+    stock_by_day = {d: 0 for d in daily_trend_range(feed_week_start, week_sunday)}
     stock_trend_qs = (
-        FeedIssuanceRecord.objects.filter(
-            farm_id=farm_id,
-            issue_date__gte=week_monday,
+        issuance_base_qs.filter(
+            issue_date__gte=feed_week_start,
             issue_date__lte=week_sunday,
         )
         .values("issue_date")
@@ -3712,8 +3747,10 @@ def feed_inventory_dashboard_v2(request, farm_id: int):
     ]
 
     # ── Issued vs Used Feed Mon–Sun this week ──────────────────────────────────
-    issued_by_day = {week_monday + timedelta(days=i): 0 for i in range(7)}
-    used_by_day = {week_monday + timedelta(days=i): 0 for i in range(7)}
+    # shares feed_week_start with the stock trend above so both series cover the
+    # same days (used_by_day must have every key issued_by_day has)
+    issued_by_day = {d: 0 for d in daily_trend_range(feed_week_start, week_sunday)}
+    used_by_day = {d: 0 for d in daily_trend_range(feed_week_start, week_sunday)}
 
     for row in stock_trend_qs:
         if row["issue_date"] in issued_by_day:
@@ -3722,7 +3759,7 @@ def feed_inventory_dashboard_v2(request, farm_id: int):
     used_qs = (
         FeedConfirmationRecord.objects.filter(
             farm__id=farm_id,
-            confirmation_date__gte=week_monday,
+            confirmation_date__gte=feed_week_start,
             confirmation_date__lte=week_sunday,
         )
         .values("confirmation_date")
@@ -3976,9 +4013,10 @@ def livestock_report_dashboard_v2(
     ]
 
     # ── Lifecycle distribution Mon–Sun this week ───────────────────────────────
-    lifecycle_by_day = {week_monday + timedelta(days=i): 0 for i in range(7)}
+    lifecycle_week_start = resolve_trend_start(base_qs, "created_at", week_monday, week_sunday)
+    lifecycle_by_day = {d: 0 for d in daily_trend_range(lifecycle_week_start, week_sunday)}
     new_animals_qs = base_qs.filter(
-        created_at__date__gte=week_monday,
+        created_at__date__gte=lifecycle_week_start,
         created_at__date__lte=week_sunday,
     ).values("created_at__date").annotate(count=Count("id"))
     for row in new_animals_qs:
@@ -4123,10 +4161,11 @@ def production_report_v2(
     ).count()
 
     # ── Milk trend Mon–Sun this week ───────────────────────────────────────────
-    milk_by_day = {week_monday + timedelta(days=i): 0.0 for i in range(7)}
-    milk_trend_qs = DailyMilkSummary.objects.filter(
-        farm_id=farm_id,
-        date__gte=week_monday,
+    milk_base_qs = DailyMilkSummary.objects.filter(farm_id=farm_id)
+    milk_week_start = resolve_trend_start(milk_base_qs, "date", week_monday, week_sunday)
+    milk_by_day = {d: 0.0 for d in daily_trend_range(milk_week_start, week_sunday)}
+    milk_trend_qs = milk_base_qs.filter(
+        date__gte=milk_week_start,
         date__lte=week_sunday,
     ).values("date", "total_litres")
     for row in milk_trend_qs:

@@ -6,6 +6,8 @@ from .models import (
     FeedCategory,
     FeedUnit,
     FeedType,
+    FeedBatch,
+    FeedCostAllocation,
 )
 # Register your models here.
 @admin.register(FeedInventory)
@@ -31,3 +33,12 @@ class FeedUnitAdmin(admin.ModelAdmin):
 @admin.register(FeedType)
 class FeedTypeAdmin(admin.ModelAdmin):
     list_display = ["id", "name", "category", "farm", "is_system", "is_active"]
+
+@admin.register(FeedBatch)
+class FeedBatchAdmin(admin.ModelAdmin):
+    list_display = ["id", "feed_type", "farm", "batch_number", "quantity_available", "expiry_date", "status"]
+    list_filter = ["status"]
+
+@admin.register(FeedCostAllocation)
+class FeedCostAllocationAdmin(admin.ModelAdmin):
+    list_display = ["id", "feed_issuance", "animal", "allocated_quantity", "allocated_cost"]

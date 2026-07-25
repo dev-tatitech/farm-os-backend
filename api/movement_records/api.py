@@ -10,11 +10,16 @@ from organization.models import Farm
 from animals.models import Animal, AnimalGroup
 from farms.models import FarmUnit
 from admin_panel.models import FarmHousingUnit
-from .models import MovementRecord, SalesRecord
+from .models import MovementRecord, SalesRecord, SalePolicy
 from .schema import MovementRecordSchema, MoveSchemaV2, SalesRecordSchema
+from .sale_readiness import evaluate_sale_readiness
+from .profitability import calculate_profitability
+from .seed import seed_sale_policies
+from admin_panel.models import LivestockSpecies, LivestockBreed
 from core.schema import APIResponse
 from common.permission_checker import user_has_permission
 from common.permissions import Permissions
+from django.utils import timezone
 
 router = Router(tags=["MovementRecords"])
 
@@ -203,6 +208,13 @@ def create_sale(request, payload: SalesRecordSchema):
     if animal.status in ["sold", "dead"]:
         raise HttpError(400, "Only active animals can be sold")
 
+    is_override = bool(payload.override_reason)
+    if is_override:
+        override_perm = user_has_permission(user, Permissions.SalesRecord.RESTRICTION_OVERRIDE)
+        if not user.organizations.first():
+            if not override_perm:
+                raise HttpError(403, "Permission denied: overriding sale restrictions requires explicit authorization")
+
     sale = SalesRecord(
         farm=farm,
         animal=animal,
@@ -213,12 +225,23 @@ def create_sale(request, payload: SalesRecordSchema):
         notes=payload.notes,
         created_by=user,
     )
+    if is_override:
+        sale._override_restriction = True
 
     try:
         with db_transaction.atomic():
             sale.save()
     except Exception as exc:
         raise HttpError(400, str(exc))
+
+    if is_override:
+        from common.audit import log_audit
+        log_audit(
+            user=user, action="override_sale_restriction", source_module="movement_records",
+            object_type="SalesRecord", object_id=sale.id,
+            previous_value="blocked by sale restriction check", new_value="created via authorized override",
+            reason=payload.override_reason,
+        )
 
     return 200, APIResponse(
         success=True,
@@ -504,3 +527,152 @@ def get_movement_v2(request, movement_id: int):
     }
 
     return 200, APIResponse(success=True, message="Movement record", data=data)
+
+
+# ─── Sale Readiness & Profitability (Phase 4) ─────────────────────────────────
+
+@router.post("/sale-policy/seed/", response={200: APIResponse, 403: APIResponse})
+def seed_sale_policy(request):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    if not user.is_superuser:
+        raise HttpError(403, "Permission Denied")
+
+    created = seed_sale_policies()
+    return 200, APIResponse(success=True, message="Sale policies seeded successfully", data={"created": created})
+
+
+@router.get("/sale-policy/{species_id}/", response={200: APIResponse, 403: APIResponse})
+def get_sale_policy(request, species_id: int, farm_id: int = None):
+    user_id = get_current_user(request)
+    try:
+        users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+
+    species = get_object_or_404(LivestockSpecies, id=species_id, is_active=True)
+    qs = SalePolicy.objects.filter(species=species, is_active=True)
+    qs = qs.filter(Q(farm_id=farm_id) | Q(farm=None)) if farm_id else qs.filter(farm=None)
+    data = list(qs.values(
+        "id", "breed_id", "farm_id", "target_sale_weight_kg", "min_sale_age_months",
+        "allow_pregnant_sale", "require_sale_approval", "expected_sale_expenses_pct",
+        "approaching_ready_threshold_pct", "sale_recommended_margin_pct", "is_system",
+    ))
+    return 200, APIResponse(success=True, message="Sale policies", data=data)
+
+
+@router.post("/sale-policy/", response={200: APIResponse, 403: APIResponse})
+def create_farm_sale_policy(
+    request, farm_id: int, species_id: int, breed_id: int = None,
+    target_sale_weight_kg: float = None, min_sale_age_months: float = None,
+    allow_pregnant_sale: bool = False, require_sale_approval: bool = False,
+    expected_sale_expenses_pct: float = 0, approaching_ready_threshold_pct: float = 85,
+    sale_recommended_margin_pct: float = 15,
+):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(403, "Permission denied")
+    perm = user_has_permission(user, Permissions.SalesRecord.UPDATE)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(403, "Permission denied: configuring species sale policy requires explicit authorization")
+
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    species = get_object_or_404(LivestockSpecies, id=species_id, is_active=True)
+    breed = get_object_or_404(LivestockBreed, id=breed_id) if breed_id else None
+
+    policy, created = SalePolicy.objects.update_or_create(
+        species=species, breed=breed, farm=farm,
+        defaults=dict(
+            target_sale_weight_kg=target_sale_weight_kg,
+            min_sale_age_months=min_sale_age_months,
+            allow_pregnant_sale=allow_pregnant_sale,
+            require_sale_approval=require_sale_approval,
+            expected_sale_expenses_pct=expected_sale_expenses_pct,
+            approaching_ready_threshold_pct=approaching_ready_threshold_pct,
+            sale_recommended_margin_pct=sale_recommended_margin_pct,
+            is_system=False,
+        ),
+    )
+    return 200, APIResponse(
+        success=True,
+        message="Farm sale policy saved" if created else "Farm sale policy updated",
+        data={"id": policy.id},
+    )
+
+
+@router.get("/sale-readiness/{animal_id}/", response={200: APIResponse, 403: APIResponse})
+def get_sale_readiness(request, animal_id: int, expected_sale_price: float = None):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+
+    animal = get_object_or_404(Animal, id=animal_id, farm__organization=org)
+    result = evaluate_sale_readiness(animal, farm=animal.farm, expected_sale_price=expected_sale_price)
+    return 200, APIResponse(success=True, message="Sale readiness", data=result)
+
+
+@router.get("/animal-profitability/{animal_id}/", response={200: APIResponse, 403: APIResponse})
+def get_animal_profitability(request, animal_id: int, expected_sale_price: float = None, price_per_kg: float = None):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+
+    animal = get_object_or_404(Animal, id=animal_id, farm__organization=org)
+    result = calculate_profitability(
+        animal, expected_sale_price=expected_sale_price, price_per_kg=price_per_kg, farm=animal.farm
+    )
+    return 200, APIResponse(success=True, message="Animal profitability", data=result)
+
+
+@router.post("/sale-approval/{animal_id}/", response={200: APIResponse, 403: APIResponse})
+def approve_animal_sale(request, animal_id: int, reason: str = ""):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(403, "Permission denied")
+    perm = user_has_permission(user, Permissions.SalesRecord.UPDATE)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(403, "Permission denied")
+
+    animal = get_object_or_404(Animal, id=animal_id, farm__organization=org)
+    previous = animal.sale_approved
+    animal.sale_approved = True
+    animal.sale_approved_by = user
+    animal.sale_approved_at = timezone.now()
+    animal.save(update_fields=["sale_approved", "sale_approved_by", "sale_approved_at"])
+
+    from common.audit import log_audit
+    log_audit(
+        user=user, action="approve_animal_sale", source_module="movement_records",
+        object_type="Animal", object_id=animal.id,
+        previous_value=f"sale_approved={previous}", new_value="sale_approved=True", reason=reason,
+    )
+
+    return 200, APIResponse(
+        success=True, message="Sale approved",
+        data={"animal_id": animal.id, "sale_approved": True, "sale_approved_by": user.email},
+    )

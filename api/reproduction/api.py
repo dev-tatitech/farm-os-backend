@@ -57,7 +57,8 @@ from .models import (
     InseminationRecord,
     PregnancyRecord,
     BirthRecord,
-    BirthOffspringRecord
+    BirthOffspringRecord,
+    BreedingEligibilityRule,
     )
 from core.models import GroupType
 from django.core.exceptions import ValidationError
@@ -68,8 +69,12 @@ from .schema import (
     PregnancyRecordIn,
     BirthRecordIn,
     BirthOffspringRecordIn
- 
+
 )
+from .eligibility import check_breeding_eligibility, resolve_breeding_rule
+from .seed import seed_breeding_rules
+from admin_panel.models import LivestockSpecies, LivestockBreed
+from animals.models import Animal
 from animals.event import new_event
 router = Router(tags=["Reproduction"])
 @router.post("/insemination/", response={200: APIResponse, 403: APIResponse},)
@@ -97,10 +102,19 @@ def insemination(
     animal = get_object_or_404(Animal, id = payload.animal_id, farm = farm)
     if InseminationRecord.objects.filter(farm=farm,animal=animal).exists():
         raise HttpError(409, "this record already exists")
-    if animal.gender !="female":
-        raise HttpError(400, "Insemination can only be performed on female animals.")
-    if animal.is_pregnant:
-        raise HttpError(400,"This animal is already pregnant")
+
+    is_override = bool(payload.override_reason)
+    if is_override:
+        override_perm = user_has_permission(user, Permissions.Reproduction.RESTRICTION_OVERRIDE)
+        if not user.organizations.first():
+            if not override_perm:
+                raise HttpError(403, "Permission denied: overriding reproduction restrictions requires explicit authorization")
+    else:
+        if animal.gender !="female":
+            raise HttpError(400, "Insemination can only be performed on female animals.")
+        if animal.is_pregnant:
+            raise HttpError(400,"This animal is already pregnant")
+
     insemination_data = {
     "farm": farm,
     "animal": animal,
@@ -117,6 +131,8 @@ def insemination(
     insemination = InseminationRecord(
         **insemination_data
     )
+    if is_override:
+        insemination._override_eligibility = True
     try:
         insemination.full_clean()
         insemination.save()
@@ -124,6 +140,16 @@ def insemination(
         return JsonResponse({
         "errors": e.message_dict
         }, status=400)
+
+    if is_override:
+        from common.audit import log_audit
+        log_audit(
+            user=user, action="override_reproduction_restriction", source_module="reproduction",
+            object_type="InseminationRecord", object_id=insemination.id,
+            previous_value="blocked by breeding eligibility check", new_value="created via authorized override",
+            reason=payload.override_reason,
+        )
+
     new_event(
         insemination.farm, 
         insemination.animal,
@@ -230,10 +256,19 @@ def pregnancy(
         
     farm = get_object_or_404(Farm, id =payload.farm_id, organization = org)
     animal = get_object_or_404(Animal, id = payload.animal_id, farm = farm)
-    if animal.gender !="female":
-        raise HttpError(400, "Insemination can only be performed on female animals.")
-    if animal.is_pregnant:
-        raise HttpError(400,"This animal is already pregnant")
+
+    is_override = bool(payload.override_reason)
+    if is_override:
+        override_perm = user_has_permission(user, Permissions.Reproduction.RESTRICTION_OVERRIDE)
+        if not user.organizations.first():
+            if not override_perm:
+                raise HttpError(403, "Permission denied: overriding reproduction restrictions requires explicit authorization")
+    else:
+        if animal.gender !="female":
+            raise HttpError(400, "Insemination can only be performed on female animals.")
+        if animal.is_pregnant:
+            raise HttpError(400,"This animal is already pregnant")
+
     pregnancy_data = {
     "farm": farm,
     "animal": animal,
@@ -251,6 +286,8 @@ def pregnancy(
     pregnancy = PregnancyRecord(
         **pregnancy_data
     )
+    if is_override:
+        pregnancy._override_eligibility = True
     try:
         pregnancy.full_clean()
         pregnancy.save()
@@ -258,6 +295,16 @@ def pregnancy(
         return JsonResponse({
         "errors": e.message_dict
         }, status=400)
+
+    if is_override:
+        from common.audit import log_audit
+        log_audit(
+            user=user, action="override_reproduction_restriction", source_module="reproduction",
+            object_type="PregnancyRecord", object_id=pregnancy.id,
+            previous_value="blocked by breeding eligibility check", new_value="created via authorized override",
+            reason=payload.override_reason,
+        )
+
     new_event(
         pregnancy.farm, 
         pregnancy.animal,
@@ -1014,3 +1061,112 @@ def get_birth_offspring_v2(
             has_next=page_obj.has_next,
             has_previous=page_obj.has_previous,
         )
+
+
+# ─── Breeding Eligibility Rules ───────────────────────────────────────────────
+
+@router.post("/breeding-rule/seed/", response={200: APIResponse, 403: APIResponse})
+def seed_breeding_rule(request):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    if not user.is_superuser:
+        raise HttpError(403, "Permission Denied")
+
+    created = seed_breeding_rules()
+    return 200, APIResponse(success=True, message="Breeding rules seeded successfully", data={"created": created})
+
+
+@router.get("/breeding-rule/{species_id}/", response={200: APIResponse, 403: APIResponse})
+def get_breeding_rule(request, species_id: int, farm_id: int = None):
+    user_id = get_current_user(request)
+    try:
+        users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+
+    species = get_object_or_404(LivestockSpecies, id=species_id, is_active=True)
+    qs = BreedingEligibilityRule.objects.filter(species=species, is_active=True)
+    if farm_id:
+        qs = qs.filter(Q(farm_id=farm_id) | Q(farm=None))
+    else:
+        qs = qs.filter(farm=None)
+    data = list(qs.values(
+        "id", "breed_id", "farm_id", "min_breeding_age_months", "recommended_breeding_age_months",
+        "max_breeding_age_months", "min_breeding_weight_kg", "min_postpartum_interval_days",
+        "max_births_lifetime", "allow_pregnant_and_lactating", "is_system",
+    ))
+    return 200, APIResponse(success=True, message="Breeding rules", data=data)
+
+
+@router.post("/breeding-rule/", response={200: APIResponse, 403: APIResponse})
+def create_farm_breeding_rule(
+    request, farm_id: int, species_id: int, breed_id: int = None,
+    min_breeding_age_months: float = None, recommended_breeding_age_months: float = None,
+    max_breeding_age_months: float = None, min_breeding_weight_kg: float = None,
+    min_postpartum_interval_days: int = None, max_births_lifetime: int = None,
+    allow_pregnant_and_lactating: bool = True,
+):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(403, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reproduction.UPDATE)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(403, "Permission denied: configuring species breeding rules requires explicit authorization")
+
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    species = get_object_or_404(LivestockSpecies, id=species_id, is_active=True)
+    breed = get_object_or_404(LivestockBreed, id=breed_id) if breed_id else None
+
+    rule, created = BreedingEligibilityRule.objects.update_or_create(
+        species=species, breed=breed, farm=farm,
+        defaults=dict(
+            min_breeding_age_months=min_breeding_age_months,
+            recommended_breeding_age_months=recommended_breeding_age_months,
+            max_breeding_age_months=max_breeding_age_months,
+            min_breeding_weight_kg=min_breeding_weight_kg,
+            min_postpartum_interval_days=min_postpartum_interval_days,
+            max_births_lifetime=max_births_lifetime,
+            allow_pregnant_and_lactating=allow_pregnant_and_lactating,
+            is_system=False,
+        ),
+    )
+    return 200, APIResponse(
+        success=True,
+        message="Farm breeding rule saved" if created else "Farm breeding rule updated",
+        data={"id": rule.id},
+    )
+
+
+@router.get("/breeding-eligibility/{animal_id}/", response={200: APIResponse, 403: APIResponse})
+def get_breeding_eligibility(request, animal_id: int, for_pregnancy: bool = False):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+
+    animal = get_object_or_404(Animal, id=animal_id, farm__organization=org)
+    is_eligible, reasons = check_breeding_eligibility(animal, farm=animal.farm, for_pregnancy=for_pregnancy)
+    rule = resolve_breeding_rule(animal, farm=animal.farm)
+    return 200, APIResponse(
+        success=True,
+        message="Breeding eligibility",
+        data={
+            "animal_id": animal.id,
+            "is_eligible": is_eligible,
+            "reasons": reasons,
+            "rule_source": ("farm" if rule and rule.farm_id else "system") if rule else None,
+        },
+    )

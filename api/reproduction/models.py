@@ -4,6 +4,55 @@ from datetime import timedelta
 from django.contrib.auth import get_user_model
 User = get_user_model()
 
+
+class BreedingEligibilityRule(models.Model):
+    """
+    Species/breed/farm-scoped breeding rules. Resolution favors the most
+    specific match: farm+breed > farm+species > system+breed > system+species,
+    so a farm can override the system default without duplicating it for
+    every breed. `breed`/`farm` null means "applies to all breeds"/"system
+    default", respectively.
+    """
+    species = models.ForeignKey(
+        "admin_panel.LivestockSpecies", on_delete=models.CASCADE, related_name="breeding_rules"
+    )
+    breed = models.ForeignKey(
+        "admin_panel.LivestockBreed", null=True, blank=True,
+        on_delete=models.CASCADE, related_name="breeding_rules"
+    )
+    farm = models.ForeignKey(
+        "organization.Farm", null=True, blank=True,
+        on_delete=models.CASCADE, related_name="breeding_rules"
+    )
+
+    min_breeding_age_months = models.FloatField(null=True, blank=True)
+    recommended_breeding_age_months = models.FloatField(null=True, blank=True)
+    max_breeding_age_months = models.FloatField(null=True, blank=True)
+    min_breeding_weight_kg = models.FloatField(null=True, blank=True)
+    min_postpartum_interval_days = models.PositiveIntegerField(null=True, blank=True)
+    max_births_lifetime = models.PositiveIntegerField(null=True, blank=True)
+
+    # Whether pregnant + lactating may co-occur for this species/farm. Default
+    # True (allowed, farms decide) — the spec explicitly warns against a
+    # hardcoded universal block, since many species/systems permit it.
+    allow_pregnant_and_lactating = models.BooleanField(default=True)
+
+    is_system = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["species", "breed", "farm"], name="unique_breeding_rule_scope"
+            )
+        ]
+
+    def __str__(self):
+        return f"BreedingRule({self.species_id}, breed={self.breed_id}, farm={self.farm_id})"
+
+
 class InseminationRecord(models.Model):
     METHOD_CHOICES = [
         ("natural", "Natural"),
@@ -23,10 +72,11 @@ class InseminationRecord(models.Model):
     null=True
 )
     def clean(self):
-        if self.animal and self.animal.gender != "female":
-            raise ValidationError("Insemination can only be performed on female animals.")
-        if self.animal and self.animal.is_pregnant:
-            raise ValidationError("This animal is already pregnant.")
+        if self.animal and not getattr(self, "_override_eligibility", False):
+            from .eligibility import check_breeding_eligibility
+            is_eligible, reasons = check_breeding_eligibility(self.animal, farm=self.farm)
+            if not is_eligible:
+                raise ValidationError({"animal": reasons})
         if self.method == "artificial" and not self.sire_reference:
             raise ValidationError("Sire reference is required for artificial insemination.")
     def save(self, *args, **kwargs):
@@ -75,6 +125,11 @@ class PregnancyRecord(models.Model):
     def clean(self):
         if self.result == 'pregnant' and not self.expected_delivery_date:
             raise ValidationError("Expected delivery date is required if result is pregnant.")
+        if self.result == 'pregnant' and self.animal and not getattr(self, "_override_eligibility", False):
+            from .eligibility import check_breeding_eligibility
+            is_eligible, reasons = check_breeding_eligibility(self.animal, farm=self.farm, for_pregnancy=True)
+            if not is_eligible:
+                raise ValidationError({"animal": reasons})
     def save(self, *args, **kwargs):
         self.clean()
         super().save(*args, **kwargs)

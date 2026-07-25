@@ -26,6 +26,7 @@ class Permissions:
         UPDATE = "update_reproduction"
         DELETE = "delete_reproduction"
         VIEW = "view_reproduction"
+        RESTRICTION_OVERRIDE = "reproduction_restriction_override"
 
     class Health:
         CREATE = "add_health"
@@ -50,3 +51,17 @@ class Permissions:
         UPDATE = "update_sales_record"
         DELETE = "delete_sales_record"
         VIEW = "view_sales_record"
+        RESTRICTION_OVERRIDE = "sale_restriction_override"
+
+    class Finance:
+        CREATE = "add_finance"
+        UPDATE = "update_finance"
+        DELETE = "delete_finance"
+        VIEW = "view_finance"
+
+    class Pharmacy:
+        CREATE = "add_pharmacy"
+        UPDATE = "update_pharmacy"
+        DELETE = "delete_pharmacy"
+        VIEW = "view_pharmacy"
+        EXTERNAL_OVERRIDE = "external_medication_override"

@@ -41,6 +41,9 @@ INSTALLED_APPS = [
     "movement_records",
     "alerts",
     "dashbaord",
+    "finance",
+    "pharmacy",
+    "reports",
 ]
 
 MIDDLEWARE = [

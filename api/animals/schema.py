@@ -254,3 +254,42 @@ class MilkRecordSchema(Schema):
     session: Literal["morning", "evening"]
     quantity: float
     notes: Optional[str] = None
+
+
+class AnimalAcquisitionSchemaIn(Schema):
+    # Shared (purchased / imported)
+    supplier: Optional[str] = None
+    purchase_price: Optional[float] = None
+    currency: str = "NGN"
+    payment_status: Literal["paid", "pending", "partial"] = "paid"
+    payment_method: Optional[str] = None
+    transaction_reference: Optional[str] = None
+    notes: Optional[str] = None
+
+    # Purchased
+    purchase_date: Optional[date] = None
+    transportation_cost: Optional[float] = None
+    veterinary_inspection_cost: Optional[float] = None
+    other_acquisition_cost: Optional[float] = None
+
+    # Imported
+    country_of_origin: Optional[str] = None
+    import_date: Optional[date] = None
+    shipping_cost: Optional[float] = None
+    customs_clearance_cost: Optional[float] = None
+    quarantine_cost: Optional[float] = None
+    veterinary_certification_cost: Optional[float] = None
+    insurance_cost: Optional[float] = None
+    other_import_cost: Optional[float] = None
+
+    # Born on farm - internal production cost components
+    production_cost_dam_feeding: Optional[float] = None
+    production_cost_pregnancy_treatment: Optional[float] = None
+    production_cost_delivery: Optional[float] = None
+    production_cost_breeding: Optional[float] = None
+
+    # Opening record
+    estimated_opening_value: Optional[float] = None
+    valuation_date: Optional[date] = None
+    valuation_method: Optional[Literal["market_comparison", "book_value", "professional_appraisal", "owner_estimate"]] = None
+    valuation_notes: Optional[str] = None

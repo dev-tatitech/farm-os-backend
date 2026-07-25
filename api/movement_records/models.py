@@ -4,6 +4,50 @@ from account.models import User
 from organization.models import Farm
 
 
+class SalePolicy(models.Model):
+    """
+    Species/breed/farm-scoped sale rules (Phase 4). Same most-specific-wins
+    resolution as BreedingEligibilityRule/WeightReferenceRange: farm+breed >
+    farm-only > breed-only > system default.
+    """
+    species = models.ForeignKey(
+        "admin_panel.LivestockSpecies", on_delete=models.CASCADE, related_name="sale_policies"
+    )
+    breed = models.ForeignKey(
+        "admin_panel.LivestockBreed", null=True, blank=True,
+        on_delete=models.CASCADE, related_name="sale_policies"
+    )
+    farm = models.ForeignKey(
+        Farm, null=True, blank=True, on_delete=models.CASCADE, related_name="sale_policies"
+    )
+
+    target_sale_weight_kg = models.FloatField(null=True, blank=True)
+    min_sale_age_months = models.FloatField(null=True, blank=True)
+    approaching_ready_threshold_pct = models.FloatField(default=85)
+    sale_recommended_margin_pct = models.FloatField(default=15)
+
+    # Explicit farm/species policy, per spec 9.3 — pregnancy must not be a
+    # hardcoded universal sale block.
+    allow_pregnant_sale = models.BooleanField(default=False)
+    require_sale_approval = models.BooleanField(default=False)
+    expected_sale_expenses_pct = models.FloatField(default=0)
+
+    is_system = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["species", "breed", "farm"], name="unique_sale_policy_scope"
+            )
+        ]
+
+    def __str__(self):
+        return f"SalePolicy({self.species_id}, breed={self.breed_id}, farm={self.farm_id})"
+
+
 class MovementRecord(models.Model):
     farm = models.ForeignKey(Farm, on_delete=models.CASCADE)
     animal = models.ForeignKey(
@@ -145,6 +189,18 @@ class SalesRecord(models.Model):
         animal = self.animal
         if animal and animal.status in ["sold", "dead"]:
             raise ValidationError({"animal": "Only active animals can be sold."})
+
+        if not getattr(self, "_override_restriction", False):
+            from pharmacy.alerts import check_animal_withdrawal_restriction
+
+            withdrawal_treatment = check_animal_withdrawal_restriction(animal)
+            if withdrawal_treatment:
+                raise ValidationError({
+                    "animal": (
+                        f"Animal is within the drug withdrawal period for {withdrawal_treatment.drug.name} "
+                        f"(ends {withdrawal_treatment.withdrawal_end_date}) and cannot be sold."
+                    )
+                })
 
     def save(self, *args, **kwargs):
         self.full_clean()

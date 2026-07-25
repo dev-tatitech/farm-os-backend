@@ -21,6 +21,7 @@ class SalesRecordSchema(Schema):
     sale_date: datetime
     reason: Optional[str] = None
     notes: str
+    override_reason: Optional[str] = None
 
 
 class MoveSchemaV2(Schema):

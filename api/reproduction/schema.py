@@ -25,10 +25,11 @@ class InseminationRecordSchema(Schema):
     farm_id: int
     animal_id: int
     service_date: date
-    method: Literal["natural", "artificial"] 
+    method: Literal["natural", "artificial"]
     sire_reference: Optional[str] = None
     technician_name: Optional[str] = None
     notes: Optional[str] = None
+    override_reason: Optional[str] = None
     
     @model_validator(mode="after")
     def check_method_fields(self):
@@ -45,6 +46,7 @@ class PregnancyRecordIn(Schema):
     result: Literal["pregnant", "not_pregnant"]
     expected_delivery_date: Optional[date] = None
     notes: Optional[str] = None
+    override_reason: Optional[str] = None
 
     @validator("result")
     def validate_result(cls, value):

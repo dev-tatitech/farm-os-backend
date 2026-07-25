@@ -62,6 +62,7 @@ from .models import (
     FeedCategory,
     FeedUnit,
     FeedType,
+    FeedBatch,
     )
 from core.models import GroupType
 from django.core.exceptions import ValidationError
@@ -77,6 +78,7 @@ from .schema import (
     FeedTypeSchemaIn,
     FeedTypeUpdateSchemaIn,
     FeedInventorySchemaV3,
+    FeedBatchSchemaIn,
 )
 from animals.event import new_event
 router = Router(tags=["Feed"])
@@ -346,9 +348,20 @@ def feed_issue(
 
     if payload.notes:
         feed_data["notes"] = payload.notes
+    if payload.feed_batch_id:
+        feed_data["feed_batch"] = get_object_or_404(FeedBatch, id=payload.feed_batch_id, farm=farm)
+    if payload.feeding_period:
+        feed_data["feeding_period"] = payload.feeding_period
+    if payload.fed_by_id:
+        feed_data["fed_by"] = get_object_or_404(users, id=payload.fed_by_id)
+    if payload.allocation_method:
+        feed_data["allocation_method"] = payload.allocation_method
+
     feed = FeedIssuanceRecord(
         **feed_data
     )
+    if payload.manual_allocations:
+        feed._manual_allocations = [e.dict() for e in payload.manual_allocations]
     try:
         feed.full_clean()
         feed.save()
@@ -376,7 +389,8 @@ def feed_issue(
 )
     data={
         "target_type":feed.target_type,
-        "quantity_issued": feed.quantity_issued
+        "quantity_issued": feed.quantity_issued,
+        "cost": feed.cost,
     }
     return 200,APIResponse(
         success=True,
@@ -1278,4 +1292,93 @@ def get_feed_v3(request, page: int, page_size: int, farm_id: int, species_id: Op
         total_items=paginator.count,
         has_next=page_obj.has_next,
         has_previous=page_obj.has_previous,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Feed batch inventory (spec 4.1 / 4.2)
+# ---------------------------------------------------------------------------
+
+@router.post("/feed-batch/", response={200: APIResponse, 403: APIResponse})
+def create_feed_batch(request, payload: FeedBatchSchemaIn):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Feed.CREATE)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(404, "Permission denied")
+
+    farm = get_object_or_404(Farm, id=payload.farm_id, organization=org)
+    feed_type = get_object_or_404(FeedType.objects.filter(Q(farm=None) | Q(farm=farm)), id=payload.feed_type_id, is_active=True)
+    base_unit = get_object_or_404(FeedUnit.objects.filter(Q(farm=None) | Q(farm=farm)), id=payload.base_unit_id, is_active=True)
+
+    if FeedBatch.objects.filter(feed_type=feed_type, farm=farm, batch_number=payload.batch_number).exists():
+        raise HttpError(409, "This batch number already exists for this feed type")
+
+    batch = FeedBatch(
+        feed_type=feed_type, farm=farm, batch_number=payload.batch_number, purchase_unit=payload.purchase_unit,
+        package_size=payload.package_size, number_of_packages=payload.number_of_packages, base_unit=base_unit,
+        purchase_price=payload.purchase_price, supplier=payload.supplier, purchase_date=payload.purchase_date,
+        expiry_date=payload.expiry_date, storage_location=payload.storage_location,
+        minimum_stock_level=payload.minimum_stock_level, created_by=user,
+    )
+    try:
+        batch.save()
+    except ValidationError as e:
+        return JsonResponse({"errors": e.message_dict}, status=400)
+
+    return 200, APIResponse(
+        success=True, message="Feed batch created successfully",
+        data={
+            "id": batch.id, "feed_type": feed_type.name, "batch_number": batch.batch_number,
+            "total_quantity_base_unit": batch.total_quantity_base_unit,
+            "cost_per_base_unit": batch.cost_per_base_unit, "cost_per_package": batch.cost_per_package,
+        },
+    )
+
+
+@router.get(
+    "/feed-batch/{page}/{page_size}/{farm_id}",
+    response={200: ListResponseSchema, 403: APIResponse},
+)
+def get_feed_batches(request, page: int, page_size: int, farm_id: int, feed_type_id: int = None, status: str = None):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    qs = FeedBatch.objects.select_related("feed_type", "base_unit").filter(farm=farm)
+    if feed_type_id:
+        qs = qs.filter(feed_type_id=feed_type_id)
+    if status:
+        qs = qs.filter(status=status)
+
+    paginator = Paginator(qs, page_size)
+    page_obj = paginator.page(page)
+    serialized = [
+        {
+            "id": b.id, "feed_type": b.feed_type.name, "feed_type_id": b.feed_type_id, "batch_number": b.batch_number,
+            "purchase_unit": b.purchase_unit, "package_size": b.package_size, "number_of_packages": b.number_of_packages,
+            "base_unit": b.base_unit.name, "total_quantity_base_unit": b.total_quantity_base_unit,
+            "quantity_available": b.quantity_available, "cost_per_package": b.cost_per_package,
+            "cost_per_base_unit": b.cost_per_base_unit, "supplier": b.supplier, "expiry_date": b.expiry_date,
+            "storage_location": b.storage_location, "minimum_stock_level": b.minimum_stock_level, "status": b.status,
+        }
+        for b in page_obj.object_list
+    ]
+    return 200, ListResponseSchema(
+        success=True, message="feed batches fetch successfully", data=serialized,
+        num_pages=paginator.num_pages, current_page=page_obj.number,
+        total_items=paginator.count, has_next=page_obj.has_next, has_previous=page_obj.has_previous,
     )

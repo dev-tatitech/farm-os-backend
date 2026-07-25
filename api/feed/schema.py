@@ -40,6 +40,11 @@ class FeedPlanSchema(Schema):
     end_date: Optional[date] = None
     notes: Optional[str] = None
     
+class FeedAllocationEntrySchema(Schema):
+    animal_id: int
+    quantity: float
+
+
 class FeedIssuanceRecordSchema(Schema):
     farm_id: int
     target_type: Literal["animal", "group"]
@@ -49,6 +54,12 @@ class FeedIssuanceRecordSchema(Schema):
     quantity_issued: float
     issue_date: date
     notes: Optional[str] = None
+
+    feed_batch_id: Optional[int] = None
+    feeding_period: Optional[Literal["morning", "afternoon", "evening", "full_day"]] = None
+    fed_by_id: Optional[int] = None
+    allocation_method: Optional[Literal["equal", "weight_based", "consumption_based", "life_stage_based", "manual"]] = None
+    manual_allocations: Optional[List[FeedAllocationEntrySchema]] = None
     
 class FeedConfirmationRecordSchema(Schema):
     farm_id: int
@@ -104,3 +115,19 @@ class FeedInventorySchemaV3(Schema):
     quantity_available: float
     feed_unit_id: int
     reorder_level: Optional[float] = None
+
+
+class FeedBatchSchemaIn(Schema):
+    farm_id: int
+    feed_type_id: int
+    batch_number: str
+    purchase_unit: Literal["bag", "kg", "tonne", "bale", "sack", "litre", "container", "other"]
+    package_size: float
+    number_of_packages: float
+    base_unit_id: int
+    purchase_price: float
+    supplier: Optional[str] = None
+    purchase_date: Optional[date] = None
+    expiry_date: Optional[date] = None
+    storage_location: Optional[str] = None
+    minimum_stock_level: Optional[float] = None

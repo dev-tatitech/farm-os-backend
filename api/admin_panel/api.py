@@ -53,11 +53,18 @@ from .models import (
     AnimalClassification,
     ContactEnquiry,
     NewsletterSubscriber,
+    LifeStageDefinition,
+    AnimalLifecycleHistory,
+    WeightReferenceRange,
 )
+from .lifecycle import seed_life_stages, suggest_life_stage, apply_life_stage
+from .weight_ranges import seed_weight_ranges, find_weight_reference_range
+from animals.models import Animal
 from subcriptions.models import SubscriptionPlan, Subscription
 from common.utils import generate_ref
 import inspect
 from common.permissions import Permissions
+from common.permission_checker import user_has_permission
 from role.models import Permission
 from django.http import JsonResponse
 from .schema import (
@@ -970,4 +977,164 @@ def newsletter_subscribe(request, payload: NewsletterSubscribeIn):
         success=True,
         message="Successfully subscribed.",
         data={"email": subscriber.email, "already_subscribed": False},
+    )
+
+
+# ─── Species Lifecycle ───────────────────────────────────────────────────────
+
+@router.post("/lifecycle/seed/", response={200: APIResponse, 403: APIResponse})
+def seed_lifecycle(request):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    if not user.is_superuser:
+        raise HttpError(403, "Permission Denied")
+
+    created = seed_life_stages()
+    return 200, APIResponse(success=True, message="Life stages seeded successfully", data={"created": created})
+
+
+@router.get("/lifecycle/stages/{species_id}/", response={200: APIResponse, 403: APIResponse})
+def get_life_stages(request, species_id: int):
+    user_id = get_current_user(request)
+    try:
+        users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+
+    species = get_object_or_404(LivestockSpecies, id=species_id, is_active=True)
+    data = list(
+        LifeStageDefinition.objects.filter(species=species, is_active=True)
+        .order_by("order")
+        .values("id", "name", "order", "min_age_months", "max_age_months", "applicable_sex")
+    )
+    return 200, APIResponse(success=True, message="Life stages", data=data)
+
+
+@router.get("/lifecycle/animal/{animal_id}/", response={200: APIResponse, 403: APIResponse})
+def get_animal_lifecycle(request, animal_id: int):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+
+    animal = get_object_or_404(Animal, id=animal_id, farm__organization=org)
+    suggested = suggest_life_stage(animal)
+    history = list(
+        AnimalLifecycleHistory.objects.filter(animal=animal)
+        .select_related("changed_by")
+        .values("id", "previous_stage", "new_stage", "is_override", "override_reason", "changed_at", "changed_by__email")
+    )
+    data = {
+        "animal_id": animal.id,
+        "current_life_stage": animal.current_life_stage,
+        "suggested_life_stage": suggested,
+        "history": history,
+    }
+    return 200, APIResponse(success=True, message="Animal lifecycle", data=data)
+
+
+@router.post("/lifecycle/animal/{animal_id}/refresh/", response={200: APIResponse, 403: APIResponse})
+def refresh_animal_lifecycle(request, animal_id: int):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+
+    animal = get_object_or_404(Animal, id=animal_id, farm__organization=org)
+    stage = apply_life_stage(animal)
+    return 200, APIResponse(success=True, message="Lifecycle stage refreshed", data={"current_life_stage": stage})
+
+
+@router.post("/lifecycle/animal/{animal_id}/override/", response={200: APIResponse, 403: APIResponse})
+def override_animal_lifecycle(request, animal_id: int, stage: str, reason: str):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Animal.UPDATE)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(403, "Permission denied")
+
+    animal = get_object_or_404(Animal, id=animal_id, farm__organization=org)
+    if not reason:
+        raise HttpError(400, "Override reason is required")
+
+    new_stage = apply_life_stage(animal, user=user, override_stage=stage, override_reason=reason)
+    return 200, APIResponse(success=True, message="Lifecycle stage overridden", data={"current_life_stage": new_stage})
+
+
+# ─── Weight Reference Ranges ──────────────────────────────────────────────────
+
+@router.post("/weight-range/seed/", response={200: APIResponse, 403: APIResponse})
+def seed_weight_range(request):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    if not user.is_superuser:
+        raise HttpError(403, "Permission Denied")
+
+    created = seed_weight_ranges()
+    return 200, APIResponse(success=True, message="Weight reference ranges seeded successfully", data={"created": created})
+
+
+@router.get("/weight-range/{species_id}/", response={200: APIResponse, 403: APIResponse})
+def get_weight_ranges(request, species_id: int, farm_id: int = None):
+    user_id = get_current_user(request)
+    try:
+        users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+
+    species = get_object_or_404(LivestockSpecies, id=species_id, is_active=True)
+    qs = WeightReferenceRange.objects.filter(species=species, is_active=True)
+    qs = qs.filter(Q(farm_id=farm_id) | Q(farm=None)) if farm_id else qs.filter(farm=None)
+    data = list(qs.values(
+        "id", "breed_id", "farm_id", "sex", "min_age_months", "max_age_months",
+        "min_weight_kg", "max_weight_kg", "target_daily_gain_kg", "is_system",
+    ))
+    return 200, APIResponse(success=True, message="Weight reference ranges", data=data)
+
+
+@router.get("/weight-range/animal/{animal_id}/", response={200: APIResponse, 403: APIResponse})
+def get_animal_weight_range(request, animal_id: int):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+
+    animal = get_object_or_404(Animal, id=animal_id, farm__organization=org)
+    rng = find_weight_reference_range(animal)
+    if not rng:
+        return 200, APIResponse(success=True, message="No weight reference range configured", data=None)
+    return 200, APIResponse(
+        success=True,
+        message="Weight reference range",
+        data={
+            "min_weight_kg": rng.min_weight_kg,
+            "max_weight_kg": rng.max_weight_kg,
+            "target_daily_gain_kg": rng.target_daily_gain_kg,
+            "is_system": rng.is_system,
+        },
     )

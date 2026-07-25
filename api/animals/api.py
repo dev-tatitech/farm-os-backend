@@ -54,12 +54,13 @@ from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from django.http import JsonResponse
 from .models import (
-    Animal, 
+    Animal,
     AnimalProfileAttribute,
     AnimalGroup,
     AnimalGroupMember,
     AnimalEvent,
     AnimalWeight,
+    AnimalAcquisition,
     MilkRecord
     )
 from core.models import GroupType
@@ -78,8 +79,11 @@ from .schema import (
     AnimalsUpdateSchemaIn,
     AnimalsUpdateSchemaInV2,
     AnimalWeightIn,
-    MilkRecordSchema
+    MilkRecordSchema,
+    AnimalAcquisitionSchemaIn,
 )
+from finance.services import record_transaction
+from finance.models import Transaction
 from admin_panel.models import (
     LivestockSpecies,
     LivestockBreed,
@@ -87,6 +91,7 @@ from admin_panel.models import (
     FarmHousingUnit,
     AnimalClassification,
 )
+from .growth import weight_gain, average_daily_gain, percentage_weight_change, weight_trend, cost_per_kg_gained
 router = Router(tags=["Animals"])
 @router.post("/animal/", response={200: APIResponse, 403: APIResponse})
 def new_animal(
@@ -1498,6 +1503,148 @@ def new_animal_v2(
     )
 
 
+@router.post("/animal/{animal_id}/acquisition/", response={200: APIResponse, 403: APIResponse})
+def set_animal_acquisition(request, animal_id: int, payload: AnimalAcquisitionSchemaIn):
+    """
+    Records how an animal entered the farm (purchase/import/born/opening
+    record) and turns that into the animal's cost baseline. Purchased and
+    imported costs are posted as a single "Acquisition" Finance transaction;
+    born-on-farm costs are internal production costs, so they're posted
+    under their own categories (Breeding/Veterinary Service/Feed) instead of
+    as an acquisition purchase, per spec 2.4. Safe to call more than once
+    (e.g. to fill in a receipt after the fact) — it updates the same
+    AnimalAcquisition row and only ever posts each cost transaction once.
+    """
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Animal.UPDATE)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(403, "Permission denied")
+
+    animal = get_object_or_404(Animal, id=animal_id, farm__organization=org)
+
+    previous_acq = AnimalAcquisition.objects.filter(animal=animal).first()
+    previous_purchase_price = previous_acq.purchase_price if previous_acq else None
+
+    acq, _ = AnimalAcquisition.objects.update_or_create(
+        animal=animal,
+        defaults=dict(
+            supplier=payload.supplier,
+            purchase_price=payload.purchase_price,
+            currency=payload.currency,
+            payment_status=payload.payment_status,
+            payment_method=payload.payment_method,
+            transaction_reference=payload.transaction_reference,
+            notes=payload.notes,
+            purchase_date=payload.purchase_date,
+            transportation_cost=payload.transportation_cost,
+            veterinary_inspection_cost=payload.veterinary_inspection_cost,
+            other_acquisition_cost=payload.other_acquisition_cost,
+            country_of_origin=payload.country_of_origin,
+            import_date=payload.import_date,
+            shipping_cost=payload.shipping_cost,
+            customs_clearance_cost=payload.customs_clearance_cost,
+            quarantine_cost=payload.quarantine_cost,
+            veterinary_certification_cost=payload.veterinary_certification_cost,
+            insurance_cost=payload.insurance_cost,
+            other_import_cost=payload.other_import_cost,
+            production_cost_dam_feeding=payload.production_cost_dam_feeding,
+            production_cost_pregnancy_treatment=payload.production_cost_pregnancy_treatment,
+            production_cost_delivery=payload.production_cost_delivery,
+            production_cost_breeding=payload.production_cost_breeding,
+            estimated_opening_value=payload.estimated_opening_value,
+            valuation_date=payload.valuation_date,
+            valuation_method=payload.valuation_method,
+            valuation_notes=payload.valuation_notes,
+        ),
+    )
+
+    if previous_acq is not None and previous_purchase_price != payload.purchase_price:
+        from common.audit import log_audit
+        log_audit(
+            user=user, action="edit_purchase_value", source_module="animals",
+            object_type="AnimalAcquisition", object_id=acq.id,
+            previous_value=previous_purchase_price, new_value=payload.purchase_price,
+            reason=payload.notes,
+        )
+
+    already_posted = Transaction.objects.filter(animal=animal, source_module="animal_acquisition").exists()
+    today = timezone.localdate()
+
+    if not already_posted:
+        if animal.source_type == "purchased":
+            total = acq.total_purchased_cost()
+            if total:
+                record_transaction(
+                    farm=animal.farm, type="expense", category_name="Acquisition", amount=total,
+                    transaction_date=acq.purchase_date or today, source_module="animal_acquisition",
+                    source_id=animal.id, animal=animal, currency=acq.currency,
+                    payment_status=acq.payment_status, payment_method=acq.payment_method,
+                    transaction_reference=acq.transaction_reference, created_by=user,
+                )
+            animal.acquisition_cost = total or None
+
+        elif animal.source_type == "imported":
+            total = acq.total_landed_cost()
+            if total:
+                record_transaction(
+                    farm=animal.farm, type="expense", category_name="Acquisition", amount=total,
+                    transaction_date=acq.import_date or today, source_module="animal_acquisition",
+                    source_id=animal.id, animal=animal, currency=acq.currency,
+                    payment_status=acq.payment_status, payment_method=acq.payment_method,
+                    transaction_reference=acq.transaction_reference, created_by=user,
+                )
+            animal.acquisition_cost = total or None
+
+        elif animal.source_type == "born":
+            # Internal production cost, not a purchase — post component costs
+            # under their own categories instead of a single "Acquisition" line.
+            if acq.production_cost_breeding:
+                record_transaction(
+                    farm=animal.farm, type="expense", category_name="Breeding",
+                    amount=acq.production_cost_breeding, transaction_date=today,
+                    source_module="animal_acquisition", source_id=animal.id, animal=animal, created_by=user,
+                )
+            vet_amount = (acq.production_cost_delivery or 0) + (acq.production_cost_pregnancy_treatment or 0)
+            if vet_amount:
+                record_transaction(
+                    farm=animal.farm, type="expense", category_name="Veterinary Service",
+                    amount=vet_amount, transaction_date=today,
+                    source_module="animal_acquisition", source_id=animal.id, animal=animal, created_by=user,
+                )
+            if acq.production_cost_dam_feeding:
+                record_transaction(
+                    farm=animal.farm, type="expense", category_name="Feed",
+                    amount=acq.production_cost_dam_feeding, transaction_date=today,
+                    source_module="animal_acquisition", source_id=animal.id, animal=animal, created_by=user,
+                )
+
+        elif animal.source_type == "opening_record":
+            # Pre-existing value, not a new expense — nothing was spent
+            # through this system, so no Finance transaction is posted.
+            animal.opening_value = acq.estimated_opening_value
+
+        animal.save(update_fields=["acquisition_cost", "opening_value"])
+
+    return 200, APIResponse(
+        success=True,
+        message="Animal acquisition recorded successfully",
+        data={
+            "animal_id": animal.id,
+            "source_type": animal.source_type,
+            "acquisition_cost": animal.acquisition_cost,
+            "opening_value": animal.opening_value,
+        },
+    )
+
+
 @router.get(
     "/animal/v2/{page}/{page_size}/{farm_id}",
     response={200: ListResponseSchema, 403: APIResponse},
@@ -2098,3 +2245,26 @@ def get_milk_v2(request, page: int, page_size: int, farm_id: int):
         has_next=page_obj.has_next,
         has_previous=page_obj.has_previous,
     )
+
+
+@router.get("/animal-growth/{animal_id}/", response={200: APIResponse, 403: APIResponse})
+def get_animal_growth(request, animal_id: int):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+
+    animal = get_object_or_404(Animal, id=animal_id, farm__organization=org)
+    data = {
+        "animal_id": animal.id,
+        "weight_gain_kg": weight_gain(animal),
+        "average_daily_gain_kg": average_daily_gain(animal),
+        "percentage_weight_change": percentage_weight_change(animal),
+        "cost_per_kg_gained": cost_per_kg_gained(animal),
+        "weight_trend": weight_trend(animal),
+    }
+    return 200, APIResponse(success=True, message="Animal growth summary", data=data)

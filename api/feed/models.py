@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 User = get_user_model()
 from django.utils import timezone
 from django.db import models, transaction
+from decimal import Decimal
 
 
 class FeedCategory(models.Model):
@@ -178,7 +179,114 @@ class FeedInventory(models.Model):
                 self.last_restocked_at = timezone.now()
         self.update_status()
         super().save(*args, **kwargs)
-        
+
+
+class FeedBatch(models.Model):
+    """
+    Batch-level feed purchase ledger (spec 4.1/4.2). Each row is one purchase
+    (its own price, expiry, supplier), converted to a base unit regardless of
+    how it was actually bought (Bag/Tonne/Bale/etc.) so costing and stock
+    deduction are always comparable across batches. Creating a batch adds its
+    quantity into the existing per-farm/feed-type FeedInventory total, so
+    everything already built on FeedInventory keeps working unchanged.
+    """
+    STATUS_CHOICES = [
+        ("active", "Active"), ("expired", "Expired"), ("depleted", "Depleted"),
+    ]
+    PURCHASE_UNIT_CHOICES = [
+        ("bag", "Bag"), ("kg", "Kilogram"), ("tonne", "Tonne"), ("bale", "Bale"),
+        ("sack", "Sack"), ("litre", "Litre"), ("container", "Container"), ("other", "Other"),
+    ]
+
+    feed_type = models.ForeignKey(FeedType, on_delete=models.PROTECT, related_name="batches")
+    farm = models.ForeignKey("organization.Farm", on_delete=models.CASCADE, related_name="feed_batches")
+    batch_number = models.CharField(max_length=100)
+
+    purchase_unit = models.CharField(max_length=20, choices=PURCHASE_UNIT_CHOICES)
+    package_size = models.DecimalField(max_digits=10, decimal_places=2)
+    number_of_packages = models.DecimalField(max_digits=10, decimal_places=2)
+    base_unit = models.ForeignKey(FeedUnit, on_delete=models.PROTECT, related_name="feed_batches")
+    total_quantity_base_unit = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    quantity_available = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+
+    purchase_price = models.DecimalField(max_digits=14, decimal_places=2)
+    cost_per_package = models.DecimalField(max_digits=14, decimal_places=4, null=True, blank=True)
+    cost_per_base_unit = models.DecimalField(max_digits=14, decimal_places=4, null=True, blank=True)
+
+    supplier = models.CharField(max_length=200, null=True, blank=True)
+    purchase_date = models.DateField(null=True, blank=True)
+    expiry_date = models.DateField(null=True, blank=True)
+    storage_location = models.CharField(max_length=200, null=True, blank=True)
+    minimum_stock_level = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="active")
+    supporting_document = models.FileField(upload_to="feed/documents/", null=True, blank=True)
+
+    created_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="created_feed_batches")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["expiry_date"]
+        constraints = [
+            models.UniqueConstraint(fields=["feed_type", "farm", "batch_number"], name="unique_feed_batch_per_type_farm")
+        ]
+        indexes = [
+            models.Index(fields=["farm", "status"]),
+        ]
+
+    def clean(self):
+        if self.package_size is not None and self.package_size <= 0:
+            raise ValidationError("Package size must be greater than zero.")
+        if self.number_of_packages is not None and self.number_of_packages <= 0:
+            raise ValidationError("Number of packages must be greater than zero.")
+
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+
+        # Schema-layer inputs arrive as plain floats; coerce to Decimal up
+        # front so every downstream calculation (and the FeedInventory sync)
+        # stays Decimal-consistent instead of mixing float into Decimal math.
+        if self.package_size is not None:
+            self.package_size = Decimal(str(self.package_size))
+        if self.number_of_packages is not None:
+            self.number_of_packages = Decimal(str(self.number_of_packages))
+        if self.purchase_price is not None:
+            self.purchase_price = Decimal(str(self.purchase_price))
+
+        if self.package_size and self.number_of_packages:
+            self.total_quantity_base_unit = self.package_size * self.number_of_packages
+            if is_new:
+                self.quantity_available = self.total_quantity_base_unit
+        if self.purchase_price and self.number_of_packages:
+            self.cost_per_package = self.purchase_price / self.number_of_packages
+        if self.purchase_price and self.total_quantity_base_unit:
+            self.cost_per_base_unit = self.purchase_price / self.total_quantity_base_unit
+
+        if self.status == "active":
+            if self.expiry_date and self.expiry_date < timezone.now().date():
+                self.status = "expired"
+            elif self.quantity_available is not None and self.quantity_available <= 0:
+                self.status = "depleted"
+
+        self.full_clean(exclude=["total_quantity_base_unit", "quantity_available", "cost_per_package", "cost_per_base_unit"])
+        super().save(*args, **kwargs)
+
+        if is_new:
+            inventory, _ = FeedInventory.objects.get_or_create(
+                farm=self.farm, feed_type=self.feed_type,
+                defaults={
+                    "feed_name": self.feed_type.name,
+                    "unit": self.base_unit.abbreviation or self.base_unit.name,
+                    "feed_unit": self.base_unit,
+                    "quantity_available": 0,
+                },
+            )
+            inventory.quantity_available += self.total_quantity_base_unit
+            inventory.save()
+
+    def __str__(self):
+        return f"{self.feed_type.name} - batch {self.batch_number}"
+
+
 class FeedPlan(models.Model):
 
     PLAN_TYPE_CHOICES = [
@@ -297,6 +405,16 @@ class FeedIssuanceRecord(models.Model):
         ("animal", "Animal"),
         ("group", "Group"),
     ]
+    FEEDING_PERIOD_CHOICES = [
+        ("morning", "Morning"), ("afternoon", "Afternoon"), ("evening", "Evening"), ("full_day", "Full Day"),
+    ]
+    ALLOCATION_METHOD_CHOICES = [
+        ("equal", "Equal allocation per animal"),
+        ("weight_based", "Allocation based on animal weight"),
+        ("consumption_based", "Allocation based on estimated consumption"),
+        ("life_stage_based", "Allocation based on life stage"),
+        ("manual", "Manual allocation"),
+    ]
     farm = models.ForeignKey(
         "organization.Farm",
         on_delete=models.CASCADE,
@@ -325,18 +443,27 @@ class FeedIssuanceRecord(models.Model):
         on_delete=models.CASCADE,
         related_name="issuance_records"
     )
+    feed_batch = models.ForeignKey(
+        FeedBatch, on_delete=models.SET_NULL, null=True, blank=True, related_name="issuance_records"
+    )
 
     quantity_issued = models.DecimalField(
         max_digits=10,
         decimal_places=2
     )
+    cost = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
     issue_date = models.DateField()
+    feeding_period = models.CharField(max_length=20, choices=FEEDING_PERIOD_CHOICES, null=True, blank=True)
     issued_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
         null=True,
         related_name="issued_feed_records"
     )
+    fed_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="fed_feed_records"
+    )
+    allocation_method = models.CharField(max_length=20, choices=ALLOCATION_METHOD_CHOICES, null=True, blank=True)
     notes = models.TextField(
         null=True,
         blank=True
@@ -361,6 +488,11 @@ class FeedIssuanceRecord(models.Model):
                 raise ValidationError("Group is required when target_type is 'group'.")
             if self.animal:
                 raise ValidationError("Animal must be empty when target_type is 'group'.")
+            if self.feed_batch_id and not self.allocation_method:
+                raise ValidationError(
+                    "An allocation method is required when issuing batch-costed feed to a group "
+                    "(cost must not be silently split equally by default)."
+                )
         # quantity validation
         if self.quantity_issued <= 0:
             raise ValidationError("Quantity must be greater than zero.")
@@ -377,8 +509,39 @@ class FeedIssuanceRecord(models.Model):
                 raise ValidationError("Insufficient stock available.")
             inventory.quantity_available -= self.quantity_issued
             inventory.save()
+
+            is_new = self.pk is None
+            if is_new and self.feed_batch_id:
+                batch = FeedBatch.objects.select_for_update().get(pk=self.feed_batch_id)
+                if batch.quantity_available < self.quantity_issued:
+                    raise ValidationError("Insufficient stock available in the selected feed batch.")
+                batch.quantity_available -= self.quantity_issued
+                batch.save()
+                self.cost = self.quantity_issued * (batch.cost_per_base_unit or 0)
+
             super().save(*args, **kwargs)
-            
+
+            if is_new and self.cost:
+                from .allocation import post_feed_issuance_cost
+                post_feed_issuance_cost(self)
+
+
+class FeedCostAllocation(models.Model):
+    """Per-animal cost/quantity breakdown for a group FeedIssuanceRecord (spec 4.4)."""
+    feed_issuance = models.ForeignKey(FeedIssuanceRecord, on_delete=models.CASCADE, related_name="allocations")
+    animal = models.ForeignKey("animals.Animal", on_delete=models.CASCADE, related_name="feed_cost_allocations")
+    allocated_quantity = models.DecimalField(max_digits=10, decimal_places=2)
+    allocated_cost = models.DecimalField(max_digits=14, decimal_places=2)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["feed_issuance", "animal"], name="unique_allocation_per_issuance_animal")
+        ]
+
+    def __str__(self):
+        return f"Issuance {self.feed_issuance_id} -> {self.animal_id}: {self.allocated_cost}"
+
+
 class FeedConfirmationRecord(models.Model):
     STATUS_CHOICES = [
         ("confirmed", "Confirmed"),

@@ -14,6 +14,9 @@ from feed.api import router as feed
 from movement_records.api import router as movement_records
 from alerts.api import router as alerts
 from dashbaord.api import router as dashboard
+from finance.api import router as finance
+from pharmacy.api import router as pharmacy
+from reports.api import router as reports
 from django.conf import settings
 from django.conf.urls.static import static
 
@@ -37,6 +40,9 @@ api.add_router("/feed/", feed)
 api.add_router("/movement-records/", movement_records)
 api.add_router("/alerts/", alerts)
 api.add_router("/dashboard/", dashboard)
+api.add_router("/finance/", finance)
+api.add_router("/pharmacy/", pharmacy)
+api.add_router("/reports/", reports)
 
 urlpatterns = [
     path("admin/", admin.site.urls),

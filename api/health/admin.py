@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import MortalityRecord, TreatmentRecord, VaccinationRecord
+from .models import MortalityRecord, TreatmentRecord, VaccinationRecord, HealthAlert
 # Register your models here.
 @admin.register(MortalityRecord)
 class MortalityRecordAdmin(admin.ModelAdmin):
@@ -13,4 +13,10 @@ class TreatmentRecordAdmin(admin.ModelAdmin):
 @admin.register(VaccinationRecord)
 class VaccinationRecordAdmin(admin.ModelAdmin):
     list_display = [field.name for field in VaccinationRecord._meta.fields]
-    
+
+
+@admin.register(HealthAlert)
+class HealthAlertAdmin(admin.ModelAdmin):
+    list_display = ["id", "animal", "alert_type", "severity", "status", "detected_date"]
+    list_filter = ["severity", "status", "alert_type"]
+

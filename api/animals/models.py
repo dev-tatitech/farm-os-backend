@@ -19,9 +19,17 @@ class Animal(TimeStampedModel):
         ("female", "Female"),
     ]
     SOURCE_TYPE = [
-        ("born", "Born"),
+        ("born", "Born on Farm"),
         ("purchased", "Purchased"),
         ("imported", "Imported"),
+        ("transferred_in", "Transferred In"),
+        ("donated", "Donated"),
+        ("opening_record", "Opening Record"),
+        ("other", "Other"),
+    ]
+    BREED_TYPE_CHOICES = [
+        ("purebred", "Purebred"),
+        ("crossbred", "Crossbred"),
     ]
     class HealthStatus(models.TextChoices):
         HEALTHY = "healthy", "Healthy"
@@ -83,6 +91,39 @@ class Animal(TimeStampedModel):
         "admin_panel.AnimalClassification", null=True, blank=True,
         on_delete=models.SET_NULL, related_name="animals"
     )
+
+    # Crossbreed support
+    breed_type = models.CharField(max_length=20, choices=BREED_TYPE_CHOICES, default="purebred")
+    sire_breed = models.ForeignKey(
+        "admin_panel.LivestockBreed", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="sire_offspring"
+    )
+    dam_breed = models.ForeignKey(
+        "admin_panel.LivestockBreed", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="dam_offspring"
+    )
+
+    # Financial summary (detailed acquisition fields live on AnimalAcquisition;
+    # these are kept here for fast reads without an extra join everywhere).
+    acquisition_cost = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    opening_value = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    current_estimated_value = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+
+    # Species-based lifecycle (Phase 2) — kept as a fast-read denormalized
+    # field; the authoritative audit trail lives in AnimalLifecycleHistory.
+    current_life_stage = models.CharField(max_length=50, null=True, blank=True)
+
+    # Reproduction eligibility overrides
+    is_breeding_restricted = models.BooleanField(default=False)
+    breeding_restricted_reason = models.TextField(null=True, blank=True)
+
+    # Sale approval (Phase 4)
+    sale_approved = models.BooleanField(default=False)
+    sale_approved_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="sale_approvals"
+    )
+    sale_approved_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         ordering = ["-created_at"]
         indexes = [
@@ -141,6 +182,16 @@ class Animal(TimeStampedModel):
         if self.estimated_age_months is not None and self.estimated_age_months < 0:
             errors["estimated_age_months"] = "Age cannot be negative"
 
+        # RULE 6: Crossbreed support
+        if self.breed_type == "crossbred":
+            if not self.sire_breed_id:
+                errors["sire_breed"] = "Sire breed is required for crossbred animals"
+            if not self.dam_breed_id:
+                errors["dam_breed"] = "Dam breed is required for crossbred animals"
+        elif self.breed_type == "purebred":
+            if self.sire_breed_id or self.dam_breed_id:
+                errors["breed_type"] = "Sire/Dam breed must be empty for purebred animals"
+
         if errors:
             raise ValidationError(errors)
 
@@ -171,8 +222,93 @@ class AnimalProfileAttribute(models.Model):
 
     def __str__(self):
         return f"{self.animal.tag_id} - {self.attribute_key}: {self.attribute_value}"
-    
-from django.db import models
+
+
+class AnimalAcquisition(models.Model):
+    PAYMENT_STATUS_CHOICES = [
+        ("paid", "Paid"),
+        ("pending", "Pending"),
+        ("partial", "Partial"),
+    ]
+    VALUATION_METHOD_CHOICES = [
+        ("market_comparison", "Market Comparison"),
+        ("book_value", "Book Value"),
+        ("professional_appraisal", "Professional Appraisal"),
+        ("owner_estimate", "Owner Estimate"),
+    ]
+
+    animal = models.OneToOneField(Animal, on_delete=models.CASCADE, related_name="acquisition")
+
+    # Shared across purchased / imported
+    supplier = models.CharField(max_length=255, blank=True, null=True)
+    purchase_price = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    currency = models.CharField(max_length=10, default="NGN")
+    payment_status = models.CharField(max_length=20, choices=PAYMENT_STATUS_CHOICES, default="paid")
+    payment_method = models.CharField(max_length=50, blank=True, null=True)
+    transaction_reference = models.CharField(max_length=100, blank=True, null=True)
+    supporting_document = models.FileField(upload_to="animals/acquisition/", null=True, blank=True)
+    notes = models.TextField(blank=True, null=True)
+
+    # Purchased
+    purchase_date = models.DateField(null=True, blank=True)
+    transportation_cost = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    veterinary_inspection_cost = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    other_acquisition_cost = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+
+    # Imported
+    country_of_origin = models.CharField(max_length=100, blank=True, null=True)
+    import_date = models.DateField(null=True, blank=True)
+    shipping_cost = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    customs_clearance_cost = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    quarantine_cost = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    veterinary_certification_cost = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    insurance_cost = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    other_import_cost = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+
+    # Born on farm - internal production cost components (not a purchase transaction)
+    production_cost_dam_feeding = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    production_cost_pregnancy_treatment = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    production_cost_delivery = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    production_cost_breeding = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+
+    # Opening record
+    estimated_opening_value = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    valuation_date = models.DateField(null=True, blank=True)
+    valuation_method = models.CharField(max_length=30, choices=VALUATION_METHOD_CHOICES, blank=True, null=True)
+    valuation_notes = models.TextField(blank=True, null=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def total_purchased_cost(self):
+        return (
+            (self.purchase_price or 0)
+            + (self.transportation_cost or 0)
+            + (self.veterinary_inspection_cost or 0)
+            + (self.other_acquisition_cost or 0)
+        )
+
+    def total_landed_cost(self):
+        return (
+            (self.purchase_price or 0)
+            + (self.shipping_cost or 0)
+            + (self.customs_clearance_cost or 0)
+            + (self.quarantine_cost or 0)
+            + (self.veterinary_certification_cost or 0)
+            + (self.insurance_cost or 0)
+            + (self.other_import_cost or 0)
+        )
+
+    def total_production_cost(self):
+        return (
+            (self.production_cost_dam_feeding or 0)
+            + (self.production_cost_pregnancy_treatment or 0)
+            + (self.production_cost_delivery or 0)
+            + (self.production_cost_breeding or 0)
+        )
+
+    def __str__(self):
+        return f"Acquisition for {self.animal.tag_id}"
 
 
 class AnimalGroup(models.Model):

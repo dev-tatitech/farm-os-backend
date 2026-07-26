@@ -35,6 +35,7 @@ class Organization(TimeStampedModel):
         AdminLevel1, null=True, blank=True, on_delete=models.SET_NULL
     )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="trial")
+    logo = models.ImageField(upload_to="organizations/", null=True, blank=True)
 
 class FarmType(models.Model):
     name = models.CharField(max_length=50)

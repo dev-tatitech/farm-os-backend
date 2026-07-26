@@ -225,6 +225,7 @@ def get_organization(request):
         org = user.organizations.first()
     if not org:
         raise HttpError(404, f"Permission denied")
+    request_host = request.build_absolute_uri("/").rstrip("/")
     data = {
          "id": org.id,
          "name": org.name,
@@ -232,12 +233,48 @@ def get_organization(request):
          "industry_type": org.industry_type.name if org.industry_type else None,
          "country": org.country.name if org.country else None,
          "state_region": org.state_region.name if org.state_region else None,
-         "status": org.status
+         "status": org.status,
+         "logo_url": f"{request_host}{org.logo.url}" if org.logo else None,
         }
-        
+
 
     return 200, APIResponse(
         success=True, message="oranization fetch successfully", data=data
+    )
+
+
+@router.post(
+    "/organization/logo/",
+    response={200: APIResponse, 403: APIResponse},
+)
+def update_organization_logo(
+    request,
+    logo: UploadedFile = File(...),
+):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+
+    if org.logo:
+        try:
+            org.logo.delete(save=False)
+        except Exception:
+            pass
+
+    org.logo = logo
+    org.save(update_fields=["logo"])
+
+    request_host = request.build_absolute_uri("/").rstrip("/")
+    return 200, APIResponse(
+        success=True,
+        message="Organization logo updated successfully",
+        data={"id": org.id, "logo_url": f"{request_host}{org.logo.url}"},
     )
     
 @router.get(
@@ -455,6 +492,7 @@ def organization_dashboard(request):
             "max_batches": subscription.plan.max_batches,
         }
 
+    request_host = request.build_absolute_uri("/").rstrip("/")
     data = {
         "organization": {
             "id": org.id,
@@ -464,6 +502,7 @@ def organization_dashboard(request):
             "country": org.country.name if org.country else None,
             "state_region": org.state_region.name if org.state_region else None,
             "status": org.status,
+            "logo_url": f"{request_host}{org.logo.url}" if org.logo else None,
             "created_at": org.created_at,
         },
         "subscription": subscription_data,

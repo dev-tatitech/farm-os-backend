@@ -22,10 +22,13 @@ class APIResponse(Schema):
     message: str
     data: Any
     
+ENTRY_METHOD = Literal["born", "purchased", "imported", "transferred_in", "donated", "opening_record", "other"]
+
+
 class AnimalsSchemaIn(Schema):
     status: Literal["active", "pregnant","lactating", "sick", "quarantine", "sold", "dead"]
     gender: Literal["male", "female"]
-    source: Literal["born","purchased","imported"]
+    source: ENTRY_METHOD
     farm_id: int
     unit_id: int
     tag_id: str
@@ -40,6 +43,35 @@ class AnimalsSchemaIn(Schema):
     is_quarantine: bool
     is_active: bool
     notes: Optional[str] = None
+
+    # Acquisition — required subset enforced below by entry method, per spec
+    # 2.2/2.3 ("cannot be onboarded without the relevant financial fields").
+    supplier: Optional[str] = None
+    purchase_price: Optional[float] = None
+    currency: str = "NGN"
+    purchase_date: Optional[date] = None
+    transportation_cost: Optional[float] = None
+    veterinary_inspection_cost: Optional[float] = None
+    other_acquisition_cost: Optional[float] = None
+    payment_status: Literal["paid", "pending", "partial"] = "paid"
+    payment_method: Optional[str] = None
+    transaction_reference: Optional[str] = None
+    country_of_origin: Optional[str] = None
+    import_date: Optional[date] = None
+    shipping_cost: Optional[float] = None
+    customs_clearance_cost: Optional[float] = None
+    quarantine_cost: Optional[float] = None
+    veterinary_certification_cost: Optional[float] = None
+    insurance_cost: Optional[float] = None
+    other_import_cost: Optional[float] = None
+    estimated_opening_value: Optional[float] = None
+    valuation_date: Optional[date] = None
+    valuation_method: Optional[Literal["market_comparison", "book_value", "professional_appraisal", "owner_estimate"]] = None
+    valuation_notes: Optional[str] = None
+    production_cost_dam_feeding: Optional[float] = None
+    production_cost_pregnancy_treatment: Optional[float] = None
+    production_cost_delivery: Optional[float] = None
+    production_cost_breeding: Optional[float] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -60,12 +92,27 @@ class AnimalsSchemaIn(Schema):
             if not self.dob:
                 raise ValueError("dob is required when source is 'born'")
 
-        # Rule 2: Purchased / Imported
+        # Rule 2: Purchased / Imported — age still required, plus the
+        # financial fields that make this animal traceable from day one.
         if self.source in ["purchased", "imported"]:
             if not self.dob and not self.estimated_age_months:
                 raise ValueError(
                     "Either dob or estimated_age_months is required when source is purchased/imported"
                 )
+
+        if self.source == "purchased":
+            if self.purchase_price is None:
+                raise ValueError("purchase_price is required when source is 'purchased'")
+            if not self.purchase_date:
+                raise ValueError("purchase_date is required when source is 'purchased'")
+
+        if self.source == "imported":
+            if self.purchase_price is None:
+                raise ValueError("purchase_price is required when source is 'imported'")
+            if not self.import_date:
+                raise ValueError("import_date is required when source is 'imported'")
+            if not self.country_of_origin:
+                raise ValueError("country_of_origin is required when source is 'imported'")
 
         return self
    
@@ -203,7 +250,7 @@ class AnimalsUpdateSchemaInV2(Schema):
 class AnimalsSchemaInV2(Schema):
     status: Literal["active", "pregnant", "lactating", "sick", "quarantine", "sold", "dead"]
     gender: Literal["male", "female"]
-    source: Literal["born", "purchased", "imported"]
+    source: ENTRY_METHOD
     farm_id: int
     tag_id: str
     livestock_species_id: int
@@ -219,6 +266,35 @@ class AnimalsSchemaInV2(Schema):
     is_quarantine: bool
     is_active: bool
     notes: Optional[str] = None
+
+    # Acquisition — required subset enforced below by entry method, per spec
+    # 2.2/2.3 ("cannot be onboarded without the relevant financial fields").
+    supplier: Optional[str] = None
+    purchase_price: Optional[float] = None
+    currency: str = "NGN"
+    purchase_date: Optional[date] = None
+    transportation_cost: Optional[float] = None
+    veterinary_inspection_cost: Optional[float] = None
+    other_acquisition_cost: Optional[float] = None
+    payment_status: Literal["paid", "pending", "partial"] = "paid"
+    payment_method: Optional[str] = None
+    transaction_reference: Optional[str] = None
+    country_of_origin: Optional[str] = None
+    import_date: Optional[date] = None
+    shipping_cost: Optional[float] = None
+    customs_clearance_cost: Optional[float] = None
+    quarantine_cost: Optional[float] = None
+    veterinary_certification_cost: Optional[float] = None
+    insurance_cost: Optional[float] = None
+    other_import_cost: Optional[float] = None
+    estimated_opening_value: Optional[float] = None
+    valuation_date: Optional[date] = None
+    valuation_method: Optional[Literal["market_comparison", "book_value", "professional_appraisal", "owner_estimate"]] = None
+    valuation_notes: Optional[str] = None
+    production_cost_dam_feeding: Optional[float] = None
+    production_cost_pregnancy_treatment: Optional[float] = None
+    production_cost_delivery: Optional[float] = None
+    production_cost_breeding: Optional[float] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -244,6 +320,18 @@ class AnimalsSchemaInV2(Schema):
                 raise ValueError(
                     "Either dob or estimated_age_months is required for purchased/imported"
                 )
+        if self.source == "purchased":
+            if self.purchase_price is None:
+                raise ValueError("purchase_price is required when source is 'purchased'")
+            if not self.purchase_date:
+                raise ValueError("purchase_date is required when source is 'purchased'")
+        if self.source == "imported":
+            if self.purchase_price is None:
+                raise ValueError("purchase_price is required when source is 'imported'")
+            if not self.import_date:
+                raise ValueError("import_date is required when source is 'imported'")
+            if not self.country_of_origin:
+                raise ValueError("country_of_origin is required when source is 'imported'")
         return self
 
 

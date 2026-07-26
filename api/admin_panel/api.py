@@ -1095,6 +1095,64 @@ def seed_weight_range(request):
     return 200, APIResponse(success=True, message="Weight reference ranges seeded successfully", data={"created": created})
 
 
+@router.post("/weight-range/", response={200: APIResponse, 403: APIResponse})
+def create_farm_weight_range(
+    request, farm_id: int, species_id: int, breed_id: int = None, sex: str = "any",
+    min_age_months: float = None, max_age_months: float = None,
+    min_weight_kg: float = None, max_weight_kg: float = None, target_daily_gain_kg: float = None,
+):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        return 403, APIResponse(success=False, message="Permission denied", data=None)
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(403, "Permission denied")
+    perm = user_has_permission(user, Permissions.Animal.UPDATE)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(403, "Permission denied: configuring species weight ranges requires explicit authorization")
+
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    species = get_object_or_404(LivestockSpecies, id=species_id, is_active=True)
+    breed = get_object_or_404(LivestockBreed, id=breed_id) if breed_id else None
+
+    existing = WeightReferenceRange.objects.filter(
+        species=species, breed=breed, farm=farm, sex=sex,
+        min_age_months=min_age_months, max_age_months=max_age_months,
+    ).first()
+    previous_range = None
+    if existing:
+        previous_range = f"{existing.min_weight_kg}-{existing.max_weight_kg}kg"
+        existing.min_weight_kg = min_weight_kg
+        existing.max_weight_kg = max_weight_kg
+        existing.target_daily_gain_kg = target_daily_gain_kg
+        existing.is_system = False
+        existing.save()
+        rng = existing
+    else:
+        rng = WeightReferenceRange.objects.create(
+            species=species, breed=breed, farm=farm, sex=sex,
+            min_age_months=min_age_months, max_age_months=max_age_months,
+            min_weight_kg=min_weight_kg, max_weight_kg=max_weight_kg,
+            target_daily_gain_kg=target_daily_gain_kg, is_system=False,
+        )
+
+    from common.audit import log_audit
+    log_audit(
+        user=user, action="configure_species_rule", source_module="admin_panel",
+        object_type="WeightReferenceRange", object_id=rng.id,
+        previous_value=previous_range, new_value=f"{min_weight_kg}-{max_weight_kg}kg",
+    )
+
+    return 200, APIResponse(
+        success=True,
+        message="Farm weight range saved" if not existing else "Farm weight range updated",
+        data={"id": rng.id},
+    )
+
+
 @router.get("/weight-range/{species_id}/", response={200: APIResponse, 403: APIResponse})
 def get_weight_ranges(request, species_id: int, farm_id: int = None):
     user_id = get_current_user(request)

@@ -181,7 +181,9 @@ def treatment(
         )
     data={
         "treatment":treatment.treatment,
-        "gender": treatment.severity
+        "gender": treatment.severity,
+        "treatment_cost": treatment.treatment_cost,
+        "withdrawal_end_date": treatment.withdrawal_end_date,
     }
     return 200,APIResponse(
         success=True,

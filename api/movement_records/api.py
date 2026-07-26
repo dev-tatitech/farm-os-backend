@@ -589,6 +589,12 @@ def create_farm_sale_policy(
     species = get_object_or_404(LivestockSpecies, id=species_id, is_active=True)
     breed = get_object_or_404(LivestockBreed, id=breed_id) if breed_id else None
 
+    previous_policy = SalePolicy.objects.filter(species=species, breed=breed, farm=farm).first()
+    previous_value = (
+        f"target_weight={previous_policy.target_sale_weight_kg}, allow_pregnant_sale={previous_policy.allow_pregnant_sale}"
+        if previous_policy else None
+    )
+
     policy, created = SalePolicy.objects.update_or_create(
         species=species, breed=breed, farm=farm,
         defaults=dict(
@@ -602,6 +608,15 @@ def create_farm_sale_policy(
             is_system=False,
         ),
     )
+
+    from common.audit import log_audit
+    log_audit(
+        user=user, action="configure_species_rule", source_module="movement_records",
+        object_type="SalePolicy", object_id=policy.id,
+        previous_value=previous_value,
+        new_value=f"target_weight={target_sale_weight_kg}, allow_pregnant_sale={allow_pregnant_sale}",
+    )
+
     return 200, APIResponse(
         success=True,
         message="Farm sale policy saved" if created else "Farm sale policy updated",

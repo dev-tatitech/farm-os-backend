@@ -1126,6 +1126,12 @@ def create_farm_breeding_rule(
     species = get_object_or_404(LivestockSpecies, id=species_id, is_active=True)
     breed = get_object_or_404(LivestockBreed, id=breed_id) if breed_id else None
 
+    previous_rule = BreedingEligibilityRule.objects.filter(species=species, breed=breed, farm=farm).first()
+    previous_value = (
+        f"min_age={previous_rule.min_breeding_age_months}, min_weight={previous_rule.min_breeding_weight_kg}"
+        if previous_rule else None
+    )
+
     rule, created = BreedingEligibilityRule.objects.update_or_create(
         species=species, breed=breed, farm=farm,
         defaults=dict(
@@ -1139,6 +1145,15 @@ def create_farm_breeding_rule(
             is_system=False,
         ),
     )
+
+    from common.audit import log_audit
+    log_audit(
+        user=user, action="configure_species_rule", source_module="reproduction",
+        object_type="BreedingEligibilityRule", object_id=rule.id,
+        previous_value=previous_value,
+        new_value=f"min_age={min_breeding_age_months}, min_weight={min_breeding_weight_kg}",
+    )
+
     return 200, APIResponse(
         success=True,
         message="Farm breeding rule saved" if created else "Farm breeding rule updated",

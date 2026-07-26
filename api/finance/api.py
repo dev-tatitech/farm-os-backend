@@ -8,6 +8,7 @@ from account.auth import get_current_user
 from account.models import User as users
 from organization.models import Farm
 from animals.models import Animal, AnimalGroup
+from movement_records.models import SalesRecord
 from common.permission_checker import user_has_permission
 from common.permissions import Permissions
 
@@ -183,6 +184,14 @@ def animal_financial_summary(request, animal_id: int):
     total_income = compute_income_generated(animal)
     acquisition_or_opening_value = float(animal.acquisition_cost or animal.opening_value or 0)
 
+    # A completed sale is authoritative over a manually-set estimate — once an
+    # animal is actually sold, the profile should reflect what it sold for,
+    # not a pre-sale guess.
+    completed_sale = SalesRecord.objects.filter(animal=animal).order_by("-created_at").first()
+    sale_price = float(completed_sale.price) if completed_sale else None
+    estimated_current_value = float(animal.current_estimated_value) if animal.current_estimated_value else None
+    sale_value_for_profit = sale_price if sale_price is not None else estimated_current_value
+
     data = {
         "animal_id": animal.id,
         "tag_id": animal.tag_id,
@@ -190,10 +199,14 @@ def animal_financial_summary(request, animal_id: int):
         "cost_breakdown": cost_by_category,
         "total_cost_to_date": total_cost,
         "income_generated": total_income,
-        "estimated_current_value": float(animal.current_estimated_value) if animal.current_estimated_value else None,
+        "is_sold": completed_sale is not None,
+        "sale_price": sale_price,
+        "sale_date": completed_sale.sale_date if completed_sale else None,
+        "estimated_current_value": estimated_current_value,
         "estimated_profit_or_loss": (
-            (float(animal.current_estimated_value) if animal.current_estimated_value else 0)
-            + total_income - total_cost
+            sale_value_for_profit + total_income - total_cost
+            if sale_value_for_profit is not None
+            else None
         ),
     }
     return 200, APIResponse(success=True, message="Animal financial summary", data=data)

@@ -426,8 +426,8 @@ def list_movements_v2(request, page: int, page_size: int, farm_id: int, q: str =
 
     farm = get_object_or_404(Farm, id=farm_id, organization=org)
     qs = MovementRecord.objects.select_related(
-        "from_housing_unit__unit_type",
-        "to_housing_unit__unit_type",
+        "from_housing_unit",
+        "to_housing_unit",
         "from_unit",
         "to_unit",
         "animal",
@@ -459,7 +459,6 @@ def list_movements_v2(request, page: int, page_size: int, farm_id: int, q: str =
                 "to_unit": thu.name if thu else (m.to_unit.name if m.to_unit else None),
                 "from_unit_id": m.from_housing_unit_id or m.from_unit_id,
                 "to_unit_id": m.to_housing_unit_id or m.to_unit_id,
-                "unit_type": fhu.unit_type.name if fhu and fhu.unit_type else None,
                 "move_date": m.move_date,
                 "reason": m.reason,
                 "created_by": m.created_by_id,
@@ -500,8 +499,8 @@ def get_movement_v2(request, movement_id: int):
 
     m = get_object_or_404(
         MovementRecord.objects.select_related(
-            "from_housing_unit__unit_type",
-            "to_housing_unit__unit_type",
+            "from_housing_unit",
+            "to_housing_unit",
             "from_unit",
             "to_unit",
             "animal",
@@ -519,7 +518,6 @@ def get_movement_v2(request, movement_id: int):
         "to_unit": thu.name if thu else (m.to_unit.name if m.to_unit else None),
         "from_unit_id": m.from_housing_unit_id or m.from_unit_id,
         "to_unit_id": m.to_housing_unit_id or m.to_unit_id,
-        "unit_type": fhu.unit_type.name if fhu and fhu.unit_type else None,
         "move_date": m.move_date,
         "reason": m.reason,
         "created_by": m.created_by_id,

@@ -126,7 +126,6 @@ def get_farm_unit(
                 "id":data.id,
                 "farm":data.farm.name if data.farm else None,
                 "name":data.name,
-                "unit_type": data.unit_type.name if data.unit_type else None,
                 "capacity":data.capacity,
                 "status": data.status
             }
@@ -217,8 +216,7 @@ def add_farm_unit_v2(request, payload: FarmUnitSchemaV2):
         raise HttpError(404, f"you are not admin {perm}")
 
     farm = get_object_or_404(Farm, id=payload.farm_id, organization=org)
-    housing_unit_type = get_object_or_404(HousingUnitType, id=payload.housing_unit_type_id)
-
+  
     housing_unit = FarmHousingUnit(
         farm=farm,
         name=payload.name,
@@ -310,7 +308,7 @@ def get_farm_unit_by_farm_v2(request, page: int, page_size: int, farm_id: int):
             raise HttpError(404, "Permission denied")
 
     farm = get_object_or_404(Farm, id=farm_id, organization=org)
-    units = FarmHousingUnit.objects.select_related("farm", "unit_type").prefetch_related(
+    units = FarmHousingUnit.objects.select_related("farm").prefetch_related(
         "allowed_species"
     ).filter(farm=farm)
 
@@ -323,8 +321,6 @@ def get_farm_unit_by_farm_v2(request, page: int, page_size: int, farm_id: int):
                 "id": u.id,
                 "name": u.name,
                 "farm": u.farm.name if u.farm else None,
-                "unit_type": u.unit_type.name if u.unit_type else None,
-                "unit_type_id": u.unit_type_id,
                 "capacity": u.capacity,
                 "occupancy": u.animals.filter(is_active=True).count(),
                 "location": u.location,

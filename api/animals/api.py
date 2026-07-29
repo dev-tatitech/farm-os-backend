@@ -1443,9 +1443,7 @@ def new_animal_v2(
         raise HttpError(422, "This breed is not available for your farm")
 
     housing_unit = get_object_or_404(FarmHousingUnit, id=payload.housing_unit_id, farm=farm, status="active")
-    allowed = housing_unit.allowed_species.filter(id=livestock_species.id).exists()
-    unit_type_species = housing_unit.unit_type.species_id == livestock_species.id
-    if not allowed and not unit_type_species:
+    if housing_unit.allowed_species.exists() and not housing_unit.allowed_species.filter(id=livestock_species.id).exists():
         raise HttpError(422, f"Housing unit '{housing_unit.name}' does not support species '{livestock_species.name}'")
 
     classification = None
@@ -1574,7 +1572,7 @@ def get_animal_v2(request, page: int, page_size: int, farm_id: int):
     farm = get_object_or_404(Farm, id=farm_id, organization=org)
     qs = Animal.objects.select_related(
         "livestock_species", "livestock_breed", "housing_unit",
-        "housing_unit__unit_type", "classification", "mother",
+        "classification", "mother",
     ).filter(farm=farm)
 
     paginator = Paginator(qs, page_size)
@@ -1589,7 +1587,6 @@ def get_animal_v2(request, page: int, page_size: int, farm_id: int):
             "species": a.livestock_species.name if a.livestock_species else (a.species.name if a.species else None),
             "breed": a.livestock_breed.name if a.livestock_breed else (a.breed.name if a.breed else None),
             "housing_unit": a.housing_unit.name if a.housing_unit else (a.unit.name if a.unit else None),
-            "housing_unit_type": a.housing_unit.unit_type.name if a.housing_unit else None,
             "classification": a.classification.name if a.classification else None,
             "mother_tag": a.mother.tag_id if a.mother else None,
             "source_type": a.source_type,
@@ -1640,7 +1637,7 @@ def animal_profile_v2(request, animal_id: int):
     animal = get_object_or_404(
         Animal.objects.select_related(
             "livestock_species", "livestock_breed", "housing_unit",
-            "housing_unit__unit_type", "classification",
+            "classification",
             "species", "breed", "farm", "unit", "mother",
         ),
         id=animal_id,
@@ -1669,7 +1666,6 @@ def animal_profile_v2(request, animal_id: int):
     species_name = (animal.livestock_species.name if animal.livestock_species else (animal.species.name if animal.species else None))
     breed_name = (animal.livestock_breed.name if animal.livestock_breed else (animal.breed.name if animal.breed else None))
     unit_name = (animal.housing_unit.name if animal.housing_unit else (animal.unit.name if animal.unit else None))
-    unit_type_name = animal.housing_unit.unit_type.name if animal.housing_unit else None
     classification_name = animal.classification.name if animal.classification else None
 
     # ── Card ───────────────────────────────────────────────────────────────────
@@ -1688,7 +1684,6 @@ def animal_profile_v2(request, animal_id: int):
         "lifecycle_stage": lifecycle_stage,
         "lifecycle_label": lifecycle_label,
         "housing_unit": unit_name,
-        "housing_unit_type": unit_type_name,
         "image_url": image_url,
     }
 
@@ -1700,7 +1695,6 @@ def animal_profile_v2(request, animal_id: int):
         "mother_tag": animal.mother.tag_id if animal.mother else None,
         "source": animal.get_source_type_display(),
         "housing_unit": unit_name,
-        "housing_unit_type": unit_type_name,
         "farm": animal.farm.name,
         "entry_date": animal.created_at.date(),
     }
@@ -1822,7 +1816,7 @@ def get_animal_by_id_v2(request, animal_id: int):
     a = get_object_or_404(
         Animal.objects.select_related(
             "livestock_species", "livestock_breed",
-            "housing_unit", "housing_unit__unit_type",
+            "housing_unit",
             "classification", "species", "breed", "unit", "mother",
         ),
         id=animal_id,
@@ -1846,7 +1840,6 @@ def get_animal_by_id_v2(request, animal_id: int):
         "species": a.livestock_species.name if a.livestock_species else (a.species.name if a.species else None),
         "breed": a.livestock_breed.name if a.livestock_breed else (a.breed.name if a.breed else None),
         "housing_unit": a.housing_unit.name if a.housing_unit else (a.unit.name if a.unit else None),
-        "housing_unit_type": a.housing_unit.unit_type.name if a.housing_unit and a.housing_unit.unit_type else None,
         "classification": a.classification.name if a.classification else None,
         "livestock_species_id": a.livestock_species_id,
         "livestock_breed_id": a.livestock_breed_id,

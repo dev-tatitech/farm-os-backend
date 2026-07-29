@@ -98,9 +98,6 @@ class FarmHousingUnit(models.Model):
     farm = models.ForeignKey(
         "organization.Farm", on_delete=models.CASCADE, related_name="housing_units"
     )
-    unit_type = models.ForeignKey(
-        HousingUnitType, on_delete=models.PROTECT, related_name="farm_units"
-    )
     name = models.CharField(max_length=200)
     capacity = models.PositiveIntegerField(null=True, blank=True)
     allowed_species = models.ManyToManyField(

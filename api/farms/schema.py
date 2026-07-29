@@ -29,9 +29,14 @@ class FarmSchemaIn(Schema):
 class FarmUnitSchemaV2(Schema):
     farm_id: int
     name: str
-    housing_unit_type_id: int
     capacity: Optional[int] = None
     location: Optional[str] = None
     allowed_species_ids: Optional[List[int]] = None
 
-    
+class HousingUnitTypeSchema(Schema):
+    id: int
+    name: str
+    description: Optional[str] = None
+    capacity: Optional[int] = None
+    created_at: Optional[date] = None
+    updated_at: Optional[date] = None

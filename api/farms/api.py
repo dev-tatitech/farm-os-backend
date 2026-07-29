@@ -222,7 +222,6 @@ def add_farm_unit_v2(request, payload: FarmUnitSchemaV2):
     housing_unit = FarmHousingUnit(
         farm=farm,
         name=payload.name,
-        unit_type=housing_unit_type,
         capacity=payload.capacity,
         location=payload.location,
     )

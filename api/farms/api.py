@@ -253,7 +253,7 @@ def get_farm_unit_v2(request, page: int, page_size: int):
             raise HttpError(404, "Permission denied")
 
     farm_ids = Farm.objects.filter(organization=org).values_list("id", flat=True)
-    units = FarmHousingUnit.objects.select_related("farm", "unit_type").prefetch_related(
+    units = FarmHousingUnit.objects.select_related("farm").prefetch_related(
         "allowed_species"
     ).filter(farm_id__in=farm_ids)
 
@@ -266,8 +266,6 @@ def get_farm_unit_v2(request, page: int, page_size: int):
                 "id": u.id,
                 "name": u.name,
                 "farm": u.farm.name if u.farm else None,
-                "unit_type": u.unit_type.name if u.unit_type else None,
-                "unit_type_id": u.unit_type_id,
                 "capacity": u.capacity,
                 "occupancy": u.animals.filter(is_active=True).count(),
                 "location": u.location,
@@ -311,6 +309,70 @@ def get_farm_unit_by_farm_v2(request, page: int, page_size: int, farm_id: int):
     units = FarmHousingUnit.objects.select_related("farm").prefetch_related(
         "allowed_species"
     ).filter(farm=farm)
+
+    paginator = Paginator(units, page_size)
+    page_obj = paginator.page(page)
+    serialized = []
+    for u in page_obj.object_list:
+        serialized.append(
+            {
+                "id": u.id,
+                "name": u.name,
+                "farm": u.farm.name if u.farm else None,
+                "capacity": u.capacity,
+                "occupancy": u.animals.filter(is_active=True).count(),
+                "location": u.location,
+                "status": u.status,
+                "allowed_species": [s.name for s in u.allowed_species.all()],
+            }
+        )
+    return 200, ListResponseSchema(
+        success=True,
+        message="farm housing units fetched successfully",
+        data=serialized,
+        num_pages=paginator.num_pages,
+        current_page=page_obj.number,
+        total_items=paginator.count,
+        has_next=page_obj.has_next,
+        has_previous=page_obj.has_previous,
+    )
+
+
+@router.get(
+    "/all-farm-unit-by-species/v2/{page}/{page_size}/{farm_id}/{species_id}",
+    response={200: ListResponseSchema, 403: APIResponse},
+)
+def get_farm_unit_by_species_v2(request, page: int, page_size: int, farm_id: int, species_id: int):
+    """
+    Housing units on this farm usable for a given species — a unit with no
+    allowed_species set is unrestricted (usable by any species), matching
+    the same compatibility rule enforced at animal-creation time.
+    """
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.FarmUnit.VIEW)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(404, "Permission denied")
+
+    farm = get_object_or_404(Farm, id=farm_id, organization=org)
+    species = get_object_or_404(LivestockSpecies, id=species_id, is_active=True)
+
+    units = (
+        FarmHousingUnit.objects.select_related("farm")
+        .prefetch_related("allowed_species")
+        .filter(farm=farm)
+        .filter(Q(allowed_species=species) | Q(allowed_species__isnull=True))
+        .distinct()
+    )
 
     paginator = Paginator(units, page_size)
     page_obj = paginator.page(page)

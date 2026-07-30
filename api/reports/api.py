@@ -12,7 +12,7 @@ from organization.models import Farm
 from animals.models import Animal, AnimalGroup
 from animals.growth import weight_gain, average_daily_gain, percentage_weight_change, cost_per_kg_gained
 from finance.models import Transaction
-from finance.services import compute_total_cost_to_date, compute_income_generated
+from finance.services import compute_total_cost_to_date, compute_income_generated, get_financial_profile
 from health.models import HealthAlert
 from reproduction.eligibility import check_breeding_eligibility
 from movement_records.sale_readiness import evaluate_sale_readiness
@@ -49,17 +49,18 @@ def _farm(request, farm_id, org):
 def animal_cost_report(request, page: int, page_size: int, farm_id: int):
     user, org = _auth(request)
     farm = _farm(request, farm_id, org)
-    qs = Animal.objects.filter(farm=farm, is_active=True)
+    qs = Animal.objects.filter(farm=farm, is_active=True).select_related("financial_profile")
     paginator = Paginator(qs, page_size)
     page_obj = paginator.page(page)
     serialized = []
     for a in page_obj.object_list:
         cost = compute_total_cost_to_date(a)
         income = compute_income_generated(a)
-        current_value = float(a.current_estimated_value) if a.current_estimated_value else None
+        profile = get_financial_profile(a)
+        current_value = float(profile.current_estimated_value) if profile and profile.current_estimated_value else None
         serialized.append({
             "animal_id": a.id, "tag_id": a.tag_id,
-            "acquisition_or_opening_value": float(a.acquisition_cost or a.opening_value or 0),
+            "acquisition_or_opening_value": float((profile.acquisition_cost or profile.opening_value or 0) if profile else 0),
             "total_cost_to_date": cost, "income_generated": income,
             "current_estimated_value": current_value,
             "estimated_profit_or_loss": (current_value or 0) + income - cost,

@@ -13,7 +13,7 @@ from common.permission_checker import user_has_permission
 from common.permissions import Permissions
 
 from .models import Transaction, TransactionCategory
-from .services import seed_transaction_categories, compute_cost_breakdown, compute_total_cost_to_date, compute_income_generated
+from .services import seed_transaction_categories, compute_cost_breakdown, compute_total_cost_to_date, compute_income_generated, get_financial_profile
 from .schema import ListResponseSchema, APIResponse, TransactionSchemaIn
 
 router = Router(tags=["Finance"])
@@ -182,14 +182,19 @@ def animal_financial_summary(request, animal_id: int):
     cost_by_category = compute_cost_breakdown(animal)
     total_cost = compute_total_cost_to_date(animal)
     total_income = compute_income_generated(animal)
-    acquisition_or_opening_value = float(animal.acquisition_cost or animal.opening_value or 0)
+    profile = get_financial_profile(animal)
+    acquisition_or_opening_value = float(
+        (profile.acquisition_cost or profile.opening_value or 0) if profile else 0
+    )
 
     # A completed sale is authoritative over a manually-set estimate — once an
     # animal is actually sold, the profile should reflect what it sold for,
     # not a pre-sale guess.
     completed_sale = SalesRecord.objects.filter(animal=animal).order_by("-created_at").first()
     sale_price = float(completed_sale.price) if completed_sale else None
-    estimated_current_value = float(animal.current_estimated_value) if animal.current_estimated_value else None
+    estimated_current_value = (
+        float(profile.current_estimated_value) if profile and profile.current_estimated_value else None
+    )
     sale_value_for_profit = sale_price if sale_price is not None else estimated_current_value
 
     data = {

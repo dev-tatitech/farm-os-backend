@@ -37,7 +37,7 @@ def evaluate_sale_readiness(animal, farm=None, expected_sale_price=None):
     auto-computed readiness tier — this mirrors spec 9.3's ordering.
     """
     from animals.growth import average_daily_gain
-    from finance.services import compute_total_cost_to_date, compute_income_generated
+    from finance.services import compute_total_cost_to_date, compute_income_generated, get_financial_profile
     from health.models import HealthAlert, TreatmentRecord
 
     farm = farm or animal.farm
@@ -83,6 +83,7 @@ def evaluate_sale_readiness(animal, farm=None, expected_sale_price=None):
 
     latest_weight = animal.weights.order_by("-date").first()
     weight_kg = latest_weight.weight if latest_weight else None
+    profile = get_financial_profile(animal)
     factors = {
         "current_weight_kg": weight_kg,
         "target_sale_weight_kg": policy.target_sale_weight_kg if policy else None,
@@ -91,7 +92,7 @@ def evaluate_sale_readiness(animal, farm=None, expected_sale_price=None):
         "growth_rate_kg_per_day": average_daily_gain(animal),
         "total_cost_to_date": compute_total_cost_to_date(animal),
         "income_generated": compute_income_generated(animal),
-        "current_estimated_value": float(animal.current_estimated_value) if animal.current_estimated_value else None,
+        "current_estimated_value": float(profile.current_estimated_value) if profile and profile.current_estimated_value else None,
         "withdrawal_end_date": withdrawal_treatment.withdrawal_end_date if withdrawal_treatment else None,
         "is_pregnant": animal.is_pregnant,
         "is_lactating": animal.is_lactating,

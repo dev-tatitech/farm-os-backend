@@ -1,4 +1,4 @@
-from .models import Transaction, TransactionCategory
+from .models import Transaction, TransactionCategory, AnimalFinancialProfile
 
 DEFAULT_CATEGORIES = [
     # expense
@@ -85,6 +85,19 @@ def record_transaction(
     )
 
 
+def get_financial_profile(animal):
+    """
+    Safe accessor for an animal's AnimalFinancialProfile — a reverse OneToOne
+    that raises DoesNotExist (not caught by getattr's default) when no
+    profile row has been created yet, e.g. for an animal with no acquisition
+    data on record.
+    """
+    try:
+        return animal.financial_profile
+    except AnimalFinancialProfile.DoesNotExist:
+        return None
+
+
 def _acquisition_baseline(animal):
     """
     Acquisition/opening value that hasn't yet been posted as its own
@@ -98,7 +111,10 @@ def _acquisition_baseline(animal):
     ).exists()
     if has_acquisition_txn:
         return 0.0
-    return float(animal.acquisition_cost or animal.opening_value or 0)
+    profile = get_financial_profile(animal)
+    if not profile:
+        return 0.0
+    return float(profile.acquisition_cost or profile.opening_value or 0)
 
 
 def compute_cost_breakdown(animal):

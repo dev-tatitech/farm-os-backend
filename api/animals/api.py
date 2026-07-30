@@ -60,7 +60,6 @@ from .models import (
     AnimalGroupMember,
     AnimalEvent,
     AnimalWeight,
-    AnimalAcquisition,
     MilkRecord
     )
 from core.models import GroupType
@@ -83,6 +82,7 @@ from .schema import (
     AnimalAcquisitionSchemaIn,
 )
 from .acquisition import save_animal_acquisition, has_acquisition_data
+from finance.services import get_financial_profile
 from admin_panel.models import (
     LivestockSpecies,
     LivestockBreed,
@@ -161,11 +161,12 @@ def new_animal(
         return JsonResponse({
         "errors": e.message_dict
         }, status=400)
+    profile = get_financial_profile(animal)
     data={
         "name":animal.tag_id,
         "gender": animal.gender,
-        "acquisition_cost": animal.acquisition_cost,
-        "opening_value": animal.opening_value,
+        "acquisition_cost": profile.acquisition_cost if profile else None,
+        "opening_value": profile.opening_value if profile else None,
     }
     return 200,APIResponse(
         success=True,
@@ -1493,6 +1494,7 @@ def new_animal_v2(
     except ValidationError as e:
         return JsonResponse({"errors": e.message_dict}, status=400)
 
+    profile = get_financial_profile(animal)
     return 200, APIResponse(
         success=True,
         message="Animal created successfully",
@@ -1504,8 +1506,8 @@ def new_animal_v2(
             "breed": livestock_breed.name,
             "housing_unit": housing_unit.name,
             "classification": classification.name if classification else None,
-            "acquisition_cost": animal.acquisition_cost,
-            "opening_value": animal.opening_value,
+            "acquisition_cost": profile.acquisition_cost if profile else None,
+            "opening_value": profile.opening_value if profile else None,
         },
     )
 
@@ -1538,14 +1540,15 @@ def set_animal_acquisition(request, animal_id: int, payload: AnimalAcquisitionSc
     animal = get_object_or_404(Animal, id=animal_id, farm__organization=org)
     acq = save_animal_acquisition(animal, payload, user)
 
+    profile = get_financial_profile(animal)
     return 200, APIResponse(
         success=True,
         message="Animal acquisition recorded successfully",
         data={
             "animal_id": animal.id,
             "source_type": animal.source_type,
-            "acquisition_cost": animal.acquisition_cost,
-            "opening_value": animal.opening_value,
+            "acquisition_cost": profile.acquisition_cost if profile else None,
+            "opening_value": profile.opening_value if profile else None,
         },
     )
 

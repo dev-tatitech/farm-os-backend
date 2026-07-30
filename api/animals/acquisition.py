@@ -1,6 +1,6 @@
 from django.utils import timezone
 
-from .models import AnimalAcquisition
+from finance.models import AnimalAcquisition, AnimalFinancialProfile
 
 ACQUISITION_FIELDS = [
     "supplier", "purchase_price", "currency", "payment_status", "payment_method",
@@ -48,6 +48,8 @@ def save_animal_acquisition(animal, payload, user):
     today = timezone.localdate()
 
     if not already_posted:
+        profile_updates = {}
+
         if animal.source_type == "purchased":
             total = acq.total_purchased_cost()
             if total:
@@ -58,7 +60,7 @@ def save_animal_acquisition(animal, payload, user):
                     payment_status=acq.payment_status, payment_method=acq.payment_method,
                     transaction_reference=acq.transaction_reference, created_by=user,
                 )
-            animal.acquisition_cost = total or None
+            profile_updates["acquisition_cost"] = total or None
 
         elif animal.source_type == "imported":
             total = acq.total_landed_cost()
@@ -70,7 +72,7 @@ def save_animal_acquisition(animal, payload, user):
                     payment_status=acq.payment_status, payment_method=acq.payment_method,
                     transaction_reference=acq.transaction_reference, created_by=user,
                 )
-            animal.acquisition_cost = total or None
+            profile_updates["acquisition_cost"] = total or None
 
         elif animal.source_type == "born":
             # Internal production cost, not a purchase — post component costs
@@ -98,8 +100,9 @@ def save_animal_acquisition(animal, payload, user):
         elif animal.source_type == "opening_record":
             # Pre-existing value, not a new expense — nothing was spent
             # through this system, so no Finance transaction is posted.
-            animal.opening_value = acq.estimated_opening_value
+            profile_updates["opening_value"] = acq.estimated_opening_value
 
-        animal.save(update_fields=["acquisition_cost", "opening_value"])
+        if profile_updates:
+            AnimalFinancialProfile.objects.update_or_create(animal=animal, defaults=profile_updates)
 
     return acq

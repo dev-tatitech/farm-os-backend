@@ -208,6 +208,7 @@ def get_insemination(
         serialized.append(
             {
                 "id": data.id,
+                "animal_id": a.id if a else None,
                 "animal_tag": a.tag_id if a else None,
                 "breed": (
                     (a.livestock_breed.name if a.livestock_breed else (a.breed.name if a.breed else None))
@@ -364,6 +365,8 @@ def get_pregnancy(
         serialized.append(
             {
                 "id": data.id,
+                "animal_id": a.id if a else None,
+                "animal_tag": a.tag_id if a else None,
                 "animal": (
                     (a.livestock_species.name if a.livestock_species else (a.species.name if a.species else None))
                     if a else None
@@ -496,6 +499,7 @@ def get_birth(
         serialized.append(
             {
                 "id": data.id,
+                "mother_id": m.id if m else None,
                 "mother_tag": m.tag_id if m else None,
                 "species": (
                     (m.livestock_species.name if m.livestock_species else (m.species.name if m.species else None))
@@ -662,6 +666,7 @@ def get_birth_offspring(
         serialized.append(
             {
                 "id": data.id,
+                "offspring_animal_id": oa.id if oa else None,
                 "mother_tag": oa.tag_id if oa else None,
                 "species": (
                     (oa.livestock_species.name if oa.livestock_species else (oa.species.name if oa.species else None))
@@ -731,6 +736,7 @@ def get_insemination_v2(
         serialized.append(
             {
                 "id": r.id,
+                "animal_id": r.animal_id,
                 "animal_tag": r.animal.tag_id,
                 "species": r.animal.livestock_species.name if r.animal.livestock_species else (r.animal.species.name if r.animal.species else None),
                 "breed": r.animal.livestock_breed.name if r.animal.livestock_breed else (r.animal.breed.name if r.animal.breed else None),
@@ -795,6 +801,7 @@ def get_pregnancy_v2(
         serialized.append(
             {
                 "id": r.id,
+                "animal_id": r.animal_id,
                 "animal_tag": r.animal.tag_id,
                 "species": r.animal.livestock_species.name if r.animal.livestock_species else (r.animal.species.name if r.animal.species else None),
                 "breed": r.animal.livestock_breed.name if r.animal.livestock_breed else (r.animal.breed.name if r.animal.breed else None),
@@ -857,6 +864,7 @@ def get_birth_v2(
         serialized.append(
             {
                 "id": r.id,
+                "mother_id": r.mother_id,
                 "mother_tag": r.mother.tag_id,
                 "species": r.mother.livestock_species.name if r.mother.livestock_species else (r.mother.species.name if r.mother.species else None),
                 "breed": r.mother.livestock_breed.name if r.mother.livestock_breed else (r.mother.breed.name if r.mother.breed else None),
@@ -1035,6 +1043,7 @@ def get_birth_offspring_v2(
         serialized.append(
             {
                 "id": r.id,
+                "offspring_animal_id": r.offspring_animal_id,
                 "offspring_tag": r.offspring_animal.tag_id,
                 "species": r.offspring_animal.livestock_species.name if r.offspring_animal.livestock_species else (r.offspring_animal.species.name if r.offspring_animal.species else None),
                 "breed": r.offspring_animal.livestock_breed.name if r.offspring_animal.livestock_breed else (r.offspring_animal.breed.name if r.offspring_animal.breed else None),

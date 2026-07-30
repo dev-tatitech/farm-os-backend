@@ -180,7 +180,7 @@ class AnimalWeightIn(Schema):
 class AnimalsUpdateSchemaInV2(Schema):
     status: Optional[Literal["active", "pregnant", "lactating", "sick", "quarantine", "sold", "dead"]] = None
     gender: Optional[Literal["male", "female"]] = None
-    source: Optional[Literal["born", "purchased", "imported"]] = None
+    source: Optional[ENTRY_METHOD] = None
     new_farm_id: Optional[int] = None
     tag_id: Optional[str] = None
     livestock_species_id: Optional[int] = None

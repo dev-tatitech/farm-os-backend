@@ -891,6 +891,7 @@ def get_animal_event(
             {
                 "id":data.id,
                 "group": data.group.name if data.group else None,
+                "animal_id": data.animal.id if data.animal else None,
                 "tag": data.animal.tag_id if data.animal else None,
                 "species": data.animal.species.name if data.animal else None,
                 "breed": data.animal.breed.name if data.animal else None,
@@ -998,6 +999,7 @@ def get_animal_weight(
         serialized.append(
             {
                 "id":data.id,
+                "animal_id": data.animal.id,
                 "tag": data.animal.tag_id,
                 "species": data.animal.species.name,
                 "breed": data.animal.breed.name,
@@ -1164,6 +1166,7 @@ def get_milk(
         serialized.append(
             {
                 "id":data.id,
+                "animal_id": data.animal.id if data.animal else None,
                 "animal_tag": data.animal.tag_id if data.animal else None,
                 "species": data.animal.species.name if data.animal else None,
                 "breed": data.animal.breed.name if data.animal else None,
@@ -1377,6 +1380,7 @@ def animal_profile(request, animal_id: int):
     image_url = f"{request_host}{animal.image.url}" if animal.image else None
 
     card = {
+        "id": animal.id,
         "tag_id": animal.tag_id,
         "species": animal.species.name,
         "gender": animal.gender,
@@ -1649,6 +1653,7 @@ def animal_profile_v2(request, animal_id: int):
         image_url = animal.image.url
 
     card = {
+        "id": animal.id,
         "tag_id": animal.tag_id,
         "species": species_name,
         "breed": breed_name,
@@ -1855,11 +1860,8 @@ def update_animal_v2(
         animal.tag_id = payload.tag_id
 
     if payload.new_farm_id:
-        animal.farm = get_object_or_404(Farm, id=payload.new_farm_id)
-
-    if payload.housing_unit_id:
-        housing_unit = get_object_or_404(FarmHousingUnit, id=payload.housing_unit_id, farm=farm)
-        animal.housing_unit = housing_unit
+        farm = get_object_or_404(Farm, id=payload.new_farm_id)
+        animal.farm = farm
 
     if payload.livestock_species_id:
         livestock_species = get_object_or_404(LivestockSpecies, id=payload.livestock_species_id, is_active=True)
@@ -1868,13 +1870,24 @@ def update_animal_v2(
             livestock_breed = get_object_or_404(LivestockBreed, id=payload.livestock_breed_id, is_active=True)
             if livestock_breed.species_id != livestock_species.id:
                 raise HttpError(422, f"Breed '{livestock_breed.name}' does not belong to species '{livestock_species.name}'")
+            if livestock_breed.farm and livestock_breed.farm_id != farm.id:
+                raise HttpError(422, "This breed is not available for your farm")
             animal.livestock_breed = livestock_breed
     elif payload.livestock_breed_id:
         livestock_breed = get_object_or_404(LivestockBreed, id=payload.livestock_breed_id, is_active=True)
+        if livestock_breed.farm and livestock_breed.farm_id != farm.id:
+            raise HttpError(422, "This breed is not available for your farm")
         animal.livestock_breed = livestock_breed
 
+    if payload.housing_unit_id:
+        housing_unit = get_object_or_404(FarmHousingUnit, id=payload.housing_unit_id, farm=farm, status="active")
+        effective_species = animal.livestock_species
+        if effective_species and housing_unit.allowed_species.exists() and not housing_unit.allowed_species.filter(id=effective_species.id).exists():
+            raise HttpError(422, f"Housing unit '{housing_unit.name}' does not support species '{effective_species.name}'")
+        animal.housing_unit = housing_unit
+
     if payload.mother_id:
-        animal.mother = get_object_or_404(Animal, id=payload.mother_id)
+        animal.mother = get_object_or_404(Animal, id=payload.mother_id, farm=farm)
 
     if payload.gender is not None:
         animal.gender = payload.gender
@@ -1909,7 +1922,10 @@ def update_animal_v2(
     if payload.notes is not None:
         animal.notes = payload.notes
 
-    animal.save()
+    try:
+        animal.save()
+    except ValidationError as e:
+        return JsonResponse({"errors": e.message_dict}, status=400)
 
     return 200, APIResponse(
         success=True,
@@ -1959,6 +1975,7 @@ def get_animal_event_v2(request, page: int, page_size: int, farm_id: int):
         serialized.append({
             "id": data.id,
             "group": data.group.name if data.group else None,
+            "animal_id": a.id if a else None,
             "tag": a.tag_id if a else None,
             "species": (
                 (a.livestock_species.name if a.livestock_species else (a.species.name if a.species else None))
@@ -2023,6 +2040,7 @@ def get_animal_weight_v2(request, page: int, page_size: int, farm_id: int):
         a = data.animal
         serialized.append({
             "id": data.id,
+            "animal_id": a.id,
             "tag": a.tag_id,
             "species": a.livestock_species.name if a.livestock_species else (a.species.name if a.species else None),
             "breed": a.livestock_breed.name if a.livestock_breed else (a.breed.name if a.breed else None),
@@ -2079,6 +2097,7 @@ def get_milk_v2(request, page: int, page_size: int, farm_id: int):
         a = data.animal
         serialized.append({
             "id": data.id,
+            "animal_id": a.id if a else None,
             "animal_tag": a.tag_id if a else None,
             "species": (
                 (a.livestock_species.name if a.livestock_species else (a.species.name if a.species else None))

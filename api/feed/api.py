@@ -433,6 +433,8 @@ def get_feed_issue(
             {
                 "id":data.id,
                 "target_type": data.target_type,
+                "animal_id": data.animal.id if data.animal else None,
+                "animal_tag": data.animal.tag_id if data.animal else None,
                 "animal": (
                     (data.animal.livestock_species.name if data.animal.livestock_species else (data.animal.species.name if data.animal.species else None))
                     if data.animal else None

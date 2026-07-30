@@ -225,6 +225,7 @@ def get_treatment(
         serialized.append(
             {
                 "id":data.id,
+                "animal_id": data.animal.id if data.animal else None,
                 "animal_tag": data.animal.tag_id if data.animal else None,
                 "species": (
                     (data.animal.livestock_species.name if data.animal.livestock_species else (data.animal.species.name if data.animal.species else None))
@@ -376,6 +377,7 @@ def get_vaccination(
         serialized.append(
             {
                 "id":data.id,
+                "animal_id": data.animal.id if data.animal else None,
                 "animal_tag": data.animal.tag_id if data.animal else None,
                 "species": (
                     (data.animal.livestock_species.name if data.animal.livestock_species else (data.animal.species.name if data.animal.species else None))
@@ -517,6 +519,7 @@ def get_quarantine(
         serialized.append(
             {
                 "id":data.id,
+                "animal_id": data.animal.id if data.animal else None,
                 "animal_tag": data.animal.tag_id if data.animal else None,
                 "species": (
                     (data.animal.livestock_species.name if data.animal.livestock_species else (data.animal.species.name if data.animal.species else None))
@@ -657,6 +660,7 @@ def get_mortality(
         serialized.append(
             {
                 "id":data.id,
+                "animal_id": data.animal.id if data.animal else None,
                 "animal_tag": data.animal.tag_id if data.animal else None,
                 "species": (
                     (data.animal.livestock_species.name if data.animal.livestock_species else (data.animal.species.name if data.animal.species else None))
@@ -728,6 +732,7 @@ def get_treatment_v2(
         serialized.append(
             {
                 "id": r.id,
+                "animal_id": r.animal.id if r.animal else None,
                 "animal_tag": r.animal.tag_id if r.animal else None,
                 "species": (r.animal.livestock_species.name if r.animal.livestock_species else (r.animal.species.name if r.animal.species else None)) if r.animal else None,
                 "breed": (r.animal.livestock_breed.name if r.animal.livestock_breed else (r.animal.breed.name if r.animal.breed else None)) if r.animal else None,
@@ -795,6 +800,7 @@ def get_vaccination_v2(
         serialized.append(
             {
                 "id": r.id,
+                "animal_id": r.animal.id if r.animal else None,
                 "animal_tag": r.animal.tag_id if r.animal else None,
                 "species": (r.animal.livestock_species.name if r.animal.livestock_species else (r.animal.species.name if r.animal.species else None)) if r.animal else None,
                 "breed": (r.animal.livestock_breed.name if r.animal.livestock_breed else (r.animal.breed.name if r.animal.breed else None)) if r.animal else None,
@@ -859,6 +865,7 @@ def get_quarantine_v2(
         serialized.append(
             {
                 "id": r.id,
+                "animal_id": r.animal.id if r.animal else None,
                 "animal_tag": r.animal.tag_id if r.animal else None,
                 "species": (r.animal.livestock_species.name if r.animal.livestock_species else (r.animal.species.name if r.animal.species else None)) if r.animal else None,
                 "breed": (r.animal.livestock_breed.name if r.animal.livestock_breed else (r.animal.breed.name if r.animal.breed else None)) if r.animal else None,
@@ -922,6 +929,7 @@ def get_mortality_v2(
         serialized.append(
             {
                 "id": r.id,
+                "animal_id": r.animal.id if r.animal else None,
                 "animal_tag": r.animal.tag_id if r.animal else None,
                 "species": (r.animal.livestock_species.name if r.animal.livestock_species else (r.animal.species.name if r.animal.species else None)) if r.animal else None,
                 "breed": (r.animal.livestock_breed.name if r.animal.livestock_breed else (r.animal.breed.name if r.animal.breed else None)) if r.animal else None,

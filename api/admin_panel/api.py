@@ -1190,6 +1190,7 @@ def get_animal_weight_range(request, animal_id: int):
         success=True,
         message="Weight reference range",
         data={
+            "animal_id": animal.id,
             "min_weight_kg": rng.min_weight_kg,
             "max_weight_kg": rng.max_weight_kg,
             "target_daily_gain_kg": rng.target_daily_gain_kg,

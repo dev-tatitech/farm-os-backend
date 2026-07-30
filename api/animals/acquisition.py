@@ -14,17 +14,12 @@ ACQUISITION_FIELDS = [
 ]
 
 
-def has_acquisition_data(payload) -> bool:
-    return any(getattr(payload, f, None) not in (None, "") for f in ACQUISITION_FIELDS)
-
-
 def save_animal_acquisition(animal, payload, user):
     """
-    Shared by the standalone acquisition endpoint and the animal-creation
-    endpoints, so the cost formulas and Finance posting only exist once.
-    Creates/updates the AnimalAcquisition row, computes cost for this
-    animal's source_type, and posts the Finance transaction exactly once —
-    safe to call again later (e.g. to attach a receipt) without double-posting.
+    Called by the standalone acquisition endpoint. Creates/updates the
+    AnimalAcquisition row, computes cost for this animal's source_type,
+    and posts the Finance transaction exactly once — safe to call again
+    later (e.g. to attach a receipt) without double-posting.
     """
     from finance.services import record_transaction
     from finance.models import Transaction

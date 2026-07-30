@@ -87,10 +87,6 @@ class Animal(TimeStampedModel):
         "admin_panel.FarmHousingUnit", null=True, blank=True,
         on_delete=models.SET_NULL, related_name="animals"
     )
-    classification = models.ForeignKey(
-        "admin_panel.AnimalClassification", null=True, blank=True,
-        on_delete=models.SET_NULL, related_name="animals"
-    )
 
     # Crossbreed support
     breed_type = models.CharField(max_length=20, choices=BREED_TYPE_CHOICES, default="purebred")

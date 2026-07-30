@@ -2699,7 +2699,7 @@ def livestock_dashboard_v2(request, farm_id: int):
 
     # ── Recent added animals (last 5) — v2: livestock_species fallback ─────────
     recent_qs = (
-        base_qs.select_related("livestock_species", "species", "classification")
+        base_qs.select_related("livestock_species", "species")
         .order_by("-created_at")[:5]
     )
     recent_animals = [
@@ -2708,7 +2708,6 @@ def livestock_dashboard_v2(request, farm_id: int):
             "tag_id": a.tag_id,
             "gender": a.gender,
             "species": a.livestock_species.name if a.livestock_species else (a.species.name if a.species else None),
-            "classification": a.classification.name if a.classification else None,
             "created_at": a.created_at,
         }
         for a in recent_qs
@@ -2872,9 +2871,9 @@ def animal_dashboard_v2(request, farm_id: int):
             return f"{m // 12}y {m % 12}m"
         return None
 
-    # v2: add livestock_species/breed/classification fallback
+    # v2: add livestock_species/breed fallback
     recent_qs = (
-        base_qs.select_related("livestock_species", "species", "livestock_breed", "breed", "classification")
+        base_qs.select_related("livestock_species", "species", "livestock_breed", "breed")
         .order_by("-created_at")[:10]
     )
     recent_animals = [
@@ -2886,7 +2885,6 @@ def animal_dashboard_v2(request, farm_id: int):
             "gender": a.gender,
             "age": calc_age(a),
             "status": a.status,
-            "classification": a.classification.name if a.classification else None,
         }
         for a in recent_qs
     ]

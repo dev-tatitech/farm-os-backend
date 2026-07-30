@@ -720,7 +720,6 @@ def get_insemination_v2(
     insemination = InseminationRecord.objects.select_related(
         "animal__livestock_species",
         "animal__livestock_breed",
-        "animal__classification",
         "animal__species",
         "animal__breed",
         "created_by",
@@ -735,7 +734,6 @@ def get_insemination_v2(
                 "animal_tag": r.animal.tag_id,
                 "species": r.animal.livestock_species.name if r.animal.livestock_species else (r.animal.species.name if r.animal.species else None),
                 "breed": r.animal.livestock_breed.name if r.animal.livestock_breed else (r.animal.breed.name if r.animal.breed else None),
-                "classification": r.animal.classification.name if r.animal.classification else None,
                 "date": r.service_date,
                 "method": r.method,
                 "sire_reference": r.sire_reference,
@@ -785,7 +783,6 @@ def get_pregnancy_v2(
     pregnancy = PregnancyRecord.objects.select_related(
         "animal__livestock_species",
         "animal__livestock_breed",
-        "animal__classification",
         "animal__species",
         "animal__breed",
         "insemination",
@@ -801,7 +798,6 @@ def get_pregnancy_v2(
                 "animal_tag": r.animal.tag_id,
                 "species": r.animal.livestock_species.name if r.animal.livestock_species else (r.animal.species.name if r.animal.species else None),
                 "breed": r.animal.livestock_breed.name if r.animal.livestock_breed else (r.animal.breed.name if r.animal.breed else None),
-                "classification": r.animal.classification.name if r.animal.classification else None,
                 "date": r.check_date,
                 "result": r.result,
                 "expected_delivery_date": r.expected_delivery_date,
@@ -850,7 +846,6 @@ def get_birth_v2(
     birth = BirthRecord.objects.select_related(
         "mother__livestock_species",
         "mother__livestock_breed",
-        "mother__classification",
         "mother__species",
         "mother__breed",
         "created_by",
@@ -865,7 +860,6 @@ def get_birth_v2(
                 "mother_tag": r.mother.tag_id,
                 "species": r.mother.livestock_species.name if r.mother.livestock_species else (r.mother.species.name if r.mother.species else None),
                 "breed": r.mother.livestock_breed.name if r.mother.livestock_breed else (r.mother.breed.name if r.mother.breed else None),
-                "classification": r.mother.classification.name if r.mother.classification else None,
                 "birth_date": r.birth_date,
                 "number_of_offspring": r.number_of_offspring,
                 "number_alive": r.number_alive,
@@ -1030,7 +1024,6 @@ def get_birth_offspring_v2(
     birth = BirthOffspringRecord.objects.select_related(
         "offspring_animal__livestock_species",
         "offspring_animal__livestock_breed",
-        "offspring_animal__classification",
         "offspring_animal__species",
         "offspring_animal__breed",
         "birth_record",
@@ -1045,7 +1038,6 @@ def get_birth_offspring_v2(
                 "offspring_tag": r.offspring_animal.tag_id,
                 "species": r.offspring_animal.livestock_species.name if r.offspring_animal.livestock_species else (r.offspring_animal.species.name if r.offspring_animal.species else None),
                 "breed": r.offspring_animal.livestock_breed.name if r.offspring_animal.livestock_breed else (r.offspring_animal.breed.name if r.offspring_animal.breed else None),
-                "classification": r.offspring_animal.classification.name if r.offspring_animal.classification else None,
                 "gender": r.gender,
                 "birth_weight": r.birth_weight,
                 "created_at": r.created_at,

@@ -727,7 +727,6 @@ def get_feed_issue_v2(request, page: int, page_size: int, farm_id: int):
     fp = FeedIssuanceRecord.objects.select_related(
         "animal__livestock_species",
         "animal__livestock_breed",
-        "animal__classification",
         "animal__species",
         "animal__breed",
         "group",
@@ -751,7 +750,6 @@ def get_feed_issue_v2(request, page: int, page_size: int, farm_id: int):
                     animal.livestock_breed.name if animal.livestock_breed
                     else (animal.breed.name if animal.breed else None)
                 ),
-                "classification": animal.classification.name if animal.classification else None,
             }
         else:
             animal_data = None

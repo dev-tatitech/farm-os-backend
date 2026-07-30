@@ -716,7 +716,6 @@ def get_treatment_v2(
     records = TreatmentRecord.objects.select_related(
         "animal__livestock_species",
         "animal__livestock_breed",
-        "animal__classification",
         "animal__species",
         "animal__breed",
         "created_by",
@@ -732,7 +731,6 @@ def get_treatment_v2(
                 "animal_tag": r.animal.tag_id if r.animal else None,
                 "species": (r.animal.livestock_species.name if r.animal.livestock_species else (r.animal.species.name if r.animal.species else None)) if r.animal else None,
                 "breed": (r.animal.livestock_breed.name if r.animal.livestock_breed else (r.animal.breed.name if r.animal.breed else None)) if r.animal else None,
-                "classification": (r.animal.classification.name if r.animal.classification else None) if r.animal else None,
                 "group": r.group.name if r.group else None,
                 "group_type": r.group.group_type.name if r.group else None,
                 "diagnosis": r.diagnosis,
@@ -785,7 +783,6 @@ def get_vaccination_v2(
     records = VaccinationRecord.objects.select_related(
         "animal__livestock_species",
         "animal__livestock_breed",
-        "animal__classification",
         "animal__species",
         "animal__breed",
         "created_by",
@@ -801,7 +798,6 @@ def get_vaccination_v2(
                 "animal_tag": r.animal.tag_id if r.animal else None,
                 "species": (r.animal.livestock_species.name if r.animal.livestock_species else (r.animal.species.name if r.animal.species else None)) if r.animal else None,
                 "breed": (r.animal.livestock_breed.name if r.animal.livestock_breed else (r.animal.breed.name if r.animal.breed else None)) if r.animal else None,
-                "classification": (r.animal.classification.name if r.animal.classification else None) if r.animal else None,
                 "group": r.group.name if r.group else None,
                 "group_type": r.group.group_type.name if r.group else None,
                 "vaccine_name": r.vaccine_name,
@@ -852,7 +848,6 @@ def get_quarantine_v2(
     records = QuarantineRecord.objects.select_related(
         "animal__livestock_species",
         "animal__livestock_breed",
-        "animal__classification",
         "animal__species",
         "animal__breed",
         "created_by",
@@ -867,7 +862,6 @@ def get_quarantine_v2(
                 "animal_tag": r.animal.tag_id if r.animal else None,
                 "species": (r.animal.livestock_species.name if r.animal.livestock_species else (r.animal.species.name if r.animal.species else None)) if r.animal else None,
                 "breed": (r.animal.livestock_breed.name if r.animal.livestock_breed else (r.animal.breed.name if r.animal.breed else None)) if r.animal else None,
-                "classification": (r.animal.classification.name if r.animal.classification else None) if r.animal else None,
                 "reason": r.reason,
                 "start_date": r.start_date,
                 "end_date": r.end_date,
@@ -917,7 +911,6 @@ def get_mortality_v2(
     records = MortalityRecord.objects.select_related(
         "animal__livestock_species",
         "animal__livestock_breed",
-        "animal__classification",
         "animal__species",
         "animal__breed",
         "created_by",
@@ -932,7 +925,6 @@ def get_mortality_v2(
                 "animal_tag": r.animal.tag_id if r.animal else None,
                 "species": (r.animal.livestock_species.name if r.animal.livestock_species else (r.animal.species.name if r.animal.species else None)) if r.animal else None,
                 "breed": (r.animal.livestock_breed.name if r.animal.livestock_breed else (r.animal.breed.name if r.animal.breed else None)) if r.animal else None,
-                "classification": (r.animal.classification.name if r.animal.classification else None) if r.animal else None,
                 "cause": r.cause,
                 "death_date": r.death_date,
                 "notes": r.notes,

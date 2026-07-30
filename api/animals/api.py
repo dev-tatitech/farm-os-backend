@@ -5,7 +5,6 @@ from account.auth import get_current_user, validate_crftoken
 from account.models import User as users
 from django.db.models import Q
 from ninja.files import UploadedFile
-from django.db import transaction as db_transaction
 from django.shortcuts import get_object_or_404
 from django.core.paginator import Paginator
 from uuid import UUID
@@ -81,14 +80,13 @@ from .schema import (
     MilkRecordSchema,
     AnimalAcquisitionSchemaIn,
 )
-from .acquisition import save_animal_acquisition, has_acquisition_data
+from .acquisition import save_animal_acquisition
 from finance.services import get_financial_profile
 from admin_panel.models import (
     LivestockSpecies,
     LivestockBreed,
     HousingUnitType,
     FarmHousingUnit,
-    AnimalClassification,
 )
 from .growth import weight_gain, average_daily_gain, percentage_weight_change, weight_trend, cost_per_kg_gained
 router = Router(tags=["Animals"])
@@ -152,21 +150,15 @@ def new_animal(
         **animal_data
     )
     try:
-        with db_transaction.atomic():
-            animal.full_clean()
-            animal.save()
-            if has_acquisition_data(payload):
-                save_animal_acquisition(animal, payload, user)
+        animal.full_clean()
+        animal.save()
     except ValidationError as e:
         return JsonResponse({
         "errors": e.message_dict
         }, status=400)
-    profile = get_financial_profile(animal)
     data={
         "name":animal.tag_id,
         "gender": animal.gender,
-        "acquisition_cost": profile.acquisition_cost if profile else None,
-        "opening_value": profile.opening_value if profile else None,
     }
     return 200,APIResponse(
         success=True,
@@ -1447,14 +1439,6 @@ def new_animal_v2(
     if housing_unit.allowed_species.exists() and not housing_unit.allowed_species.filter(id=livestock_species.id).exists():
         raise HttpError(422, f"Housing unit '{housing_unit.name}' does not support species '{livestock_species.name}'")
 
-    classification = None
-    if payload.classification_id:
-        classification = get_object_or_404(AnimalClassification, id=payload.classification_id, is_active=True)
-        if classification.species_id != livestock_species.id:
-            raise HttpError(422, "Classification does not belong to the selected species")
-        if classification.sex != payload.gender:
-            raise HttpError(422, f"Classification '{classification.name}' is for {classification.sex}, not {payload.gender}")
-
     # ── Build animal ──────────────────────────────────────────────────────────
     animal_data = {
         "status": payload.status,
@@ -1470,7 +1454,6 @@ def new_animal_v2(
         "livestock_species": livestock_species,
         "livestock_breed": livestock_breed,
         "housing_unit": housing_unit,
-        "classification": classification,
     }
     if payload.mother_id:
         mother = get_object_or_404(Animal, id=payload.mother_id, farm=farm)
@@ -1486,15 +1469,11 @@ def new_animal_v2(
 
     animal = Animal(**animal_data)
     try:
-        with db_transaction.atomic():
-            animal.full_clean()
-            animal.save()
-            if has_acquisition_data(payload):
-                save_animal_acquisition(animal, payload, user)
+        animal.full_clean()
+        animal.save()
     except ValidationError as e:
         return JsonResponse({"errors": e.message_dict}, status=400)
 
-    profile = get_financial_profile(animal)
     return 200, APIResponse(
         success=True,
         message="Animal created successfully",
@@ -1505,9 +1484,6 @@ def new_animal_v2(
             "species": livestock_species.name,
             "breed": livestock_breed.name,
             "housing_unit": housing_unit.name,
-            "classification": classification.name if classification else None,
-            "acquisition_cost": profile.acquisition_cost if profile else None,
-            "opening_value": profile.opening_value if profile else None,
         },
     )
 
@@ -1574,8 +1550,7 @@ def get_animal_v2(request, page: int, page_size: int, farm_id: int):
 
     farm = get_object_or_404(Farm, id=farm_id, organization=org)
     qs = Animal.objects.select_related(
-        "livestock_species", "livestock_breed", "housing_unit",
-        "classification", "mother",
+        "livestock_species", "livestock_breed", "housing_unit", "mother",
     ).filter(farm=farm)
 
     paginator = Paginator(qs, page_size)
@@ -1590,7 +1565,6 @@ def get_animal_v2(request, page: int, page_size: int, farm_id: int):
             "species": a.livestock_species.name if a.livestock_species else (a.species.name if a.species else None),
             "breed": a.livestock_breed.name if a.livestock_breed else (a.breed.name if a.breed else None),
             "housing_unit": a.housing_unit.name if a.housing_unit else (a.unit.name if a.unit else None),
-            "classification": a.classification.name if a.classification else None,
             "mother_tag": a.mother.tag_id if a.mother else None,
             "source_type": a.source_type,
             "dob": a.dob,
@@ -1640,7 +1614,6 @@ def animal_profile_v2(request, animal_id: int):
     animal = get_object_or_404(
         Animal.objects.select_related(
             "livestock_species", "livestock_breed", "housing_unit",
-            "classification",
             "species", "breed", "farm", "unit", "mother",
         ),
         id=animal_id,
@@ -1669,7 +1642,6 @@ def animal_profile_v2(request, animal_id: int):
     species_name = (animal.livestock_species.name if animal.livestock_species else (animal.species.name if animal.species else None))
     breed_name = (animal.livestock_breed.name if animal.livestock_breed else (animal.breed.name if animal.breed else None))
     unit_name = (animal.housing_unit.name if animal.housing_unit else (animal.unit.name if animal.unit else None))
-    classification_name = animal.classification.name if animal.classification else None
 
     # ── Card ───────────────────────────────────────────────────────────────────
     image_url = None
@@ -1681,7 +1653,6 @@ def animal_profile_v2(request, animal_id: int):
         "species": species_name,
         "breed": breed_name,
         "gender": animal.gender,
-        "classification": classification_name,
         "status": animal.status,
         "age_months": age_months,
         "lifecycle_stage": lifecycle_stage,
@@ -1694,7 +1665,6 @@ def animal_profile_v2(request, animal_id: int):
     overview = {
         "species": species_name,
         "breed": breed_name,
-        "classification": classification_name,
         "mother_tag": animal.mother.tag_id if animal.mother else None,
         "source": animal.get_source_type_display(),
         "housing_unit": unit_name,
@@ -1820,7 +1790,7 @@ def get_animal_by_id_v2(request, animal_id: int):
         Animal.objects.select_related(
             "livestock_species", "livestock_breed",
             "housing_unit",
-            "classification", "species", "breed", "unit", "mother",
+            "species", "breed", "unit", "mother",
         ),
         id=animal_id,
     )
@@ -1843,11 +1813,9 @@ def get_animal_by_id_v2(request, animal_id: int):
         "species": a.livestock_species.name if a.livestock_species else (a.species.name if a.species else None),
         "breed": a.livestock_breed.name if a.livestock_breed else (a.breed.name if a.breed else None),
         "housing_unit": a.housing_unit.name if a.housing_unit else (a.unit.name if a.unit else None),
-        "classification": a.classification.name if a.classification else None,
         "livestock_species_id": a.livestock_species_id,
         "livestock_breed_id": a.livestock_breed_id,
         "housing_unit_id": a.housing_unit_id,
-        "classification_id": a.classification_id,
     }
 
     return 200, APIResponse(success=True, message="Animal details successfully", data=serialized)
@@ -1874,7 +1842,7 @@ def update_animal_v2(
             raise HttpError(403, "Permission denied")
     animal = get_object_or_404(
         Animal.objects.select_related(
-            "farm", "housing_unit", "livestock_species", "livestock_breed", "classification",
+            "farm", "housing_unit", "livestock_species", "livestock_breed",
             "unit", "species", "breed",
         ),
         id=animal_id,
@@ -1904,13 +1872,6 @@ def update_animal_v2(
     elif payload.livestock_breed_id:
         livestock_breed = get_object_or_404(LivestockBreed, id=payload.livestock_breed_id, is_active=True)
         animal.livestock_breed = livestock_breed
-
-    if payload.classification_id:
-        classification = get_object_or_404(AnimalClassification, id=payload.classification_id, is_active=True)
-        gender = payload.gender if payload.gender is not None else animal.gender
-        if classification.sex != gender:
-            raise HttpError(422, f"Classification '{classification.name}' is for {classification.sex}, not {gender}")
-        animal.classification = classification
 
     if payload.mother_id:
         animal.mother = get_object_or_404(Animal, id=payload.mother_id)
@@ -1960,7 +1921,6 @@ def update_animal_v2(
             "species": animal.livestock_species.name if animal.livestock_species else (animal.species.name if animal.species else None),
             "breed": animal.livestock_breed.name if animal.livestock_breed else (animal.breed.name if animal.breed else None),
             "housing_unit": animal.housing_unit.name if animal.housing_unit else (animal.unit.name if animal.unit else None),
-            "classification": animal.classification.name if animal.classification else None,
         },
     )
 
@@ -2052,7 +2012,7 @@ def get_animal_weight_v2(request, page: int, page_size: int, farm_id: int):
 
     weight = AnimalWeight.objects.select_related(
         "animal", "animal__livestock_species", "animal__livestock_breed",
-        "animal__classification", "animal__species", "animal__breed",
+        "animal__species", "animal__breed",
     ).filter(farm_id=farm_id)
 
     paginator = Paginator(weight, page_size)
@@ -2068,7 +2028,6 @@ def get_animal_weight_v2(request, page: int, page_size: int, farm_id: int):
             "breed": a.livestock_breed.name if a.livestock_breed else (a.breed.name if a.breed else None),
             "livestock_species": a.livestock_species.name if a.livestock_species else None,
             "livestock_breed": a.livestock_breed.name if a.livestock_breed else None,
-            "classification": a.classification.name if a.classification else None,
             "date": data.date,
             "weight": data.weight,
             "created_at": data.created_at,

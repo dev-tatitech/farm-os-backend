@@ -15,6 +15,7 @@ from django.http import JsonResponse
 from typing import List
 from django.db.models import Count, Q, F, FloatField, ExpressionWrapper, Max
 import random
+import secrets
 from ninja.errors import HttpError
 from pydantic import EmailStr
 from .utils.token_hash import hash_token
@@ -51,6 +52,7 @@ from .schema import (
     EmailValidationSchema,
     ResendOtpSchema,
     ForgotPasswordSchema,
+    VerifyResetOtpSchema,
     ResetPasswordSchema,
      RegionListResponse,
     StateListResponse,
@@ -282,8 +284,8 @@ def forgot_password(request, payload: ForgotPasswordSchema):
     )
 
 
-@router.post("/reset-password", auth=None, response={200: APIResponse, 400: APIResponse})
-def reset_password(request, payload: ResetPasswordSchema):
+@router.post("/verify-reset-otp", auth=None, response={200: APIResponse, 400: APIResponse})
+def verify_reset_otp(request, payload: VerifyResetOtpSchema):
     try:
         otp_record = PasswordResetOTP.objects.get(
             email=payload.email,
@@ -294,10 +296,37 @@ def reset_password(request, payload: ResetPasswordSchema):
     except PasswordResetOTP.DoesNotExist:
         return 400, APIResponse(success=False, message="Invalid or expired OTP", data=None)
 
+    # OTP is single-use — verifying it consumes it. What the caller gets
+    # back is a separate, short-lived token; the OTP itself is never sent
+    # again alongside the new password.
+    otp_record.is_used = True
+    otp_record.reset_token = secrets.token_urlsafe(32)
+    otp_record.token_expires_at = datetime.now() + timedelta(minutes=15)
+    otp_record.token_used = False
+    otp_record.save()
+
+    return 200, APIResponse(
+        success=True,
+        message="OTP verified. Use the returned token to set your new password.",
+        data={"token": otp_record.reset_token, "expires_in_minutes": 15},
+    )
+
+
+@router.post("/reset-password", auth=None, response={200: APIResponse, 400: APIResponse})
+def reset_password(request, payload: ResetPasswordSchema):
     try:
-        user = users.objects.get(email=payload.email)
+        otp_record = PasswordResetOTP.objects.get(
+            reset_token=payload.token,
+            token_used=False,
+            token_expires_at__gte=datetime.now(),
+        )
+    except PasswordResetOTP.DoesNotExist:
+        return 400, APIResponse(success=False, message="Invalid or expired reset token", data=None)
+
+    try:
+        user = users.objects.get(email=otp_record.email)
     except users.DoesNotExist:
-        return 400, APIResponse(success=False, message="No account found with this email", data=None)
+        return 400, APIResponse(success=False, message="No account found for this token", data=None)
 
     if payload.new_password != payload.confirm_password:
         return 400, APIResponse(success=False, message="Passwords do not match", data=None)
@@ -310,7 +339,7 @@ def reset_password(request, payload: ResetPasswordSchema):
     user.password = make_password(payload.new_password)
     user.save()
 
-    otp_record.is_used = True
+    otp_record.token_used = True
     otp_record.save()
 
     # Force re-login everywhere — a password reset should invalidate any

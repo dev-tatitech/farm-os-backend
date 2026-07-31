@@ -76,12 +76,22 @@ class PasswordResetOTP(models.Model):
     and issuing a password-reset code deletes any prior row for that email
     before creating a fresh one. Sharing the table would wipe out a user's
     verified-email record the moment they request a password reset.
+
+    Two-step flow, one row: /forgot-password creates the row (code +
+    expires_at). /verify-reset-otp consumes the code (is_used=True) and
+    issues a short-lived reset_token. /reset-password consumes the token
+    (token_used=True) to actually change the password — it never sees the
+    OTP again, only the token.
     """
     email = models.EmailField(unique=True)
     code = models.CharField(max_length=6)  # 6-digit OTP
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
     is_used = models.BooleanField(default=False)
+
+    reset_token = models.CharField(max_length=64, null=True, blank=True, unique=True)
+    token_expires_at = models.DateTimeField(null=True, blank=True)
+    token_used = models.BooleanField(default=False)
 
 
 class RefreshSession(models.Model):

@@ -47,9 +47,12 @@ class ResendOtpSchema(Schema):
 class ForgotPasswordSchema(Schema):
     email: EmailStr
 
-class ResetPasswordSchema(Schema):
+class VerifyResetOtpSchema(Schema):
     email: EmailStr
     otp: OTP
+
+class ResetPasswordSchema(Schema):
+    token: str
     new_password: str
     confirm_password: str
 

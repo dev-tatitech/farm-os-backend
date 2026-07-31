@@ -69,6 +69,21 @@ class EmailValidation(models.Model):
     is_used = models.BooleanField(default=False)
 
 
+class PasswordResetOTP(models.Model):
+    """
+    Kept separate from EmailValidation on purpose: login() checks for an
+    EmailValidation row with is_used=True as its "email is verified" gate,
+    and issuing a password-reset code deletes any prior row for that email
+    before creating a fresh one. Sharing the table would wipe out a user's
+    verified-email record the moment they request a password reset.
+    """
+    email = models.EmailField(unique=True)
+    code = models.CharField(max_length=6)  # 6-digit OTP
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    is_used = models.BooleanField(default=False)
+
+
 class RefreshSession(models.Model):
     user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="refresh_sessions"

@@ -44,6 +44,15 @@ class EmailValidationSchema(Schema):
 class ResendOtpSchema(Schema):
     email: EmailStr
 
+class ForgotPasswordSchema(Schema):
+    email: EmailStr
+
+class ResetPasswordSchema(Schema):
+    email: EmailStr
+    otp: OTP
+    new_password: str
+    confirm_password: str
+
 class NewUserSchema(Schema):
     email: EmailStr
     passwoard: str

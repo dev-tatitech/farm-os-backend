@@ -33,6 +33,13 @@ class FarmUnitSchemaV2(Schema):
     location: Optional[str] = None
     allowed_species_ids: Optional[List[int]] = None
 
+class FarmUnitUpdateSchemaV2(Schema):
+    name: Optional[str] = None
+    capacity: Optional[int] = None
+    location: Optional[str] = None
+    status: Optional[Literal["active", "inactive"]] = None
+    allowed_species_ids: Optional[List[int]] = None
+
 class HousingUnitTypeSchema(Schema):
     id: int
     name: str

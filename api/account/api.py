@@ -2,8 +2,9 @@ from ninja import NinjaAPI
 from django.http import HttpRequest
 from .auth import get_current_user, validate_crftoken
 from .models import (
-    User as users, User, 
+    User as users, User,
     EmailValidation,
+    PasswordResetOTP,
     RefreshSession
 )
 from ninja.files import UploadedFile
@@ -37,7 +38,7 @@ import os
 import hashlib
 from common.utils import format_datetime
 from datetime import datetime
-from .helper import generate_unique_username, email_sender, send_account_otp_email, get_cookie_domain, get_app_type, save_uploaded_file
+from .helper import generate_unique_username, email_sender, send_account_otp_email, send_password_reset_otp_email, get_cookie_domain, get_app_type, save_uploaded_file
 from .utils.jwt_utils import create_access_token, create_refresh_token, decode_token
 from .utils.csrf import generate_csrf_token
 from django.utils.crypto import get_random_string
@@ -49,6 +50,8 @@ from .schema import (
     APIResponse,
     EmailValidationSchema,
     ResendOtpSchema,
+    ForgotPasswordSchema,
+    ResetPasswordSchema,
      RegionListResponse,
     StateListResponse,
     AccountInfoSchema,
@@ -262,6 +265,64 @@ def resend_otp(request, payload: ResendOtpSchema):
                 max_age=604800,
             )
     return response
+
+
+@router.post("/forgot-password", auth=None, response={200: APIResponse, 400: APIResponse})
+def forgot_password(request, payload: ForgotPasswordSchema):
+    try:
+        user = users.objects.get(email=payload.email)
+    except users.DoesNotExist:
+        return 400, APIResponse(success=False, message="No account found with this email", data=None)
+
+    send_password_reset_otp_email(user, payload.email)
+    return 200, APIResponse(
+        success=True,
+        message="A password reset code has been sent to your email.",
+        data=None,
+    )
+
+
+@router.post("/reset-password", auth=None, response={200: APIResponse, 400: APIResponse})
+def reset_password(request, payload: ResetPasswordSchema):
+    try:
+        otp_record = PasswordResetOTP.objects.get(
+            email=payload.email,
+            code=payload.otp.strip(),
+            is_used=False,
+            expires_at__gte=datetime.now(),
+        )
+    except PasswordResetOTP.DoesNotExist:
+        return 400, APIResponse(success=False, message="Invalid or expired OTP", data=None)
+
+    try:
+        user = users.objects.get(email=payload.email)
+    except users.DoesNotExist:
+        return 400, APIResponse(success=False, message="No account found with this email", data=None)
+
+    if payload.new_password != payload.confirm_password:
+        return 400, APIResponse(success=False, message="Passwords do not match", data=None)
+
+    try:
+        validate_password(payload.new_password)
+    except ValidationError as e:
+        return 400, APIResponse(success=False, message="Password validation failed", data={"errors": e.messages})
+
+    user.password = make_password(payload.new_password)
+    user.save()
+
+    otp_record.is_used = True
+    otp_record.save()
+
+    # Force re-login everywhere — a password reset should invalidate any
+    # sessions issued under the old password, same as a fresh login rotates
+    # the previous active session.
+    RefreshSession.objects.filter(user=user, is_active=True).update(is_active=False)
+
+    return 200, APIResponse(
+        success=True,
+        message="Your password has been reset successfully. Please log in with your new password.",
+        data=None,
+    )
 
 
 @router.post("/refresh-token")

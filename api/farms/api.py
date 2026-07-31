@@ -56,7 +56,8 @@ from .schema import (
     ListResponseSchema,
     APIResponse,
     FarmSchemaIn,
-    FarmUnitSchemaV2
+    FarmUnitSchemaV2,
+    FarmUnitUpdateSchemaV2
 )
 router = Router(tags=["Farm"])
 @router.post(
@@ -230,6 +231,64 @@ def add_farm_unit_v2(request, payload: FarmUnitSchemaV2):
         housing_unit.allowed_species.set(species_qs)
 
     return 200, APIResponse(success=True, message="Farm housing unit added successfully", data={"id": housing_unit.id})
+
+
+@router.patch(
+    "/farm-unit/v2/{unit_id}",
+    response={200: APIResponse, 403: APIResponse},
+)
+def update_farm_unit_v2(request, unit_id: int, payload: FarmUnitUpdateSchemaV2):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Login Failed")
+    org = user.organization
+    if not org:
+        org = user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.FarmUnit.UPDATE)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(404, "Permission denied")
+
+    farm_ids = Farm.objects.filter(organization=org).values_list("id", flat=True)
+    housing_unit = get_object_or_404(FarmHousingUnit, id=unit_id, farm_id__in=farm_ids)
+
+    if payload.name is not None:
+        if FarmHousingUnit.objects.filter(farm=housing_unit.farm, name__iexact=payload.name).exclude(id=housing_unit.id).exists():
+            raise HttpError(409, "A housing unit with this name already exists on this farm")
+        housing_unit.name = payload.name
+
+    if payload.capacity is not None:
+        housing_unit.capacity = payload.capacity
+
+    if payload.location is not None:
+        housing_unit.location = payload.location
+
+    if payload.status is not None:
+        housing_unit.status = payload.status
+
+    housing_unit.save()
+
+    if payload.allowed_species_ids is not None:
+        species_qs = LivestockSpecies.objects.filter(id__in=payload.allowed_species_ids)
+        housing_unit.allowed_species.set(species_qs)
+
+    return 200, APIResponse(
+        success=True,
+        message="Farm housing unit updated successfully",
+        data={
+            "id": housing_unit.id,
+            "name": housing_unit.name,
+            "farm": housing_unit.farm.name,
+            "capacity": housing_unit.capacity,
+            "location": housing_unit.location,
+            "status": housing_unit.status,
+            "allowed_species": [s.name for s in housing_unit.allowed_species.all()],
+        },
+    )
 
 
 @router.get(

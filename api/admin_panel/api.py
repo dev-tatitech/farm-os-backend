@@ -567,10 +567,10 @@ def get_farm_housing_units(request, farm_id: int, species_id: Optional[int] = No
         return 403, APIResponse(success=False, message="Permission denied", data=None)
 
     farm = get_object_or_404(Farm, id=farm_id)
-    qs = FarmHousingUnit.objects.filter(farm=farm, status="active").select_related("unit_type")
+    qs = FarmHousingUnit.objects.filter(farm=farm, status="active")
     if species_id:
         qs = qs.filter(
-            Q(allowed_species__id=species_id) | Q(unit_type__species_id=species_id)
+            Q(allowed_species__id=species_id) | Q(allowed_species__isnull=True)
         ).distinct()
 
     data = []
@@ -578,8 +578,6 @@ def get_farm_housing_units(request, farm_id: int, species_id: Optional[int] = No
         data.append({
             "id": u.id,
             "name": u.name,
-            "unit_type": u.unit_type.name,
-            "unit_type_id": u.unit_type_id,
             "capacity": u.capacity,
             "occupancy": u.occupancy,
             "location": u.location,
@@ -691,14 +689,12 @@ def create_farm_housing_unit(request, payload: FarmHousingUnitIn):
     if not org:
         raise HttpError(403, "Permission denied")
 
-    unit_type = get_object_or_404(HousingUnitType, id=payload.unit_type_id, is_active=True)
     farm = org.farms.first()
     if not farm:
         raise HttpError(404, "No farm found for this organisation")
 
     unit = FarmHousingUnit.objects.create(
         farm=farm,
-        unit_type=unit_type,
         name=payload.name,
         capacity=payload.capacity,
         location=payload.location,
@@ -714,13 +710,12 @@ def create_farm_housing_unit(request, payload: FarmHousingUnitIn):
         data={
             "id": unit.id,
             "name": unit.name,
-            "unit_type": unit_type.name,
             "capacity": unit.capacity,
         },
     )
 
 
-@router.patch("/livestock/housing-units/{unit_id}/", response={200: APIResponse, 403: APIResponse})
+@router.patch("/livestock/housing-unit/{unit_id}/", response={200: APIResponse, 403: APIResponse})
 def update_farm_housing_unit(request, unit_id: int, payload: FarmHousingUnitUpdate):
     user_id = get_current_user(request)
     try:

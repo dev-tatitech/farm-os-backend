@@ -61,7 +61,6 @@ class LivestockBreedUpdate(Schema):
 
 
 class FarmHousingUnitIn(Schema):
-    unit_type_id: int
     name: str
     capacity: Optional[int] = None
     allowed_species_ids: Optional[List[int]] = None

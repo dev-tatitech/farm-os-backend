@@ -65,3 +65,7 @@ class Permissions:
         DELETE = "delete_pharmacy"
         VIEW = "view_pharmacy"
         EXTERNAL_OVERRIDE = "external_medication_override"
+
+    class Reports:
+        LIVESTOCK_DASHBOARD = "view_livestock_dashboard"
+        REPORTS = "view_reports"

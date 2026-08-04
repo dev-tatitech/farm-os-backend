@@ -20,7 +20,8 @@ from movement_records.profitability import calculate_profitability
 from pharmacy.models import DrugBatch
 from feed.models import FeedBatch
 from core.schema import ListResponseSchema, APIResponse
-
+from common.permission_checker import user_has_permission
+from common.permissions import Permissions
 router = Router(tags=["Reports"])
 
 
@@ -30,9 +31,15 @@ def _auth(request):
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
+#>>>>>>>>>>>>>>>>>>
     org = user.organization or user.organizations.first()
     if not org:
         raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reports.REPORTS)
+    if not user.organizations.first():
+        if not perm:
+            raise HttpError(403, "Permission denied")
+       
     return user, org
 
 

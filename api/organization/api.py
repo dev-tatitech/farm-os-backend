@@ -397,11 +397,11 @@ def organization_dashboard(request):
     except users.DoesNotExist:
         return 403, APIResponse(success=False, message="Permission denied", data=None)
 
-    org = user.organization or user.organizations.select_related(
+    org =  user.organizations.select_related(
         "industry_type", "country", "state_region"
     ).first()
     if not org:
-        raise HttpError(404, "Permission denied")
+        raise HttpError(403, "Permission denied")
 
     farms = Farm.objects.filter(organization=org).select_related("farm_type", "country", "state_region")
 

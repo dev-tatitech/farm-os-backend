@@ -72,13 +72,14 @@ def main_dashboard(request, farm_id: int):
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
-    org = user.organization
+    org = user.organization or user.organizations.first()
     if not org:
-        org = user.organizations.first()
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
     if not user.organizations.first():
-        perm = user_has_permission(user, Permissions.Animal.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
-
+        if not perm:
+            raise HttpError(403, "Permission denied")
+       
     # lazy import to avoid cycles
     from animals.models import AnimalDashboard, DailyMilkSummary, AnimalWeight
     from animals.signals import recalc_dashboard_for_farm
@@ -252,12 +253,14 @@ def livestock_dashboard(request, farm_id: int):
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
-    org = user.organization
+    org = user.organization or user.organizations.first()
     if not org:
-        org = user.organizations.first()
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
     if not user.organizations.first():
-        raise HttpError(403, "Permission denied")
-
+        if not perm:
+            raise HttpError(403, "Permission denied")
+       
     from health.models import MortalityRecord
 
     base_qs = Animal.objects.filter(farm_id=farm_id)
@@ -407,12 +410,14 @@ def animal_dashboard(request, farm_id: int):
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
-    org = user.organization
+    org = user.organization or user.organizations.first()
     if not org:
-        org = user.organizations.first()
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
     if not user.organizations.first():
-        raise HttpError(403, "Permission denied")
-
+        if not perm:
+            raise HttpError(403, "Permission denied")
+       
     base_qs = Animal.objects.filter(farm_id=farm_id)
 
     stats = base_qs.aggregate(
@@ -472,9 +477,14 @@ def reproduction_dashboard(request, farm_id: int):
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
     if not user.organizations.first():
-        raise HttpError(403, "Permission denied")
-
+        if not perm:
+            raise HttpError(403, "Permission denied")
+       
     from reproduction.models import InseminationRecord, PregnancyRecord, BirthRecord
 
     today = timezone.localdate()
@@ -617,9 +627,14 @@ def health_dashboard(request, farm_id: int):
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
     if not user.organizations.first():
-        raise HttpError(403, "Permission denied")
-
+        if not perm:
+            raise HttpError(403, "Permission denied")
+       
     from health.models import TreatmentRecord, VaccinationRecord, QuarantineRecord
 
     today = timezone.localdate()
@@ -800,9 +815,14 @@ def mortality_dashboard(request, farm_id: int, page: int = 1, page_size: int = 1
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
     if not user.organizations.first():
-        raise HttpError(403, "Permission denied")
-
+        if not perm:
+            raise HttpError(403, "Permission denied")
+       
     from health.models import MortalityRecord
 
     today = timezone.localdate()
@@ -872,9 +892,14 @@ def transaction_dashboard(request, farm_id: int):
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
     if not user.organizations.first():
-        raise HttpError(403, "Permission denied")
-
+        if not perm:
+            raise HttpError(403, "Permission denied")
+       
     from movement_records.models import SalesRecord
     from health.models import MortalityRecord
 
@@ -1085,9 +1110,14 @@ def sales_dashboard(
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
     if not user.organizations.first():
-        raise HttpError(403, "Permission denied")
-
+        if not perm:
+            raise HttpError(403, "Permission denied")
+       
     from movement_records.models import SalesRecord
 
     today = timezone.localdate()
@@ -1173,9 +1203,14 @@ def feed_inventory_dashboard(request, farm_id: int):
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
     if not user.organizations.first():
-        raise HttpError(403, "Permission denied")
-
+        if not perm:
+            raise HttpError(403, "Permission denied")
+       
     from feed.models import FeedInventory, FeedIssuanceRecord, FeedConfirmationRecord, FeedPlan
 
     today = timezone.localdate()
@@ -1390,9 +1425,14 @@ def inventory_dashboard(
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
     if not user.organizations.first():
-        raise HttpError(403, "Permission denied")
-
+        if not perm:
+            raise HttpError(403, "Permission denied")
+       
     from feed.models import FeedInventory
 
     base_qs = FeedInventory.objects.filter(farm_id=farm_id)
@@ -1458,9 +1498,14 @@ def feed_plan_dashboard(
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
     if not user.organizations.first():
-        raise HttpError(403, "Permission denied")
-
+        if not perm:
+            raise HttpError(403, "Permission denied")
+       
     from feed.models import FeedPlan
 
     base_qs = FeedPlan.objects.filter(farm_id=farm_id)
@@ -1552,9 +1597,14 @@ def feed_issuance_dashboard(
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
     if not user.organizations.first():
-        raise HttpError(403, "Permission denied")
-
+        if not perm:
+            raise HttpError(403, "Permission denied")
+       
     from feed.models import FeedIssuanceRecord, FeedConfirmationRecord
 
     today = timezone.localdate()
@@ -1657,9 +1707,14 @@ def feed_confirmation_dashboard(
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
     if not user.organizations.first():
-        raise HttpError(403, "Permission denied")
-
+        if not perm:
+            raise HttpError(403, "Permission denied")
+       
     from feed.models import FeedIssuanceRecord, FeedConfirmationRecord
 
     today = timezone.localdate()
@@ -1824,9 +1879,14 @@ def livestock_report_dashboard(
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
     if not user.organizations.first():
-        raise HttpError(403, "Permission denied")
-
+        if not perm:
+            raise HttpError(403, "Permission denied")
+       
     from health.models import MortalityRecord
     from reproduction.models import BirthRecord
 
@@ -1987,9 +2047,14 @@ def production_report(
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
     if not user.organizations.first():
-        raise HttpError(403, "Permission denied")
-
+        if not perm:
+            raise HttpError(403, "Permission denied")
+       
     from animals.models import MilkRecord, DailyMilkSummary
 
     today = timezone.localdate()
@@ -2156,9 +2221,14 @@ def health_report(
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
     if not user.organizations.first():
-        raise HttpError(403, "Permission denied")
-
+        if not perm:
+            raise HttpError(403, "Permission denied")
+       
     from health.models import TreatmentRecord, VaccinationRecord, MortalityRecord
 
     today = timezone.localdate()
@@ -2310,9 +2380,14 @@ def feed_report(
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
     if not user.organizations.first():
-        raise HttpError(403, "Permission denied")
-
+        if not perm:
+            raise HttpError(403, "Permission denied")
+       
     from feed.models import FeedInventory, FeedIssuanceRecord, FeedConfirmationRecord
 
     today = timezone.localdate()
@@ -2499,13 +2574,14 @@ def main_dashboard_v2(request, farm_id: int):
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
-    org = user.organization
+    org = user.organization or user.organizations.first()
     if not org:
-        org = user.organizations.first()
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
     if not user.organizations.first():
-        perm = user_has_permission(user, Permissions.Animal.VIEW)
-        raise HttpError(404, f"you are not admin {perm}")
-
+        if not perm:
+            raise HttpError(403, "Permission denied")
+            
     from animals.models import AnimalDashboard, DailyMilkSummary, AnimalWeight
     from animals.signals import recalc_dashboard_for_farm
     from health.models import VaccinationRecord, TreatmentRecord
@@ -2676,12 +2752,14 @@ def livestock_dashboard_v2(request, farm_id: int):
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
-    org = user.organization
+    org = user.organization or user.organizations.first()
     if not org:
-        org = user.organizations.first()
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
     if not user.organizations.first():
-        raise HttpError(403, "Permission denied")
-
+        if not perm:
+            raise HttpError(403, "Permission denied")
+       
     from health.models import MortalityRecord
 
     base_qs = Animal.objects.filter(farm_id=farm_id)
@@ -2840,12 +2918,14 @@ def animal_dashboard_v2(request, farm_id: int):
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
-    org = user.organization
+    org = user.organization or user.organizations.first()
     if not org:
-        org = user.organizations.first()
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
     if not user.organizations.first():
-        raise HttpError(403, "Permission denied")
-
+        if not perm:
+            raise HttpError(403, "Permission denied")
+       
     base_qs = Animal.objects.filter(farm_id=farm_id)
 
     stats = base_qs.aggregate(
@@ -2906,9 +2986,14 @@ def reproduction_dashboard_v2(request, farm_id: int):
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
     if not user.organizations.first():
-        raise HttpError(403, "Permission denied")
-
+        if not perm:
+            raise HttpError(403, "Permission denied")
+       
     from reproduction.models import InseminationRecord, PregnancyRecord, BirthRecord
 
     today = timezone.localdate()
@@ -3056,9 +3141,14 @@ def health_dashboard_v2(request, farm_id: int):
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
     if not user.organizations.first():
-        raise HttpError(403, "Permission denied")
-
+        if not perm:
+            raise HttpError(403, "Permission denied")
+       
     from health.models import TreatmentRecord, VaccinationRecord, QuarantineRecord
 
     today = timezone.localdate()
@@ -3244,9 +3334,14 @@ def mortality_dashboard_v2(request, farm_id: int, page: int = 1, page_size: int 
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
     if not user.organizations.first():
-        raise HttpError(403, "Permission denied")
-
+        if not perm:
+            raise HttpError(403, "Permission denied")
+       
     from health.models import MortalityRecord
 
     today = timezone.localdate()
@@ -3327,9 +3422,14 @@ def transaction_dashboard_v2(request, farm_id: int):
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
     if not user.organizations.first():
-        raise HttpError(403, "Permission denied")
-
+        if not perm:
+            raise HttpError(403, "Permission denied")
+       
     from movement_records.models import SalesRecord
     from health.models import MortalityRecord
 
@@ -3548,9 +3648,14 @@ def sales_dashboard_v2(
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
     if not user.organizations.first():
-        raise HttpError(403, "Permission denied")
-
+        if not perm:
+            raise HttpError(403, "Permission denied")
+       
     from movement_records.models import SalesRecord
 
     today = timezone.localdate()
@@ -3645,9 +3750,14 @@ def feed_inventory_dashboard_v2(request, farm_id: int):
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
     if not user.organizations.first():
-        raise HttpError(403, "Permission denied")
-
+        if not perm:
+            raise HttpError(403, "Permission denied")
+       
     from feed.models import FeedInventory, FeedIssuanceRecord, FeedConfirmationRecord, FeedPlan
 
     today = timezone.localdate()
@@ -3865,9 +3975,14 @@ def feed_plan_dashboard_v2(
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
     if not user.organizations.first():
-        raise HttpError(403, "Permission denied")
-
+        if not perm:
+            raise HttpError(403, "Permission denied")
+       
     from feed.models import FeedPlan
 
     base_qs = FeedPlan.objects.filter(farm_id=farm_id)
@@ -4120,9 +4235,14 @@ def production_report_v2(
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(403, "Permission denied")
+    org = user.organization or user.organizations.first()
+    if not org:
+        raise HttpError(404, "Permission denied")
+    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
     if not user.organizations.first():
-        raise HttpError(403, "Permission denied")
-
+        if not perm:
+            raise HttpError(403, "Permission denied")
+       
     from animals.models import MilkRecord, DailyMilkSummary
 
     today = timezone.localdate()

@@ -460,12 +460,41 @@ def signout(request):
 )
 def profile(request):
     user_id = get_current_user(request)
-    user = get_object_or_404(User, pk=user_id)
+    user = get_object_or_404(
+        User.objects.prefetch_related(
+            "user_roles__role", "user_roles__farm",
+            "user_roles__role__roles_permission__permission",
+        ),
+        pk=user_id,
+    )
+    org = user.organization
+    if not org:
+            org = user.organizations.first()
+
+    all_permission_codes = set()
+    roles = []
+    for ur in user.user_roles.all():
+        role_permissions = [
+            {"code": rp.permission.code, "name": rp.permission.name, "module": rp.permission.module}
+            for rp in ur.role.roles_permission.all()
+        ]
+        all_permission_codes.update(p["code"] for p in role_permissions)
+        roles.append({
+            "role_id": ur.role_id,
+            "role_name": ur.role.name,
+            "role_code": ur.role.code,
+            "farm_id": ur.farm_id,
+            "farm_name": ur.farm.name if ur.farm else None,
+            "permissions": role_permissions,
+        })
 
     data = {
         "email": user.email,
         "is_admin": user.is_superuser,
- 
+        "organization_id": org.id if org else None,
+        "organization_name": org.name if org else None,
+        "roles": roles,
+        "permissions": sorted(all_permission_codes),
     }
     return 200, APIResponse(success=True, message=f"user details", data=data)
 

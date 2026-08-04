@@ -467,10 +467,12 @@ def profile(request):
         ),
         pk=user_id,
     )
+    owner = False
     org = user.organization
     if not org:
             org = user.organizations.first()
-
+            if org:
+                owner = True
     all_permission_codes = set()
     roles = []
     for ur in user.user_roles.all():
@@ -493,6 +495,7 @@ def profile(request):
         "is_admin": user.is_superuser,
         "organization_id": org.id if org else None,
         "organization_name": org.name if org else None,
+        "owner": owner,
         "roles": roles,
         "permissions": sorted(all_permission_codes),
     }

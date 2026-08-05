@@ -905,7 +905,10 @@ def get_animal_event(
         if not perm:
             raise HttpError(404, f"Permission denied")
     
-    event = AnimalEvent.objects.select_related("group", "animal", "event_type", "created_by").filter(farm_id = farm_id)
+    event = AnimalEvent.objects.select_related(
+        "group", "animal", "animal__species", "animal__breed",
+        "animal__livestock_species", "animal__livestock_breed", "event_type", "created_by",
+    ).filter(farm_id = farm_id)
     paginator = Paginator(event, page_size)
     page_obj = paginator.page(page)
     # Serialization
@@ -917,15 +920,15 @@ def get_animal_event(
                 "group": data.group.name if data.group else None,
                 "animal_id": data.animal.id if data.animal else None,
                 "tag": data.animal.tag_id if data.animal else None,
-                "species": data.animal.species.name if data.animal else None,
-                "breed": data.animal.breed.name if data.animal else None,
+                "species": (data.animal.livestock_species.name if data.animal.livestock_species else (data.animal.species.name if data.animal.species else None)) if data.animal else None,
+                "breed": (data.animal.livestock_breed.name if data.animal.livestock_breed else (data.animal.breed.name if data.animal.breed else None)) if data.animal else None,
                 "event_type": data.event_type.name,
                 "event_title": data.event_title,
                 "event_summary": data.event_summary,
                 "reference_table": data.reference_table,
                 "reference_id": data.reference_id,
                 "created_at": data.created_at,
-                "created_by": data.created_by.email,
+                "created_by": data.created_by.email if data.created_by else None,
              
             }
         )
@@ -1014,7 +1017,9 @@ def get_animal_weight(
     if not user.organizations.first():
         if not perm:
             raise HttpError(404, f"Permission denied")
-    weight = AnimalWeight.objects.select_related("animal").filter(farm_id = farm_id)
+    weight = AnimalWeight.objects.select_related(
+        "animal", "animal__species", "animal__breed", "animal__livestock_species", "animal__livestock_breed",
+    ).filter(farm_id = farm_id).order_by("-date")
     paginator = Paginator(weight, page_size)
     page_obj = paginator.page(page)
     # Serialization
@@ -1025,8 +1030,8 @@ def get_animal_weight(
                 "id":data.id,
                 "animal_id": data.animal.id,
                 "tag": data.animal.tag_id,
-                "species": data.animal.species.name,
-                "breed": data.animal.breed.name,
+                "species": data.animal.livestock_species.name if data.animal.livestock_species else (data.animal.species.name if data.animal.species else None),
+                "breed": data.animal.livestock_breed.name if data.animal.livestock_breed else (data.animal.breed.name if data.animal.breed else None),
                 "date": data.date,
                 "weight": data.weight,
                 "created_at": data.created_at,
@@ -1181,7 +1186,9 @@ def get_milk(
         if not perm:
             raise HttpError(404, f"Permission denied")
     farm = get_object_or_404(Farm, id=farm_id, organization=org)
-    milk = MilkRecord.objects.select_related("animal__species", "created_by").filter(farm = farm)
+    milk = MilkRecord.objects.select_related(
+        "animal__species", "animal__breed", "animal__livestock_species", "animal__livestock_breed", "created_by",
+    ).filter(farm = farm)
     paginator = Paginator(milk, page_size)
     page_obj = paginator.page(page)
     # Serialization
@@ -1192,13 +1199,13 @@ def get_milk(
                 "id":data.id,
                 "animal_id": data.animal.id if data.animal else None,
                 "animal_tag": data.animal.tag_id if data.animal else None,
-                "species": data.animal.species.name if data.animal else None,
-                "breed": data.animal.breed.name if data.animal else None,
+                "species": (data.animal.livestock_species.name if data.animal.livestock_species else (data.animal.species.name if data.animal.species else None)) if data.animal else None,
+                "breed": (data.animal.livestock_breed.name if data.animal.livestock_breed else (data.animal.breed.name if data.animal.breed else None)) if data.animal else None,
                 "record_date": data.record_date,
                 "session": data.session,
                 "quantity": data.quantity,
                 "created_at": data.created_at,
-                "created_by": data.created_by.email,
+                "created_by": data.created_by.email if data.created_by else None,
              
             }
         )
@@ -2046,7 +2053,7 @@ def get_animal_event_v2(request, page: int, page_size: int, farm_id: int):
             "reference_table": data.reference_table,
             "reference_id": data.reference_id,
             "created_at": data.created_at,
-            "created_by": data.created_by.email,
+            "created_by": data.created_by.email if data.created_by else None,
         })
 
     return 200, ListResponseSchema(
@@ -2083,7 +2090,7 @@ def get_animal_weight_v2(request, page: int, page_size: int, farm_id: int):
     weight = AnimalWeight.objects.select_related(
         "animal", "animal__livestock_species", "animal__livestock_breed",
         "animal__species", "animal__breed",
-    ).filter(farm_id=farm_id)
+    ).filter(farm_id=farm_id).order_by("-date")
 
     paginator = Paginator(weight, page_size)
     page_obj = paginator.page(page)
@@ -2166,7 +2173,7 @@ def get_milk_v2(request, page: int, page_size: int, farm_id: int):
             "session": data.session,
             "quantity": data.quantity,
             "created_at": data.created_at,
-            "created_by": data.created_by.email,
+            "created_by": data.created_by.email if data.created_by else None,
         })
 
     return 200, ListResponseSchema(

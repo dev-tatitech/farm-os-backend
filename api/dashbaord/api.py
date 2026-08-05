@@ -413,7 +413,7 @@ def animal_dashboard(request, farm_id: int):
     org = user.organization or user.organizations.first()
     if not org:
         raise HttpError(404, "Permission denied")
-    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
+    perm = user_has_permission(user, Permissions.Animal.VIEW)
     if not user.organizations.first():
         if not perm:
             raise HttpError(403, "Permission denied")
@@ -480,7 +480,7 @@ def reproduction_dashboard(request, farm_id: int):
     org = user.organization or user.organizations.first()
     if not org:
         raise HttpError(404, "Permission denied")
-    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
+    perm = user_has_permission(user, Permissions.Reproduction.VIEW)
     if not user.organizations.first():
         if not perm:
             raise HttpError(403, "Permission denied")
@@ -630,7 +630,7 @@ def health_dashboard(request, farm_id: int):
     org = user.organization or user.organizations.first()
     if not org:
         raise HttpError(404, "Permission denied")
-    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
+    perm = user_has_permission(user, Permissions.Health.VIEW)
     if not user.organizations.first():
         if not perm:
             raise HttpError(403, "Permission denied")
@@ -818,7 +818,7 @@ def mortality_dashboard(request, farm_id: int, page: int = 1, page_size: int = 1
     org = user.organization or user.organizations.first()
     if not org:
         raise HttpError(404, "Permission denied")
-    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
+    perm = user_has_permission(user, Permissions.MovementRecord.VIEW)
     if not user.organizations.first():
         if not perm:
             raise HttpError(403, "Permission denied")
@@ -895,7 +895,7 @@ def transaction_dashboard(request, farm_id: int):
     org = user.organization or user.organizations.first()
     if not org:
         raise HttpError(404, "Permission denied")
-    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
+    perm = user_has_permission(user, Permissions.SalesRecord.VIEW)
     if not user.organizations.first():
         if not perm:
             raise HttpError(403, "Permission denied")
@@ -1113,7 +1113,7 @@ def sales_dashboard(
     org = user.organization or user.organizations.first()
     if not org:
         raise HttpError(404, "Permission denied")
-    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
+    perm = user_has_permission(user, Permissions.SalesRecord.VIEW)
     if not user.organizations.first():
         if not perm:
             raise HttpError(403, "Permission denied")
@@ -1206,7 +1206,7 @@ def feed_inventory_dashboard(request, farm_id: int):
     org = user.organization or user.organizations.first()
     if not org:
         raise HttpError(404, "Permission denied")
-    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
+    perm = user_has_permission(user, Permissions.Feed.VIEW)
     if not user.organizations.first():
         if not perm:
             raise HttpError(403, "Permission denied")
@@ -1428,7 +1428,7 @@ def inventory_dashboard(
     org = user.organization or user.organizations.first()
     if not org:
         raise HttpError(404, "Permission denied")
-    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
+    perm = user_has_permission(user, Permissions.Feed.VIEW)
     if not user.organizations.first():
         if not perm:
             raise HttpError(403, "Permission denied")
@@ -1501,7 +1501,7 @@ def feed_plan_dashboard(
     org = user.organization or user.organizations.first()
     if not org:
         raise HttpError(404, "Permission denied")
-    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
+    perm = user_has_permission(user, Permissions.Feed.VIEW)
     if not user.organizations.first():
         if not perm:
             raise HttpError(403, "Permission denied")
@@ -1600,7 +1600,7 @@ def feed_issuance_dashboard(
     org = user.organization or user.organizations.first()
     if not org:
         raise HttpError(404, "Permission denied")
-    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
+    perm = user_has_permission(user, Permissions.Feed.VIEW)
     if not user.organizations.first():
         if not perm:
             raise HttpError(403, "Permission denied")
@@ -1710,7 +1710,7 @@ def feed_confirmation_dashboard(
     org = user.organization or user.organizations.first()
     if not org:
         raise HttpError(404, "Permission denied")
-    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
+    perm = user_has_permission(user, Permissions.Feed.VIEW)
     if not user.organizations.first():
         if not perm:
             raise HttpError(403, "Permission denied")
@@ -2050,7 +2050,7 @@ def production_report(
     org = user.organization or user.organizations.first()
     if not org:
         raise HttpError(404, "Permission denied")
-    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
+    perm = user_has_permission(user, Permissions.Production.VIEW)
     if not user.organizations.first():
         if not perm:
             raise HttpError(403, "Permission denied")
@@ -2224,7 +2224,7 @@ def health_report(
     org = user.organization or user.organizations.first()
     if not org:
         raise HttpError(404, "Permission denied")
-    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
+    perm = user_has_permission(user, Permissions.Health.VIEW)
     if not user.organizations.first():
         if not perm:
             raise HttpError(403, "Permission denied")
@@ -2383,7 +2383,7 @@ def feed_report(
     org = user.organization or user.organizations.first()
     if not org:
         raise HttpError(404, "Permission denied")
-    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
+    perm = user_has_permission(user, Permissions.Feed.VIEW)
     if not user.organizations.first():
         if not perm:
             raise HttpError(403, "Permission denied")
@@ -2921,7 +2921,7 @@ def animal_dashboard_v2(request, farm_id: int):
     org = user.organization or user.organizations.first()
     if not org:
         raise HttpError(404, "Permission denied")
-    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
+    perm = user_has_permission(user, Permissions.Animal.VIEW)
     if not user.organizations.first():
         if not perm:
             raise HttpError(403, "Permission denied")
@@ -2989,7 +2989,7 @@ def reproduction_dashboard_v2(request, farm_id: int):
     org = user.organization or user.organizations.first()
     if not org:
         raise HttpError(404, "Permission denied")
-    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
+    perm = user_has_permission(user, Permissions.Reproduction.VIEW)
     if not user.organizations.first():
         if not perm:
             raise HttpError(403, "Permission denied")
@@ -3144,7 +3144,7 @@ def health_dashboard_v2(request, farm_id: int):
     org = user.organization or user.organizations.first()
     if not org:
         raise HttpError(404, "Permission denied")
-    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
+    perm = user_has_permission(user, Permissions.Health.VIEW)
     if not user.organizations.first():
         if not perm:
             raise HttpError(403, "Permission denied")
@@ -3337,7 +3337,7 @@ def mortality_dashboard_v2(request, farm_id: int, page: int = 1, page_size: int 
     org = user.organization or user.organizations.first()
     if not org:
         raise HttpError(404, "Permission denied")
-    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
+    perm = user_has_permission(user, Permissions.MovementRecord.VIEW)
     if not user.organizations.first():
         if not perm:
             raise HttpError(403, "Permission denied")
@@ -3425,7 +3425,7 @@ def transaction_dashboard_v2(request, farm_id: int):
     org = user.organization or user.organizations.first()
     if not org:
         raise HttpError(404, "Permission denied")
-    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
+    perm = user_has_permission(user, Permissions.SalesRecord.VIEW)
     if not user.organizations.first():
         if not perm:
             raise HttpError(403, "Permission denied")
@@ -3651,7 +3651,7 @@ def sales_dashboard_v2(
     org = user.organization or user.organizations.first()
     if not org:
         raise HttpError(404, "Permission denied")
-    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
+    perm = user_has_permission(user, Permissions.SalesRecord.VIEW)
     if not user.organizations.first():
         if not perm:
             raise HttpError(403, "Permission denied")
@@ -3753,7 +3753,7 @@ def feed_inventory_dashboard_v2(request, farm_id: int):
     org = user.organization or user.organizations.first()
     if not org:
         raise HttpError(404, "Permission denied")
-    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
+    perm = user_has_permission(user, Permissions.Feed.VIEW)
     if not user.organizations.first():
         if not perm:
             raise HttpError(403, "Permission denied")
@@ -3978,7 +3978,7 @@ def feed_plan_dashboard_v2(
     org = user.organization or user.organizations.first()
     if not org:
         raise HttpError(404, "Permission denied")
-    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
+    perm = user_has_permission(user, Permissions.Feed.VIEW)
     if not user.organizations.first():
         if not perm:
             raise HttpError(403, "Permission denied")
@@ -4238,7 +4238,7 @@ def production_report_v2(
     org = user.organization or user.organizations.first()
     if not org:
         raise HttpError(404, "Permission denied")
-    perm = user_has_permission(user, Permissions.Reports.LIVESTOCK_DASHBOARD)
+    perm = user_has_permission(user, Permissions.Production.VIEW)
     if not user.organizations.first():
         if not perm:
             raise HttpError(403, "Permission denied")

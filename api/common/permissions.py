@@ -69,3 +69,4 @@ class Permissions:
     class Reports:
         LIVESTOCK_DASHBOARD = "view_livestock_dashboard"
         REPORTS = "view_reports"
+        

@@ -174,14 +174,22 @@ def get_animal(
     request,
     page: int,
     page_size: int,
-    farm_id: int
+    farm_id: int,
+    status: str = None,
+    health_status: str = None,
+    gender: str = None,
+    source_type: str = None,
+    is_active: bool = None,
+    species_id: int = None,
+    breed_id: int = None,
+    search: str = None,
     ):
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(400, "Login Failed")
-    
+
     org = user.organization
     if not org:
         org = user.organizations.first()
@@ -194,6 +202,22 @@ def get_animal(
 
     farm = get_object_or_404(Farm, id =farm_id, organization = org)
     animals = Animal.objects.filter(farm = farm)
+    if status:
+        animals = animals.filter(status=status)
+    if health_status:
+        animals = animals.filter(health_status=health_status)
+    if gender:
+        animals = animals.filter(gender=gender)
+    if source_type:
+        animals = animals.filter(source_type=source_type)
+    if is_active is not None:
+        animals = animals.filter(is_active=is_active)
+    if species_id:
+        animals = animals.filter(species_id=species_id)
+    if breed_id:
+        animals = animals.filter(breed_id=breed_id)
+    if search:
+        animals = animals.filter(tag_id__icontains=search)
     paginator = Paginator(animals, page_size)
     page_obj = paginator.page(page)
     # Serialization
@@ -1537,7 +1561,18 @@ def set_animal_acquisition(request, animal_id: int, payload: AnimalAcquisitionSc
     "/animal/v2/{page}/{page_size}/{farm_id}",
     response={200: ListResponseSchema, 403: APIResponse},
 )
-def get_animal_v2(request, page: int, page_size: int, farm_id: int):
+def get_animal_v2(
+    request, page: int, page_size: int, farm_id: int,
+    status: str = None,
+    health_status: str = None,
+    gender: str = None,
+    source: str = None,
+    is_active: bool = None,
+    livestock_species_id: int = None,
+    livestock_breed_id: int = None,
+    housing_unit_id: int = None,
+    search: str = None,
+):
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -1556,6 +1591,24 @@ def get_animal_v2(request, page: int, page_size: int, farm_id: int):
     qs = Animal.objects.select_related(
         "livestock_species", "livestock_breed", "housing_unit", "mother",
     ).filter(farm=farm)
+    if status:
+        qs = qs.filter(status=status)
+    if health_status:
+        qs = qs.filter(health_status=health_status)
+    if gender:
+        qs = qs.filter(gender=gender)
+    if source:
+        qs = qs.filter(source_type=source)
+    if is_active is not None:
+        qs = qs.filter(is_active=is_active)
+    if livestock_species_id:
+        qs = qs.filter(livestock_species_id=livestock_species_id)
+    if livestock_breed_id:
+        qs = qs.filter(livestock_breed_id=livestock_breed_id)
+    if housing_unit_id:
+        qs = qs.filter(housing_unit_id=housing_unit_id)
+    if search:
+        qs = qs.filter(tag_id__icontains=search)
 
     paginator = Paginator(qs, page_size)
     page_obj = paginator.page(page)

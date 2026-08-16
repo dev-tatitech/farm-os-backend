@@ -1,5 +1,9 @@
 from django.contrib import admin
 from django.urls import path
+
+admin.site.site_header = "Tati FarmOS"
+admin.site.site_title = "Tati FarmOS Admin"
+admin.site.index_title = "Platform Dashboard"
 from ninja import NinjaAPI
 from account.api import router
 from organization.api import router as organization

@@ -1,0 +1,19 @@
+---
+description: All implementation work goes in api_dev until promoted to live api/
+alwaysApply: true
+---
+
+# Work in the development API only
+
+Until product signs off and we explicitly promote, **every code change belongs in `api_dev/`**, not `api/`.
+
+- Edit, add, and delete Python/Django files under `api_dev/` (sandbox).
+- Test against the sandbox stack: `http://127.0.0.1:8001` or nginx `http://127.0.0.1:8082` (Swagger title: **FarmOS API — Dev**).
+- Do **not** change `api/` except for a requested live hotfix or an explicit promote (`api_dev` → `api`).
+- Docker: `farmos_dev`, `farmos_dev_db`, `nginx_dev`. Live remains `farmos` / `farmos_db` / `nginx` on 8000 and 8081.
+- Compose/nginx for the sandbox (`docker-compose.yml` `farmos_dev*` services, `nginx.dev.conf`) may be updated when the sandbox stack itself needs a change.
+
+```text
+❌ api/animals/api.py          # live
+✅ api_dev/animals/api.py      # development
+```

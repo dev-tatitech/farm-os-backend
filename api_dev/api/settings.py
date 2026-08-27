@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     "finance",
     "pharmacy",
     "reports",
+    "operations",
 ]
 
 MIDDLEWARE = [

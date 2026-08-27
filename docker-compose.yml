@@ -1,4 +1,5 @@
 services:
+  # LIVE API — do not use for restructuring. Promote from api_dev when stable.
   farmos:
     build: ./api
     container_name: farmos-backend
@@ -27,7 +28,7 @@ services:
       - static_volume:/app/staticfiles
       - media_volume:/app/media
 
-  # Isolated copy of api/ for restructuring work. Promote into ./api when stable.
+  # DEV API — all new backend work happens in ./api_dev until promoted to ./api.
   farmos_dev:
     build: ./api_dev
     container_name: farmos-dev-backend

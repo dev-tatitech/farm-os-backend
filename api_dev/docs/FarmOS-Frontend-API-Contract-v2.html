@@ -1,0 +1,1934 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>FarmOS Frontend API Contract v2</title>
+<style>
+  :root {
+    --primary: #209850;
+    --primary-dark: #187A40;
+    --ink: #1F2937;
+    --muted: #6B7280;
+    --mint: #E8F6EE;
+    --line: #E5E7EB;
+    --page: #F7FBF8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    color: var(--ink); margin: 0; background: #fff; line-height: 1.5; font-size: 13px;
+  }
+  .page { max-width: 920px; margin: 0 auto; padding: 28px 28px 72px; }
+  .cover {
+    background: linear-gradient(180deg, var(--mint) 0%, #fff 70%);
+    border: 1px solid var(--line); border-radius: 20px; padding: 36px 32px 28px; margin-bottom: 28px;
+  }
+  .brand { color: var(--primary); font-weight: 700; letter-spacing: .04em; font-size: 12px; text-transform: uppercase; }
+  h1 { font-size: 28px; margin: 8px 0 10px; color: var(--ink); }
+  h1 span { color: var(--primary); }
+  h2 { font-size: 18px; color: var(--primary-dark); margin: 36px 0 10px; page-break-before: always; border-bottom: 2px solid var(--mint); padding-bottom: 6px; }
+  h2:nth-of-type(1), h2:nth-of-type(2) { page-break-before: auto; }
+  h3 { font-size: 14px; margin: 0; }
+  p { margin: 0 0 10px; }
+  .muted { color: var(--muted); }
+  .endpoint {
+    border: 1px solid var(--line); border-radius: 16px; margin: 14px 0 22px;
+    page-break-inside: avoid; overflow: hidden;
+  }
+  .endpoint-hd { padding: 12px 14px; background: var(--mint); border-bottom: 1px solid var(--line); }
+  .endpoint-bd { padding: 14px; }
+  .method {
+    display: inline-block; font-weight: 700; font-size: 10px; letter-spacing: .06em;
+    padding: 3px 8px; border-radius: 999px; margin-right: 8px; color: #fff;
+  }
+  .GET { background: var(--primary); }
+  .POST { background: #1D4ED8; }
+  .PATCH { background: #B45309; }
+  .DELETE { background: #B91C1C; }
+  code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 11px; }
+  .path { font-weight: 650; color: var(--ink); }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 12px; font-size: 12px; }
+  th, td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: var(--page); }
+  pre {
+    background: #1F2937; color: #ECFDF5; padding: 12px; border-radius: 12px;
+    overflow-x: auto; white-space: pre-wrap; word-break: break-word;
+    border-left: 4px solid var(--primary);
+  }
+  .label {
+    font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--primary-dark); margin: 12px 0 6px;
+  }
+  .pill {
+    display: inline-block; background: var(--mint); color: var(--primary-dark);
+    padding: 2px 8px; border-radius: 99px; font-size: 11px; margin-right: 6px; font-weight: 600;
+  }
+  .toc a { color: var(--primary-dark); text-decoration: none; }
+  .toc li { margin: 4px 0; }
+  .note { background: var(--mint); border-radius: 12px; padding: 12px 14px; margin: 12px 0; }
+  @media print {
+    .endpoint { page-break-inside: avoid; }
+    a { color: inherit; text-decoration: none; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+<div class="cover">
+  <div class="brand">TATI FarmOS · Livestock</div>
+  <h1>Building the frontend for <span>African Agriculture</span></h1>
+  <p class="muted">Official Web/Mobile contract v2.0 · sandbox <code>http://127.0.0.1:8082/api/v2/</code> · Swagger <code>/api/v2/docs</code></p>
+  <p>Every route below is what new screens should call. Responses are JSON. Brand primary from tatifarmos.com: <code>#209850</code>.</p>
+</div>
+<h2 id='howto'>How frontend should call this API</h2>
+<div class="note">
+<p><span class="pill">Base</span> Nginx sandbox <code>http://127.0.0.1:8082</code> · direct app <code>http://127.0.0.1:8001</code>. Live stack is unchanged on 8081/8000.</p>
+<p><span class="pill">Prefix</span> Official contract is <code>/api/v2/</code>. Legacy <code>/api/*</code> (240 routes) stays for existing clients. Do not mix envelopes.</p>
+<p><span class="pill">Auth</span> <code>POST /api/auth/login</code> sets <code>client_access_token</code> (HTTP-only). Send cookies on v2 requests. Unauthenticated v2 calls return <code>AUTHENTICATION_REQUIRED</code>.</p>
+<p><span class="pill">IDs</span> Use <code>livestock_species_id</code>, <code>livestock_breed_id</code>, <code>housing_unit_id</code>, integer <code>farm_id</code> / <code>animal_id</code>, UUID <code>organization_id</code> / user ids.</p>
+<p><span class="pill">Idempotency</span> On writes send <code>client_request_id</code> in JSON or header <code>X-Client-Request-Id</code>. Same key + same user returns the first JSON body and must not create a second vaccination/feed/sale.</p>
+</div>
+<div class="label">Success envelope (every v2 200)</div>
+<pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Human-readable summary&quot;,
+  &quot;data&quot;: {},
+  &quot;meta&quot;: null
+}</pre>
+<div class="label">List envelope — read meta.pagination (never current_page / num_pages)</div>
+<pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Fetched successfully.&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 1
+    }
+  ],
+  &quot;meta&quot;: {
+    &quot;pagination&quot;: {
+      &quot;page&quot;: 1,
+      &quot;page_size&quot;: 20,
+      &quot;total_items&quot;: 42,
+      &quot;total_pages&quot;: 2,
+      &quot;has_next&quot;: true,
+      &quot;has_previous&quot;: false
+    }
+  }
+}</pre>
+<div class="label">Error envelope (v2)</div>
+<pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre>
+<p class="muted">Login errors are the old shape <code>{"status":"Error","message":"Invalid credentials"}</code> — only on <code>/api/auth/login</code>.</p>
+<h3>Frontend screen map</h3>
+<table>
+<tr><th>Screen</th><th>Call these</th></tr>
+<tr><td>App shell / nav</td><td><code>GET /users/me/</code> then <code>GET /users/me/capabilities/</code></td></tr>
+<tr><td>Org home</td><td><code>GET /dashboard/organization/</code> and <code>GET /organizations/{id}/summary/</code></td></tr>
+<tr><td>Farm home</td><td><code>GET /dashboard/farm/{id}/</code>, overview, people, units, alerts</td></tr>
+<tr><td>Animal page</td><td><code>GET /animals/{id}/profile/</code> + <code>/timeline/</code></td></tr>
+<tr><td>Scanner</td><td><code>GET /animals/resolve-tag/{tag}/</code> or <code>GET /search/?q=</code></td></tr>
+<tr><td>My Work</td><td><code>GET /operations/my-work/</code>, today, overdue; accept / start / complete</td></tr>
+<tr><td>Ops manager</td><td><code>POST /operations/tasks/</code>, assign, list, schedules</td></tr>
+<tr><td>Inbox</td><td><code>GET /notifications/</code> — not farm alerts</td></tr>
+</table>
+<h3>Ibrahim vaccination flow</h3>
+<ol>
+<li>Owner <code>POST /operations/tasks/</code> with <code>task_type: vaccination</code> and Ibrahim’s <code>assignee_id</code>.</li>
+<li>Ibrahim <code>GET /operations/my-work/</code> — task is in <code>data[]</code>.</li>
+<li><code>POST .../accept/</code> then optional <code>.../start/</code>.</li>
+<li><code>POST .../complete/</code> with <code>vaccine_name</code> + <code>date_given</code> (+ <code>client_request_id</code>).</li>
+<li>Backend writes the existing <code>VaccinationRecord</code>, emits timeline events, creates a follow-up task if <code>next_due_date</code> is set, and the task leaves My Work.</li>
+<li>Retry the same complete with the same <code>client_request_id</code> — still one vaccination row.</li>
+</ol>
+<h3>complete() JSON by task_type</h3>
+<table>
+<tr><th>task_type</th><th>Required JSON fields</th><th>Writes</th></tr>
+<tr><td><code>vaccination</code></td><td><code>vaccine_name</code>, optional <code>date_given</code>, <code>next_due_date</code>, <code>notes</code></td><td>VaccinationRecord + follow-up task</td></tr>
+<tr><td><code>treatment</code></td><td><code>diagnosis</code>, <code>treatment</code>, <code>severity</code>; optional drug_batch + quantity</td><td>TreatmentRecord (deducts drug stock)</td></tr>
+<tr><td><code>feed_issuance</code></td><td><code>feed_inventory_id</code>, <code>quantity_issued</code>, <code>target_type</code></td><td>FeedIssuanceRecord (deducts feed)</td></tr>
+<tr><td><code>sale</code></td><td><code>buyer_name</code>, <code>price</code>; <code>override_reason</code> if restricted</td><td>SalesRecord (sale_readiness rules)</td></tr>
+<tr><td><code>movement</code></td><td><code>to_housing_unit_id</code> or <code>to_unit_id</code></td><td>MovementRecord</td></tr>
+<tr><td><code>observation</code></td><td><code>symptoms</code></td><td>HealthObservation</td></tr>
+<tr><td><code>generic</code></td><td>none</td><td>Task only + timeline</td></tr>
+</table>
+<p class="muted">Useful error codes: <code>TASK_ASSIGNMENT_REQUIRED</code>, <code>TASK_ALREADY_COMPLETED</code>, <code>INSUFFICIENT_FEED_STOCK</code>, <code>INSUFFICIENT_DRUG_STOCK</code>, <code>INVALID_ANIMAL_STATE</code> (sale blocked), <code>SESSION_EXPIRED</code>.</p>
+<h2 id='toc'>Endpoints</h2><ol class='toc'><li><a href='#contract'>Contract</a> (1)</li><li><a href='#session-legacy-login,-still-required'>Session (legacy login, still required)</a> (1)</li><li><a href='#users'>Users</a> (4)</li><li><a href='#organizations'>Organizations</a> (5)</li><li><a href='#farms'>Farms</a> (7)</li><li><a href='#animals'>Animals</a> (4)</li><li><a href='#operations'>Operations</a> (14)</li><li><a href='#timeline'>Timeline</a> (1)</li><li><a href='#health'>Health</a> (5)</li><li><a href='#notifications'>Notifications</a> (3)</li><li><a href='#search'>Search</a> (1)</li><li><a href='#dashboard'>Dashboard</a> (3)</li></ol><h2 id='contract'>Contract</h2><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/</span><h3 style='margin-top:8px'>Contract health</h3></div><div class='endpoint-bd'><p>Ping the official frontend contract. No cookie required. Use this to confirm the app is talking to /api/v2/ rather than legacy /api/*.</p><p><span class='pill'>Auth</span> Public</p><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;v2 contract is available.&quot;,
+  &quot;data&quot;: {
+    &quot;contract&quot;: &quot;FarmOS Frontend API Contract v2&quot;,
+    &quot;legacy_prefix&quot;: &quot;/api/&quot;,
+    &quot;this_prefix&quot;: &quot;/api/v2/&quot;,
+    &quot;identifiers&quot;: [
+      &quot;livestock_species_id&quot;,
+      &quot;livestock_breed_id&quot;,
+      &quot;housing_unit_id&quot;,
+      &quot;farm_id&quot;,
+      &quot;organization_id&quot;,
+      &quot;animal_id&quot;,
+      &quot;group_id&quot;
+    ]
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><h2 id='session-legacy-login,-still-required'>Session (legacy login, still required)</h2><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/auth/login</span><h3 style='margin-top:8px'>Sign in (sets cookies)</h3></div><div class='endpoint-bd'><p>v2 does not replace login. POST email + password to the legacy auth route. Success JSON is small; the session is HTTP-only cookies client_access_token, client_refresh_token, client_csrf_token. Send those cookies on every /api/v2/ call. Do not parse v2 fields on this response.</p><p><span class='pill'>Auth</span> Public</p><div class='label'>Example request JSON</div><pre>{
+  &quot;email&quot;: &quot;ibrahim@farm.example&quot;,
+  &quot;password&quot;: &quot;Str0ngPass!word&quot;
+}</pre><div class='label'>Example success JSON</div><pre>{
+  &quot;status&quot;: &quot;Success&quot;,
+  &quot;message&quot;: &quot;Login successful&quot;,
+  &quot;is_admin&quot;: false
+}</pre><div class='label'>Example error JSON · HTTP 401 — this shape is NOT the v2 envelope</div><pre>{
+  &quot;status&quot;: &quot;Error&quot;,
+  &quot;message&quot;: &quot;Invalid credentials&quot;
+}</pre></div></div><h2 id='users'>Users</h2><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/users/me/</span><h3 style='margin-top:8px'>Current user operational profile</h3></div><div class='endpoint-bd'><p>Call once after login to bootstrap the shell: identity, organization, farm-role assignments, permission codes, and work_summary for My Work badges. Task counts are live.</p><p><span class='pill'>Auth</span> Cookie</p><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;User profile fetched successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: &quot;7c9e6679-7425-40de-944b-e07fc1f90ae7&quot;,
+    &quot;email&quot;: &quot;owner@farm.example&quot;,
+    &quot;username&quot;: &quot;owner&quot;,
+    &quot;account_status&quot;: &quot;Active&quot;,
+    &quot;is_admin&quot;: false,
+    &quot;organization&quot;: {
+      &quot;id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
+      &quot;name&quot;: &quot;Zaima Farms&quot;,
+      &quot;code&quot;: &quot;ZAIMA&quot;,
+      &quot;status&quot;: &quot;active&quot;
+    },
+    &quot;assignments&quot;: [
+      {
+        &quot;role_id&quot;: 3,
+        &quot;role_name&quot;: &quot;Farm Manager&quot;,
+        &quot;role_code&quot;: &quot;farm_manager&quot;,
+        &quot;farm_id&quot;: 1,
+        &quot;farm_name&quot;: &quot;North Paddock&quot;
+      }
+    ],
+    &quot;permissions&quot;: [
+      &quot;add_health&quot;,
+      &quot;view_animal_details&quot;,
+      &quot;view_health&quot;
+    ],
+    &quot;work_summary&quot;: {
+      &quot;open_tasks&quot;: 2,
+      &quot;overdue_tasks&quot;: 1,
+      &quot;completed_today&quot;: 1
+    }
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/users/me/capabilities/</span><h3 style='margin-top:8px'>Capabilities and navigation map</h3></div><div class='endpoint-bd'><p>Drive UI chrome from capabilities and navigation booleans. Do not infer menus from raw permission strings alone. operations and my_work are true when the user can view health/feed/animal work.</p><p><span class='pill'>Auth</span> Cookie</p><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Capabilities fetched successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;is_organization_owner&quot;: true,
+    &quot;permissions&quot;: [
+      &quot;add_health&quot;,
+      &quot;view_animal_details&quot;
+    ],
+    &quot;capabilities&quot;: {
+      &quot;view_animal_details&quot;: true,
+      &quot;add_animal_details&quot;: true,
+      &quot;view_health&quot;: true,
+      &quot;record_health&quot;: true,
+      &quot;view_feed&quot;: true,
+      &quot;record_feed_activity&quot;: true,
+      &quot;view_operation&quot;: true,
+      &quot;create_operation&quot;: true,
+      &quot;assign_operation&quot;: true,
+      &quot;complete_operation&quot;: true,
+      &quot;cancel_operation&quot;: true
+    },
+    &quot;navigation&quot;: {
+      &quot;dashboard&quot;: true,
+      &quot;livestock&quot;: true,
+      &quot;health&quot;: true,
+      &quot;feed&quot;: true,
+      &quot;operations&quot;: true,
+      &quot;my_work&quot;: true,
+      &quot;people&quot;: true,
+      &quot;reports&quot;: true,
+      &quot;sales&quot;: false
+    }
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/users/me/activity/</span><h3 style='margin-top:8px'>Current user activity</h3></div><div class='endpoint-bd'><p>Timeline of events this user created. Paginated via query page and page_size. Read meta.pagination — not current_page / num_pages.</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>1-based page, default 1</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>Default 20, max 100</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Activity fetched successfully.&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 88,
+      &quot;farm_id&quot;: 1,
+      &quot;animal_id&quot;: 15,
+      &quot;animal_tag&quot;: &quot;COW-001&quot;,
+      &quot;group_id&quot;: null,
+      &quot;event_type&quot;: &quot;vaccination&quot;,
+      &quot;event_date&quot;: &quot;2026-08-27T09:15:00+00:00&quot;,
+      &quot;event_title&quot;: &quot;Vaccination - CBPP&quot;,
+      &quot;event_summary&quot;: &quot;Administered in paddock&quot;,
+      &quot;reference_table&quot;: &quot;vaccination&quot;,
+      &quot;reference_id&quot;: 41,
+      &quot;created_by&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+      &quot;created_at&quot;: &quot;2026-08-27T09:15:00+00:00&quot;
+    }
+  ],
+  &quot;meta&quot;: {
+    &quot;pagination&quot;: {
+      &quot;page&quot;: 1,
+      &quot;page_size&quot;: 20,
+      &quot;total_items&quot;: 1,
+      &quot;total_pages&quot;: 1,
+      &quot;has_next&quot;: false,
+      &quot;has_previous&quot;: false
+    }
+  }
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/users/me/tasks/</span><h3 style='margin-top:8px'>Tasks assigned to me</h3></div><div class='endpoint-bd'><p>Same records as My Work, including completed if you pass status. Use status=open for the inbox.</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>1-based page</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>Default 20</td></tr><tr><td><code>status</code></td><td>string</td><td>no</td><td>open | assigned | accepted | completed | cancelled | overdue</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Tasks fetched successfully.&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 12,
+      &quot;farm_id&quot;: 1,
+      &quot;organization_id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
+      &quot;animal_id&quot;: 15,
+      &quot;animal_tag&quot;: &quot;COW-001&quot;,
+      &quot;group_id&quot;: null,
+      &quot;parent_id&quot;: null,
+      &quot;task_type&quot;: &quot;vaccination&quot;,
+      &quot;title&quot;: &quot;Vaccinate COW-001 \u2014 CBPP&quot;,
+      &quot;description&quot;: &quot;Annual CBPP shot&quot;,
+      &quot;status&quot;: &quot;assigned&quot;,
+      &quot;priority&quot;: &quot;high&quot;,
+      &quot;due_at&quot;: &quot;2026-08-28T08:00:00+00:00&quot;,
+      &quot;assigned_to&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+      &quot;assigned_to_email&quot;: &quot;ibrahim@farm.example&quot;,
+      &quot;created_by&quot;: &quot;7c9e6679-7425-40de-944b-e07fc1f90ae7&quot;,
+      &quot;accepted_at&quot;: null,
+      &quot;started_at&quot;: null,
+      &quot;completed_at&quot;: null,
+      &quot;result_reference_table&quot;: null,
+      &quot;result_reference_id&quot;: null,
+      &quot;created_at&quot;: &quot;2026-08-27T07:00:00+00:00&quot;
+    }
+  ],
+  &quot;meta&quot;: {
+    &quot;pagination&quot;: {
+      &quot;page&quot;: 1,
+      &quot;page_size&quot;: 20,
+      &quot;total_items&quot;: 1,
+      &quot;total_pages&quot;: 1,
+      &quot;has_next&quot;: false,
+      &quot;has_previous&quot;: false
+    }
+  }
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><h2 id='organizations'>Organizations</h2><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/organizations/{organization_id}/</span><h3 style='margin-top:8px'>Organization profile</h3></div><div class='endpoint-bd'><p>Operational org card for settings and home. organization_id is a UUID and must be the caller’s org.</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>organization_id</code></td><td>uuid</td><td>Caller’s organization UUID</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Organization fetched successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
+    &quot;name&quot;: &quot;Zaima Farms&quot;,
+    &quot;code&quot;: &quot;ZAIMA&quot;,
+    &quot;status&quot;: &quot;active&quot;,
+    &quot;industry&quot;: &quot;Livestock&quot;,
+    &quot;country&quot;: &quot;Nigeria&quot;,
+    &quot;state_region&quot;: &quot;Kaduna&quot;,
+    &quot;logo&quot;: null,
+    &quot;is_owner&quot;: true,
+    &quot;counts&quot;: {
+      &quot;farms&quot;: 1,
+      &quot;people&quot;: 4,
+      &quot;animals&quot;: 120,
+      &quot;active_animals&quot;: 110,
+      &quot;open_tasks&quot;: 6
+    }
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 404</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;ORGANIZATION_NOT_FOUND&quot;,
+  &quot;message&quot;: &quot;Organization could not be found.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method PATCH">PATCH</span><span class="path">/api/v2/organizations/{organization_id}/</span><h3 style='margin-top:8px'>Update organization</h3></div><div class='endpoint-bd'><p>Owner-only. Send only fields to change.</p><p><span class='pill'>Auth</span> Cookie · organization owner</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>organization_id</code></td><td>uuid</td><td>Organization UUID</td></tr></table><div class='label'>Example request JSON</div><pre>{
+  &quot;name&quot;: &quot;Zaima Farms Ltd&quot;,
+  &quot;status&quot;: &quot;active&quot;
+}</pre><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Organization updated successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
+    &quot;name&quot;: &quot;Zaima Farms Ltd&quot;,
+    &quot;status&quot;: &quot;active&quot;
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 403</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;PERMISSION_DENIED&quot;,
+  &quot;message&quot;: &quot;You do not have permission to perform this action.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/organizations/{organization_id}/summary/</span><h3 style='margin-top:8px'>Organization summary counts</h3></div><div class='endpoint-bd'><p>Compact counts for the org home header. Prefer this over chaining many legacy dashboard calls.</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>organization_id</code></td><td>uuid</td><td>Organization UUID</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Organization summary fetched successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;organization_id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
+    &quot;farms&quot;: 1,
+    &quot;animals&quot;: {
+      &quot;total&quot;: 120,
+      &quot;active&quot;: 110,
+      &quot;sold&quot;: 6,
+      &quot;dead&quot;: 4,
+      &quot;quarantine&quot;: 2,
+      &quot;pregnant&quot;: 9
+    },
+    &quot;open_tasks&quot;: 6,
+    &quot;roles&quot;: 3,
+    &quot;people&quot;: 4
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/organizations/{organization_id}/activity/</span><h3 style='margin-top:8px'>Organization activity</h3></div><div class='endpoint-bd'><p>Unified event list across all farms in the org. Same event objects as /timeline/.</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>organization_id</code></td><td>uuid</td><td>Organization UUID</td></tr></table><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>Page</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>Page size</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Activity fetched successfully.&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 88,
+      &quot;farm_id&quot;: 1,
+      &quot;animal_id&quot;: 15,
+      &quot;animal_tag&quot;: &quot;COW-001&quot;,
+      &quot;group_id&quot;: null,
+      &quot;event_type&quot;: &quot;vaccination&quot;,
+      &quot;event_date&quot;: &quot;2026-08-27T09:15:00+00:00&quot;,
+      &quot;event_title&quot;: &quot;Vaccination - CBPP&quot;,
+      &quot;event_summary&quot;: &quot;Administered in paddock&quot;,
+      &quot;reference_table&quot;: &quot;vaccination&quot;,
+      &quot;reference_id&quot;: 41,
+      &quot;created_by&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+      &quot;created_at&quot;: &quot;2026-08-27T09:15:00+00:00&quot;
+    }
+  ],
+  &quot;meta&quot;: {
+    &quot;pagination&quot;: {
+      &quot;page&quot;: 1,
+      &quot;page_size&quot;: 20,
+      &quot;total_items&quot;: 2,
+      &quot;total_pages&quot;: 1,
+      &quot;has_next&quot;: false,
+      &quot;has_previous&quot;: false
+    }
+  }
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/organizations/{organization_id}/farms/</span><h3 style='margin-top:8px'>List farms</h3></div><div class='endpoint-bd'><p>Farm switcher. Each row includes animal_count.</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>organization_id</code></td><td>uuid</td><td>Organization UUID</td></tr></table><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>Page</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>Page size</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Farms fetched successfully.&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 1,
+      &quot;name&quot;: &quot;North Paddock&quot;,
+      &quot;farm_code&quot;: &quot;NP-01&quot;,
+      &quot;status&quot;: &quot;active&quot;,
+      &quot;is_primary&quot;: true,
+      &quot;farm_type&quot;: &quot;Livestock&quot;,
+      &quot;city&quot;: &quot;Zaria&quot;,
+      &quot;animal_count&quot;: 120,
+      &quot;active_animals&quot;: 110
+    }
+  ],
+  &quot;meta&quot;: {
+    &quot;pagination&quot;: {
+      &quot;page&quot;: 1,
+      &quot;page_size&quot;: 20,
+      &quot;total_items&quot;: 1,
+      &quot;total_pages&quot;: 1,
+      &quot;has_next&quot;: false,
+      &quot;has_previous&quot;: false
+    }
+  }
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><h2 id='farms'>Farms</h2><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/farms/{farm_id}/</span><h3 style='margin-top:8px'>Farm profile</h3></div><div class='endpoint-bd'><p>Farm settings card plus live counts (animals, tasks, alerts, units). farm_id is an integer.</p><p><span class='pill'>Auth</span> Cookie · farm access</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>int</td><td>Farm numeric ID</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Farm fetched successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 1,
+    &quot;organization_id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
+    &quot;name&quot;: &quot;North Paddock&quot;,
+    &quot;farm_code&quot;: &quot;NP-01&quot;,
+    &quot;status&quot;: &quot;active&quot;,
+    &quot;is_primary&quot;: true,
+    &quot;farm_type&quot;: &quot;Livestock&quot;,
+    &quot;city&quot;: &quot;Zaria&quot;,
+    &quot;location_address&quot;: &quot;Kaduna\u2013Zaria road&quot;,
+    &quot;latitude&quot;: 11.11,
+    &quot;longitude&quot;: 7.72,
+    &quot;country&quot;: &quot;Nigeria&quot;,
+    &quot;state_region&quot;: &quot;Kaduna&quot;,
+    &quot;counts&quot;: {
+      &quot;animals&quot;: 120,
+      &quot;active_animals&quot;: 110,
+      &quot;sold&quot;: 6,
+      &quot;dead&quot;: 4,
+      &quot;quarantine&quot;: 2,
+      &quot;open_tasks&quot;: 6,
+      &quot;open_alerts&quot;: 3,
+      &quot;housing_units&quot;: 8,
+      &quot;farm_units&quot;: 4
+    }
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 404</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;FARM_NOT_FOUND&quot;,
+  &quot;message&quot;: &quot;Farm could not be found.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method PATCH">PATCH</span><span class="path">/api/v2/farms/{farm_id}/</span><h3 style='margin-top:8px'>Update farm</h3></div><div class='endpoint-bd'><p>Partial update. Setting is_primary true clears primary on other farms in the org.</p><p><span class='pill'>Auth</span> Cookie · update_farm</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>int</td><td>Farm ID</td></tr></table><div class='label'>Example request JSON</div><pre>{
+  &quot;name&quot;: &quot;North Paddock&quot;,
+  &quot;city&quot;: &quot;Zaria&quot;,
+  &quot;status&quot;: &quot;active&quot;,
+  &quot;is_primary&quot;: true
+}</pre><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Farm updated successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 1,
+    &quot;name&quot;: &quot;North Paddock&quot;,
+    &quot;is_primary&quot;: true
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 403</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;PERMISSION_DENIED&quot;,
+  &quot;message&quot;: &quot;You do not have permission to perform this action.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/farms/{farm_id}/overview/</span><h3 style='margin-top:8px'>Farm overview</h3></div><div class='endpoint-bd'><p>Profile plus health_breakdown and people_count for the farm home.</p><p><span class='pill'>Auth</span> Cookie · farm access</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>int</td><td>Farm ID</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Farm overview fetched successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 1,
+    &quot;name&quot;: &quot;North Paddock&quot;,
+    &quot;health_breakdown&quot;: {
+      &quot;healthy&quot;: 100,
+      &quot;sick&quot;: 8,
+      &quot;recovering&quot;: 2
+    },
+    &quot;people_count&quot;: 3
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/farms/{farm_id}/timeline/</span><h3 style='margin-top:8px'>Farm timeline</h3></div><div class='endpoint-bd'><p>Events for one farm. Optional event_type filter uses canonical names: vaccination, treatment, feeding, sale, task_created, task_completed.</p><p><span class='pill'>Auth</span> Cookie · farm access</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>int</td><td>Farm ID</td></tr></table><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>Page</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>Page size</td></tr><tr><td><code>event_type</code></td><td>string</td><td>no</td><td>Canonical event name</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Timeline fetched successfully.&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 88,
+      &quot;farm_id&quot;: 1,
+      &quot;animal_id&quot;: 15,
+      &quot;animal_tag&quot;: &quot;COW-001&quot;,
+      &quot;group_id&quot;: null,
+      &quot;event_type&quot;: &quot;vaccination&quot;,
+      &quot;event_date&quot;: &quot;2026-08-27T09:15:00+00:00&quot;,
+      &quot;event_title&quot;: &quot;Vaccination - CBPP&quot;,
+      &quot;event_summary&quot;: &quot;Administered in paddock&quot;,
+      &quot;reference_table&quot;: &quot;vaccination&quot;,
+      &quot;reference_id&quot;: 41,
+      &quot;created_by&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+      &quot;created_at&quot;: &quot;2026-08-27T09:15:00+00:00&quot;
+    }
+  ],
+  &quot;meta&quot;: {
+    &quot;pagination&quot;: {
+      &quot;page&quot;: 1,
+      &quot;page_size&quot;: 20,
+      &quot;total_items&quot;: 2,
+      &quot;total_pages&quot;: 1,
+      &quot;has_next&quot;: false,
+      &quot;has_previous&quot;: false
+    }
+  }
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/farms/{farm_id}/people/</span><h3 style='margin-top:8px'>Farm people</h3></div><div class='endpoint-bd'><p>Staff assigned to this farm (plus org owner). Use for assign-task pickers.</p><p><span class='pill'>Auth</span> Cookie · farm access</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>int</td><td>Farm ID</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;People fetched successfully.&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+      &quot;email&quot;: &quot;ibrahim@farm.example&quot;,
+      &quot;username&quot;: &quot;ibrahim&quot;,
+      &quot;is_owner&quot;: false,
+      &quot;roles&quot;: [
+        {
+          &quot;role&quot;: &quot;Field Worker&quot;,
+          &quot;role_code&quot;: &quot;e2e_field&quot;,
+          &quot;farm_id&quot;: 1
+        }
+      ]
+    }
+  ],
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/farms/{farm_id}/units/</span><h3 style='margin-top:8px'>Housing and farm units</h3></div><div class='endpoint-bd'><p>housing_units are v2 livestock housing (housing_unit_id). farm_units are legacy pens. Prefer housing_units for new UI.</p><p><span class='pill'>Auth</span> Cookie · farm access</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>int</td><td>Farm ID</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Units fetched successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;housing_units&quot;: [
+      {
+        &quot;id&quot;: 4,
+        &quot;kind&quot;: &quot;housing_unit&quot;,
+        &quot;name&quot;: &quot;Pen A&quot;,
+        &quot;status&quot;: &quot;active&quot;,
+        &quot;capacity&quot;: 20,
+        &quot;occupancy&quot;: 12,
+        &quot;location&quot;: &quot;North&quot;
+      }
+    ],
+    &quot;farm_units&quot;: [
+      {
+        &quot;id&quot;: 2,
+        &quot;kind&quot;: &quot;farm_unit&quot;,
+        &quot;name&quot;: &quot;Barn 1&quot;,
+        &quot;code&quot;: &quot;B1&quot;,
+        &quot;status&quot;: &quot;active&quot;,
+        &quot;capacity&quot;: 30,
+        &quot;unit_type&quot;: &quot;barn&quot;
+      }
+    ]
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/farms/{farm_id}/alerts/</span><h3 style='margin-top:8px'>Farm attention alerts</h3></div><div class='endpoint-bd'><p>These are farm attention items, not tasks and not the notification inbox. Do not merge with /operations or /notifications.</p><p><span class='pill'>Auth</span> Cookie · farm access</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>int</td><td>Farm ID</td></tr></table><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>Page</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>Page size</td></tr><tr><td><code>status</code></td><td>string</td><td>no</td><td>open (default) or resolved</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Alerts fetched successfully.&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 9,
+      &quot;alert_type&quot;: &quot;vaccination_due&quot;,
+      &quot;priority&quot;: &quot;warning&quot;,
+      &quot;title&quot;: &quot;Vaccination due&quot;,
+      &quot;message&quot;: &quot;COW-001 CBPP due&quot;,
+      &quot;status&quot;: &quot;open&quot;,
+      &quot;due_date&quot;: &quot;2026-08-29T00:00:00+00:00&quot;,
+      &quot;created_at&quot;: &quot;2026-08-20T00:00:00+00:00&quot;
+    }
+  ],
+  &quot;meta&quot;: {
+    &quot;pagination&quot;: {
+      &quot;page&quot;: 1,
+      &quot;page_size&quot;: 20,
+      &quot;total_items&quot;: 1,
+      &quot;total_pages&quot;: 1,
+      &quot;has_next&quot;: false,
+      &quot;has_previous&quot;: false
+    }
+  }
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><h2 id='animals'>Animals</h2><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/animals/</span><h3 style='margin-top:8px'>Progressive animal create</h3></div><div class='endpoint-bd'><p>status must be active | sold | dead only (not pregnant/sick). Breed and housing are optional. Born animals still need mother_id and dob. Optional client_request_id for offline retries.</p><p><span class='pill'>Auth</span> Cookie · add_animal_details</p><div class='label'>Example request JSON</div><pre>{
+  &quot;farm_id&quot;: 1,
+  &quot;tag_id&quot;: &quot;COW-001&quot;,
+  &quot;gender&quot;: &quot;female&quot;,
+  &quot;source_type&quot;: &quot;purchased&quot;,
+  &quot;status&quot;: &quot;active&quot;,
+  &quot;livestock_species_id&quot;: 1,
+  &quot;livestock_breed_id&quot;: 2,
+  &quot;housing_unit_id&quot;: 4,
+  &quot;estimated_age_months&quot;: 18,
+  &quot;notes&quot;: &quot;Opening record&quot;,
+  &quot;client_request_id&quot;: &quot;create-cow-001&quot;
+}</pre><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Animal created successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15,
+    &quot;tag_id&quot;: &quot;COW-001&quot;,
+    &quot;status&quot;: &quot;active&quot;,
+    &quot;health_status&quot;: &quot;healthy&quot;,
+    &quot;flags&quot;: {
+      &quot;is_pregnant&quot;: false,
+      &quot;is_lactating&quot;: false,
+      &quot;is_quarantine&quot;: false,
+      &quot;is_active&quot;: true,
+      &quot;is_breeding_restricted&quot;: false
+    },
+    &quot;card&quot;: {
+      &quot;id&quot;: 15,
+      &quot;tag_id&quot;: &quot;COW-001&quot;,
+      &quot;species&quot;: &quot;Cattle&quot;,
+      &quot;breed&quot;: &quot;White Fulani&quot;,
+      &quot;gender&quot;: &quot;female&quot;,
+      &quot;status&quot;: &quot;active&quot;,
+      &quot;age_months&quot;: 18,
+      &quot;housing_unit&quot;: &quot;Pen A&quot;,
+      &quot;image_url&quot;: null
+    }
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 409</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;DUPLICATE_RECORD&quot;,
+  &quot;message&quot;: &quot;Tag ID already exists.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/animals/{animal_id}/profile/</span><h3 style='margin-top:8px'>Animal operational profile</h3></div><div class='endpoint-bd'><p>Single screen payload: card, overview, reproduction, production, health, feeding, movement, sale_readiness, open_tasks. Keep GET /api/animals/animal-profile/v2/{id} working for old clients; new UI should use this path.</p><p><span class='pill'>Auth</span> Cookie · view_animal_details</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>animal_id</code></td><td>int</td><td>Animal ID</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Animal profile fetched successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15,
+    &quot;tag_id&quot;: &quot;COW-001&quot;,
+    &quot;status&quot;: &quot;active&quot;,
+    &quot;health_status&quot;: &quot;healthy&quot;,
+    &quot;flags&quot;: {
+      &quot;is_pregnant&quot;: false,
+      &quot;is_lactating&quot;: false,
+      &quot;is_quarantine&quot;: false,
+      &quot;is_active&quot;: true,
+      &quot;is_breeding_restricted&quot;: false
+    },
+    &quot;card&quot;: {
+      &quot;id&quot;: 15,
+      &quot;tag_id&quot;: &quot;COW-001&quot;,
+      &quot;species&quot;: &quot;Cattle&quot;,
+      &quot;breed&quot;: &quot;White Fulani&quot;,
+      &quot;gender&quot;: &quot;female&quot;,
+      &quot;status&quot;: &quot;active&quot;,
+      &quot;age_months&quot;: 18,
+      &quot;housing_unit&quot;: &quot;Pen A&quot;,
+      &quot;image_url&quot;: null
+    },
+    &quot;overview&quot;: {
+      &quot;species&quot;: &quot;Cattle&quot;,
+      &quot;livestock_species_id&quot;: 1,
+      &quot;breed&quot;: &quot;White Fulani&quot;,
+      &quot;livestock_breed_id&quot;: 2,
+      &quot;housing_unit&quot;: &quot;Pen A&quot;,
+      &quot;housing_unit_id&quot;: 4,
+      &quot;farm_id&quot;: 1,
+      &quot;farm&quot;: &quot;North Paddock&quot;,
+      &quot;mother_tag&quot;: null,
+      &quot;source&quot;: &quot;Purchased&quot;,
+      &quot;entry_date&quot;: &quot;2026-01-10&quot;
+    },
+    &quot;reproduction&quot;: {
+      &quot;last_insemination_date&quot;: null,
+      &quot;expected_delivery_date&quot;: null,
+      &quot;pregnancy_status&quot;: &quot;Not Pregnant&quot;
+    },
+    &quot;production&quot;: {
+      &quot;lactation_status&quot;: &quot;Not Lactating&quot;,
+      &quot;milk_production_today&quot;: 0
+    },
+    &quot;health&quot;: {
+      &quot;health_status&quot;: &quot;healthy&quot;,
+      &quot;is_quarantine&quot;: false,
+      &quot;last_vaccination&quot;: {
+        &quot;vaccine_name&quot;: &quot;CBPP&quot;,
+        &quot;date_given&quot;: &quot;2026-08-27&quot;,
+        &quot;next_due_date&quot;: &quot;2026-09-26&quot;
+      },
+      &quot;last_treatment&quot;: null
+    },
+    &quot;feeding&quot;: {
+      &quot;last_feed_issuance&quot;: null
+    },
+    &quot;movement&quot;: {
+      &quot;last_move_date&quot;: null,
+      &quot;from_unit&quot;: null,
+      &quot;to_unit&quot;: null
+    },
+    &quot;sale_readiness&quot;: {
+      &quot;status&quot;: &quot;not_ready_for_sale&quot;,
+      &quot;restrictions&quot;: [],
+      &quot;manual_review_reasons&quot;: [],
+      &quot;factors&quot;: {}
+    },
+    &quot;open_tasks&quot;: [
+      {
+        &quot;id&quot;: 12,
+        &quot;farm_id&quot;: 1,
+        &quot;organization_id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
+        &quot;animal_id&quot;: 15,
+        &quot;animal_tag&quot;: &quot;COW-001&quot;,
+        &quot;group_id&quot;: null,
+        &quot;parent_id&quot;: null,
+        &quot;task_type&quot;: &quot;vaccination&quot;,
+        &quot;title&quot;: &quot;Vaccinate COW-001 \u2014 CBPP&quot;,
+        &quot;description&quot;: &quot;Annual CBPP shot&quot;,
+        &quot;status&quot;: &quot;assigned&quot;,
+        &quot;priority&quot;: &quot;high&quot;,
+        &quot;due_at&quot;: &quot;2026-08-28T08:00:00+00:00&quot;,
+        &quot;assigned_to&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+        &quot;assigned_to_email&quot;: &quot;ibrahim@farm.example&quot;,
+        &quot;created_by&quot;: &quot;7c9e6679-7425-40de-944b-e07fc1f90ae7&quot;,
+        &quot;accepted_at&quot;: null,
+        &quot;started_at&quot;: null,
+        &quot;completed_at&quot;: null,
+        &quot;result_reference_table&quot;: null,
+        &quot;result_reference_id&quot;: null,
+        &quot;created_at&quot;: &quot;2026-08-27T07:00:00+00:00&quot;
+      }
+    ]
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 404</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;ANIMAL_NOT_FOUND&quot;,
+  &quot;message&quot;: &quot;Animal could not be found.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/animals/{animal_id}/timeline/</span><h3 style='margin-top:8px'>Animal timeline</h3></div><div class='endpoint-bd'><p>Convenience filter of the unified timeline for one animal.</p><p><span class='pill'>Auth</span> Cookie · view_animal_details</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>animal_id</code></td><td>int</td><td>Animal ID</td></tr></table><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>Page</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>Page size</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Timeline fetched successfully.&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 88,
+      &quot;farm_id&quot;: 1,
+      &quot;animal_id&quot;: 15,
+      &quot;animal_tag&quot;: &quot;COW-001&quot;,
+      &quot;group_id&quot;: null,
+      &quot;event_type&quot;: &quot;vaccination&quot;,
+      &quot;event_date&quot;: &quot;2026-08-27T09:15:00+00:00&quot;,
+      &quot;event_title&quot;: &quot;Vaccination - CBPP&quot;,
+      &quot;event_summary&quot;: &quot;Administered in paddock&quot;,
+      &quot;reference_table&quot;: &quot;vaccination&quot;,
+      &quot;reference_id&quot;: 41,
+      &quot;created_by&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+      &quot;created_at&quot;: &quot;2026-08-27T09:15:00+00:00&quot;
+    }
+  ],
+  &quot;meta&quot;: {
+    &quot;pagination&quot;: {
+      &quot;page&quot;: 1,
+      &quot;page_size&quot;: 20,
+      &quot;total_items&quot;: 1,
+      &quot;total_pages&quot;: 1,
+      &quot;has_next&quot;: false,
+      &quot;has_previous&quot;: false
+    }
+  }
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/animals/resolve-tag/{tag_id}/</span><h3 style='margin-top:8px'>Resolve ear tag</h3></div><div class='endpoint-bd'><p>Scanner / search jump. Optional farm_id query scopes the lookup. Tags are unique in this backend.</p><p><span class='pill'>Auth</span> Cookie · view_animal_details</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>tag_id</code></td><td>string</td><td>Ear tag, e.g. COW-001</td></tr></table><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>int</td><td>no</td><td>Limit to one farm</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Tag resolved successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15,
+    &quot;tag_id&quot;: &quot;COW-001&quot;,
+    &quot;farm_id&quot;: 1,
+    &quot;status&quot;: &quot;active&quot;,
+    &quot;health_status&quot;: &quot;healthy&quot;
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 404</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;TAG_NOT_FOUND&quot;,
+  &quot;message&quot;: &quot;No animal found for this tag.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><h2 id='operations'>Operations</h2><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/operations/tasks/</span><h3 style='margin-top:8px'>Create a task</h3></div><div class='endpoint-bd'><p>task_type: vaccination | treatment | feed_issuance | sale | movement | observation | generic. If assignee_id is set, status becomes assigned and the worker is notified.</p><p><span class='pill'>Auth</span> Cookie · create health/feed/animal</p><div class='label'>Example request JSON</div><pre>{
+  &quot;farm_id&quot;: 1,
+  &quot;task_type&quot;: &quot;vaccination&quot;,
+  &quot;title&quot;: &quot;Vaccinate COW-001 \u2014 CBPP&quot;,
+  &quot;description&quot;: &quot;Annual CBPP shot&quot;,
+  &quot;animal_id&quot;: 15,
+  &quot;due_at&quot;: &quot;2026-08-28T08:00:00Z&quot;,
+  &quot;priority&quot;: &quot;high&quot;,
+  &quot;assignee_id&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+  &quot;client_request_id&quot;: &quot;task-create-001&quot;
+}</pre><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Task created successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 12,
+    &quot;farm_id&quot;: 1,
+    &quot;organization_id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
+    &quot;animal_id&quot;: 15,
+    &quot;animal_tag&quot;: &quot;COW-001&quot;,
+    &quot;group_id&quot;: null,
+    &quot;parent_id&quot;: null,
+    &quot;task_type&quot;: &quot;vaccination&quot;,
+    &quot;title&quot;: &quot;Vaccinate COW-001 \u2014 CBPP&quot;,
+    &quot;description&quot;: &quot;Annual CBPP shot&quot;,
+    &quot;status&quot;: &quot;assigned&quot;,
+    &quot;priority&quot;: &quot;high&quot;,
+    &quot;due_at&quot;: &quot;2026-08-28T08:00:00+00:00&quot;,
+    &quot;assigned_to&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+    &quot;assigned_to_email&quot;: &quot;ibrahim@farm.example&quot;,
+    &quot;created_by&quot;: &quot;7c9e6679-7425-40de-944b-e07fc1f90ae7&quot;,
+    &quot;accepted_at&quot;: null,
+    &quot;started_at&quot;: null,
+    &quot;completed_at&quot;: null,
+    &quot;result_reference_table&quot;: null,
+    &quot;result_reference_id&quot;: null,
+    &quot;created_at&quot;: &quot;2026-08-27T07:00:00+00:00&quot;
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 422</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;VALIDATION_ERROR&quot;,
+  &quot;message&quot;: &quot;Invalid task type.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {
+    &quot;task_type&quot;: &quot;weigh&quot;
+  },
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/operations/tasks/</span><h3 style='margin-top:8px'>List tasks</h3></div><div class='endpoint-bd'><p>Manager queue. status=open excludes completed/cancelled. status=overdue is due_at in the past and still open.</p><p><span class='pill'>Auth</span> Cookie · view health/feed/animal</p><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>Page</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>Page size</td></tr><tr><td><code>farm_id</code></td><td>int</td><td>no</td><td>Filter farm</td></tr><tr><td><code>status</code></td><td>string</td><td>no</td><td>open | overdue | assigned | …</td></tr><tr><td><code>task_type</code></td><td>string</td><td>no</td><td>vaccination, treatment, …</td></tr><tr><td><code>assigned_to_me</code></td><td>bool</td><td>no</td><td>true to hide others’ tasks</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Tasks fetched successfully.&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 12,
+      &quot;farm_id&quot;: 1,
+      &quot;organization_id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
+      &quot;animal_id&quot;: 15,
+      &quot;animal_tag&quot;: &quot;COW-001&quot;,
+      &quot;group_id&quot;: null,
+      &quot;parent_id&quot;: null,
+      &quot;task_type&quot;: &quot;vaccination&quot;,
+      &quot;title&quot;: &quot;Vaccinate COW-001 \u2014 CBPP&quot;,
+      &quot;description&quot;: &quot;Annual CBPP shot&quot;,
+      &quot;status&quot;: &quot;assigned&quot;,
+      &quot;priority&quot;: &quot;high&quot;,
+      &quot;due_at&quot;: &quot;2026-08-28T08:00:00+00:00&quot;,
+      &quot;assigned_to&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+      &quot;assigned_to_email&quot;: &quot;ibrahim@farm.example&quot;,
+      &quot;created_by&quot;: &quot;7c9e6679-7425-40de-944b-e07fc1f90ae7&quot;,
+      &quot;accepted_at&quot;: null,
+      &quot;started_at&quot;: null,
+      &quot;completed_at&quot;: null,
+      &quot;result_reference_table&quot;: null,
+      &quot;result_reference_id&quot;: null,
+      &quot;created_at&quot;: &quot;2026-08-27T07:00:00+00:00&quot;
+    }
+  ],
+  &quot;meta&quot;: {
+    &quot;pagination&quot;: {
+      &quot;page&quot;: 1,
+      &quot;page_size&quot;: 20,
+      &quot;total_items&quot;: 1,
+      &quot;total_pages&quot;: 1,
+      &quot;has_next&quot;: false,
+      &quot;has_previous&quot;: false
+    }
+  }
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/operations/tasks/{task_id}/</span><h3 style='margin-top:8px'>Task detail</h3></div><div class='endpoint-bd'><p>Single task. status may render as overdue when due_at is past and the task is still open.</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>task_id</code></td><td>int</td><td>Task ID</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Task fetched successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 12,
+    &quot;farm_id&quot;: 1,
+    &quot;organization_id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
+    &quot;animal_id&quot;: 15,
+    &quot;animal_tag&quot;: &quot;COW-001&quot;,
+    &quot;group_id&quot;: null,
+    &quot;parent_id&quot;: null,
+    &quot;task_type&quot;: &quot;vaccination&quot;,
+    &quot;title&quot;: &quot;Vaccinate COW-001 \u2014 CBPP&quot;,
+    &quot;description&quot;: &quot;Annual CBPP shot&quot;,
+    &quot;status&quot;: &quot;assigned&quot;,
+    &quot;priority&quot;: &quot;high&quot;,
+    &quot;due_at&quot;: &quot;2026-08-28T08:00:00+00:00&quot;,
+    &quot;assigned_to&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+    &quot;assigned_to_email&quot;: &quot;ibrahim@farm.example&quot;,
+    &quot;created_by&quot;: &quot;7c9e6679-7425-40de-944b-e07fc1f90ae7&quot;,
+    &quot;accepted_at&quot;: null,
+    &quot;started_at&quot;: null,
+    &quot;completed_at&quot;: null,
+    &quot;result_reference_table&quot;: null,
+    &quot;result_reference_id&quot;: null,
+    &quot;created_at&quot;: &quot;2026-08-27T07:00:00+00:00&quot;
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 404</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;TASK_NOT_FOUND&quot;,
+  &quot;message&quot;: &quot;Task could not be found.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/operations/tasks/{task_id}/assign/</span><h3 style='margin-top:8px'>Assign or reassign</h3></div><div class='endpoint-bd'><p>Replaces the current assignee. Previous pending assignment is superseded. Worker gets a notification.</p><p><span class='pill'>Auth</span> Cookie · update_farm / owner</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>task_id</code></td><td>int</td><td>Task ID</td></tr></table><div class='label'>Example request JSON</div><pre>{
+  &quot;assignee_id&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;
+}</pre><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Task assigned successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 12,
+    &quot;farm_id&quot;: 1,
+    &quot;organization_id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
+    &quot;animal_id&quot;: 15,
+    &quot;animal_tag&quot;: &quot;COW-001&quot;,
+    &quot;group_id&quot;: null,
+    &quot;parent_id&quot;: null,
+    &quot;task_type&quot;: &quot;vaccination&quot;,
+    &quot;title&quot;: &quot;Vaccinate COW-001 \u2014 CBPP&quot;,
+    &quot;description&quot;: &quot;Annual CBPP shot&quot;,
+    &quot;status&quot;: &quot;assigned&quot;,
+    &quot;priority&quot;: &quot;high&quot;,
+    &quot;due_at&quot;: &quot;2026-08-28T08:00:00+00:00&quot;,
+    &quot;assigned_to&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+    &quot;assigned_to_email&quot;: &quot;ibrahim@farm.example&quot;,
+    &quot;created_by&quot;: &quot;7c9e6679-7425-40de-944b-e07fc1f90ae7&quot;,
+    &quot;accepted_at&quot;: null,
+    &quot;started_at&quot;: null,
+    &quot;completed_at&quot;: null,
+    &quot;result_reference_table&quot;: null,
+    &quot;result_reference_id&quot;: null,
+    &quot;created_at&quot;: &quot;2026-08-27T07:00:00+00:00&quot;
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 409</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;TASK_INVALID_STATE&quot;,
+  &quot;message&quot;: &quot;Completed or cancelled tasks cannot be assigned.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/operations/tasks/{task_id}/accept/</span><h3 style='margin-top:8px'>Accept task</h3></div><div class='endpoint-bd'><p>Only the assignee (or org owner). Empty JSON body is fine. Moves status to accepted.</p><p><span class='pill'>Auth</span> Cookie · assignee</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>task_id</code></td><td>int</td><td>Task ID</td></tr></table><div class='label'>Example request JSON</div><pre>{}</pre><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Task accepted successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 12,
+    &quot;farm_id&quot;: 1,
+    &quot;organization_id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
+    &quot;animal_id&quot;: 15,
+    &quot;animal_tag&quot;: &quot;COW-001&quot;,
+    &quot;group_id&quot;: null,
+    &quot;parent_id&quot;: null,
+    &quot;task_type&quot;: &quot;vaccination&quot;,
+    &quot;title&quot;: &quot;Vaccinate COW-001 \u2014 CBPP&quot;,
+    &quot;description&quot;: &quot;Annual CBPP shot&quot;,
+    &quot;status&quot;: &quot;accepted&quot;,
+    &quot;priority&quot;: &quot;high&quot;,
+    &quot;due_at&quot;: &quot;2026-08-28T08:00:00+00:00&quot;,
+    &quot;assigned_to&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+    &quot;assigned_to_email&quot;: &quot;ibrahim@farm.example&quot;,
+    &quot;created_by&quot;: &quot;7c9e6679-7425-40de-944b-e07fc1f90ae7&quot;,
+    &quot;accepted_at&quot;: &quot;2026-08-27T08:05:00+00:00&quot;,
+    &quot;started_at&quot;: null,
+    &quot;completed_at&quot;: null,
+    &quot;result_reference_table&quot;: null,
+    &quot;result_reference_id&quot;: null,
+    &quot;created_at&quot;: &quot;2026-08-27T07:00:00+00:00&quot;
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 403</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;PERMISSION_DENIED&quot;,
+  &quot;message&quot;: &quot;You do not have permission to perform this action.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/operations/tasks/{task_id}/start/</span><h3 style='margin-top:8px'>Start task</h3></div><div class='endpoint-bd'><p>Optional. Auto-accepts if still assigned. Sets in_progress. complete() can skip this step.</p><p><span class='pill'>Auth</span> Cookie · assignee</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>task_id</code></td><td>int</td><td>Task ID</td></tr></table><div class='label'>Example request JSON</div><pre>{}</pre><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Task started successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 12,
+    &quot;farm_id&quot;: 1,
+    &quot;organization_id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
+    &quot;animal_id&quot;: 15,
+    &quot;animal_tag&quot;: &quot;COW-001&quot;,
+    &quot;group_id&quot;: null,
+    &quot;parent_id&quot;: null,
+    &quot;task_type&quot;: &quot;vaccination&quot;,
+    &quot;title&quot;: &quot;Vaccinate COW-001 \u2014 CBPP&quot;,
+    &quot;description&quot;: &quot;Annual CBPP shot&quot;,
+    &quot;status&quot;: &quot;in_progress&quot;,
+    &quot;priority&quot;: &quot;high&quot;,
+    &quot;due_at&quot;: &quot;2026-08-28T08:00:00+00:00&quot;,
+    &quot;assigned_to&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+    &quot;assigned_to_email&quot;: &quot;ibrahim@farm.example&quot;,
+    &quot;created_by&quot;: &quot;7c9e6679-7425-40de-944b-e07fc1f90ae7&quot;,
+    &quot;accepted_at&quot;: null,
+    &quot;started_at&quot;: null,
+    &quot;completed_at&quot;: null,
+    &quot;result_reference_table&quot;: null,
+    &quot;result_reference_id&quot;: null,
+    &quot;created_at&quot;: &quot;2026-08-27T07:00:00+00:00&quot;
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 409</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;TASK_INVALID_STATE&quot;,
+  &quot;message&quot;: &quot;Task cannot be started.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/operations/tasks/{task_id}/complete/</span><h3 style='margin-top:8px'>Complete task (writes the domain record)</h3></div><div class='endpoint-bd'><p>This is the important call. It runs in one DB transaction: validate → create vaccination / treatment / feed / sale / movement / observation using existing tables → mark task completed → emit timeline event. If stock is short the task stays incomplete. Send client_request_id (or header X-Client-Request-Id) so a retry does not double-write. Body fields depend on task_type — see the complete() payload appendix.</p><p><span class='pill'>Auth</span> Cookie · assignee with create permission</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>task_id</code></td><td>int</td><td>Task ID</td></tr></table><div class='label'>Example request JSON</div><pre>{
+  &quot;vaccine_name&quot;: &quot;CBPP&quot;,
+  &quot;date_given&quot;: &quot;2026-08-27&quot;,
+  &quot;next_due_date&quot;: &quot;2026-09-26&quot;,
+  &quot;notes&quot;: &quot;Given in paddock&quot;,
+  &quot;client_request_id&quot;: &quot;complete-12&quot;
+}</pre><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Task completed successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 12,
+    &quot;farm_id&quot;: 1,
+    &quot;organization_id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
+    &quot;animal_id&quot;: 15,
+    &quot;animal_tag&quot;: &quot;COW-001&quot;,
+    &quot;group_id&quot;: null,
+    &quot;parent_id&quot;: null,
+    &quot;task_type&quot;: &quot;vaccination&quot;,
+    &quot;title&quot;: &quot;Vaccinate COW-001 \u2014 CBPP&quot;,
+    &quot;description&quot;: &quot;Annual CBPP shot&quot;,
+    &quot;status&quot;: &quot;completed&quot;,
+    &quot;priority&quot;: &quot;high&quot;,
+    &quot;due_at&quot;: &quot;2026-08-28T08:00:00+00:00&quot;,
+    &quot;assigned_to&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+    &quot;assigned_to_email&quot;: &quot;ibrahim@farm.example&quot;,
+    &quot;created_by&quot;: &quot;7c9e6679-7425-40de-944b-e07fc1f90ae7&quot;,
+    &quot;accepted_at&quot;: null,
+    &quot;started_at&quot;: null,
+    &quot;completed_at&quot;: &quot;2026-08-27T09:15:00+00:00&quot;,
+    &quot;result_reference_table&quot;: &quot;vaccination_record&quot;,
+    &quot;result_reference_id&quot;: 41,
+    &quot;created_at&quot;: &quot;2026-08-27T07:00:00+00:00&quot;
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 409</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;INSUFFICIENT_DRUG_STOCK&quot;,
+  &quot;message&quot;: &quot;Insufficient stock available in the selected drug batch.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/operations/tasks/{task_id}/cancel/</span><h3 style='margin-top:8px'>Cancel task</h3></div><div class='endpoint-bd'><p>Open tasks only. Notifies the assignee.</p><p><span class='pill'>Auth</span> Cookie · update_farm / owner</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>task_id</code></td><td>int</td><td>Task ID</td></tr></table><div class='label'>Example request JSON</div><pre>{
+  &quot;reason&quot;: &quot;Animal sold before visit&quot;
+}</pre><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Task cancelled successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 12,
+    &quot;farm_id&quot;: 1,
+    &quot;organization_id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
+    &quot;animal_id&quot;: 15,
+    &quot;animal_tag&quot;: &quot;COW-001&quot;,
+    &quot;group_id&quot;: null,
+    &quot;parent_id&quot;: null,
+    &quot;task_type&quot;: &quot;vaccination&quot;,
+    &quot;title&quot;: &quot;Vaccinate COW-001 \u2014 CBPP&quot;,
+    &quot;description&quot;: &quot;Annual CBPP shot&quot;,
+    &quot;status&quot;: &quot;cancelled&quot;,
+    &quot;priority&quot;: &quot;high&quot;,
+    &quot;due_at&quot;: &quot;2026-08-28T08:00:00+00:00&quot;,
+    &quot;assigned_to&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+    &quot;assigned_to_email&quot;: &quot;ibrahim@farm.example&quot;,
+    &quot;created_by&quot;: &quot;7c9e6679-7425-40de-944b-e07fc1f90ae7&quot;,
+    &quot;accepted_at&quot;: null,
+    &quot;started_at&quot;: null,
+    &quot;completed_at&quot;: null,
+    &quot;result_reference_table&quot;: null,
+    &quot;result_reference_id&quot;: null,
+    &quot;created_at&quot;: &quot;2026-08-27T07:00:00+00:00&quot;
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 409</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;TASK_INVALID_STATE&quot;,
+  &quot;message&quot;: &quot;Task cannot be cancelled.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/operations/my-work/</span><h3 style='margin-top:8px'>My Work inbox</h3></div><div class='endpoint-bd'><p>Open tasks assigned to the current user. Primary field-worker screen.</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>Page</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>Page size</td></tr><tr><td><code>farm_id</code></td><td>int</td><td>no</td><td>Filter farm</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;My work fetched successfully.&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 12,
+      &quot;farm_id&quot;: 1,
+      &quot;organization_id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
+      &quot;animal_id&quot;: 15,
+      &quot;animal_tag&quot;: &quot;COW-001&quot;,
+      &quot;group_id&quot;: null,
+      &quot;parent_id&quot;: null,
+      &quot;task_type&quot;: &quot;vaccination&quot;,
+      &quot;title&quot;: &quot;Vaccinate COW-001 \u2014 CBPP&quot;,
+      &quot;description&quot;: &quot;Annual CBPP shot&quot;,
+      &quot;status&quot;: &quot;assigned&quot;,
+      &quot;priority&quot;: &quot;high&quot;,
+      &quot;due_at&quot;: &quot;2026-08-28T08:00:00+00:00&quot;,
+      &quot;assigned_to&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+      &quot;assigned_to_email&quot;: &quot;ibrahim@farm.example&quot;,
+      &quot;created_by&quot;: &quot;7c9e6679-7425-40de-944b-e07fc1f90ae7&quot;,
+      &quot;accepted_at&quot;: null,
+      &quot;started_at&quot;: null,
+      &quot;completed_at&quot;: null,
+      &quot;result_reference_table&quot;: null,
+      &quot;result_reference_id&quot;: null,
+      &quot;created_at&quot;: &quot;2026-08-27T07:00:00+00:00&quot;
+    }
+  ],
+  &quot;meta&quot;: {
+    &quot;pagination&quot;: {
+      &quot;page&quot;: 1,
+      &quot;page_size&quot;: 20,
+      &quot;total_items&quot;: 1,
+      &quot;total_pages&quot;: 1,
+      &quot;has_next&quot;: false,
+      &quot;has_previous&quot;: false
+    }
+  }
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/operations/today/</span><h3 style='margin-top:8px'>Due today</h3></div><div class='endpoint-bd'><p>Assigned to me, due_at date = today, not completed/cancelled.</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>Page</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>Page size</td></tr><tr><td><code>farm_id</code></td><td>int</td><td>no</td><td>Farm</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Today's work fetched successfully.&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 12,
+      &quot;farm_id&quot;: 1,
+      &quot;organization_id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
+      &quot;animal_id&quot;: 15,
+      &quot;animal_tag&quot;: &quot;COW-001&quot;,
+      &quot;group_id&quot;: null,
+      &quot;parent_id&quot;: null,
+      &quot;task_type&quot;: &quot;vaccination&quot;,
+      &quot;title&quot;: &quot;Vaccinate COW-001 \u2014 CBPP&quot;,
+      &quot;description&quot;: &quot;Annual CBPP shot&quot;,
+      &quot;status&quot;: &quot;assigned&quot;,
+      &quot;priority&quot;: &quot;high&quot;,
+      &quot;due_at&quot;: &quot;2026-08-28T08:00:00+00:00&quot;,
+      &quot;assigned_to&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+      &quot;assigned_to_email&quot;: &quot;ibrahim@farm.example&quot;,
+      &quot;created_by&quot;: &quot;7c9e6679-7425-40de-944b-e07fc1f90ae7&quot;,
+      &quot;accepted_at&quot;: null,
+      &quot;started_at&quot;: null,
+      &quot;completed_at&quot;: null,
+      &quot;result_reference_table&quot;: null,
+      &quot;result_reference_id&quot;: null,
+      &quot;created_at&quot;: &quot;2026-08-27T07:00:00+00:00&quot;
+    }
+  ],
+  &quot;meta&quot;: {
+    &quot;pagination&quot;: {
+      &quot;page&quot;: 1,
+      &quot;page_size&quot;: 20,
+      &quot;total_items&quot;: 1,
+      &quot;total_pages&quot;: 1,
+      &quot;has_next&quot;: false,
+      &quot;has_previous&quot;: false
+    }
+  }
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/operations/overdue/</span><h3 style='margin-top:8px'>Overdue work</h3></div><div class='endpoint-bd'><p>Assigned to me, due_at in the past, still open.</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>Page</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>Page size</td></tr><tr><td><code>farm_id</code></td><td>int</td><td>no</td><td>Farm</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Overdue work fetched successfully.&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 12,
+      &quot;farm_id&quot;: 1,
+      &quot;organization_id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
+      &quot;animal_id&quot;: 15,
+      &quot;animal_tag&quot;: &quot;COW-001&quot;,
+      &quot;group_id&quot;: null,
+      &quot;parent_id&quot;: null,
+      &quot;task_type&quot;: &quot;vaccination&quot;,
+      &quot;title&quot;: &quot;Vaccinate COW-001 \u2014 CBPP&quot;,
+      &quot;description&quot;: &quot;Annual CBPP shot&quot;,
+      &quot;status&quot;: &quot;overdue&quot;,
+      &quot;priority&quot;: &quot;high&quot;,
+      &quot;due_at&quot;: &quot;2026-08-28T08:00:00+00:00&quot;,
+      &quot;assigned_to&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+      &quot;assigned_to_email&quot;: &quot;ibrahim@farm.example&quot;,
+      &quot;created_by&quot;: &quot;7c9e6679-7425-40de-944b-e07fc1f90ae7&quot;,
+      &quot;accepted_at&quot;: null,
+      &quot;started_at&quot;: null,
+      &quot;completed_at&quot;: null,
+      &quot;result_reference_table&quot;: null,
+      &quot;result_reference_id&quot;: null,
+      &quot;created_at&quot;: &quot;2026-08-27T07:00:00+00:00&quot;
+    }
+  ],
+  &quot;meta&quot;: {
+    &quot;pagination&quot;: {
+      &quot;page&quot;: 1,
+      &quot;page_size&quot;: 20,
+      &quot;total_items&quot;: 1,
+      &quot;total_pages&quot;: 1,
+      &quot;has_next&quot;: false,
+      &quot;has_previous&quot;: false
+    }
+  }
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/operations/schedules/</span><h3 style='margin-top:8px'>List schedules</h3></div><div class='endpoint-bd'><p>Recurring templates. Generating a task is a separate POST …/run/ — there is no background cron yet.</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>Page</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>Page size</td></tr><tr><td><code>farm_id</code></td><td>int</td><td>no</td><td>Farm</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Schedules fetched successfully.&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 1,
+      &quot;farm_id&quot;: 1,
+      &quot;task_type&quot;: &quot;vaccination&quot;,
+      &quot;title&quot;: &quot;Monthly CBPP round&quot;,
+      &quot;description&quot;: &quot;&quot;,
+      &quot;recurrence&quot;: &quot;monthly&quot;,
+      &quot;next_run_at&quot;: &quot;2026-09-01T07:00:00+00:00&quot;,
+      &quot;is_active&quot;: true,
+      &quot;assignee_id&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+      &quot;animal_id&quot;: null,
+      &quot;group_id&quot;: null,
+      &quot;created_at&quot;: &quot;2026-08-01T07:00:00+00:00&quot;
+    }
+  ],
+  &quot;meta&quot;: {
+    &quot;pagination&quot;: {
+      &quot;page&quot;: 1,
+      &quot;page_size&quot;: 20,
+      &quot;total_items&quot;: 1,
+      &quot;total_pages&quot;: 1,
+      &quot;has_next&quot;: false,
+      &quot;has_previous&quot;: false
+    }
+  }
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/operations/schedules/</span><h3 style='margin-top:8px'>Create schedule</h3></div><div class='endpoint-bd'><p>recurrence: once | daily | weekly | monthly. run_now true immediately creates a task.</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>Example request JSON</div><pre>{
+  &quot;farm_id&quot;: 1,
+  &quot;task_type&quot;: &quot;vaccination&quot;,
+  &quot;title&quot;: &quot;Monthly CBPP round&quot;,
+  &quot;recurrence&quot;: &quot;monthly&quot;,
+  &quot;next_run_at&quot;: &quot;2026-09-01T07:00:00Z&quot;,
+  &quot;assignee_id&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+  &quot;run_now&quot;: false
+}</pre><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Schedule created successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 1,
+    &quot;title&quot;: &quot;Monthly CBPP round&quot;,
+    &quot;recurrence&quot;: &quot;monthly&quot;,
+    &quot;is_active&quot;: true
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 422</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;VALIDATION_ERROR&quot;,
+  &quot;message&quot;: &quot;Invalid recurrence.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/operations/schedules/{schedule_id}/run/</span><h3 style='margin-top:8px'>Run schedule</h3></div><div class='endpoint-bd'><p>Creates one task from the template and bumps next_run_at (or deactivates once schedules).</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>schedule_id</code></td><td>int</td><td>Schedule ID</td></tr></table><div class='label'>Example request JSON</div><pre>{}</pre><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Schedule run successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 12,
+    &quot;farm_id&quot;: 1,
+    &quot;organization_id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
+    &quot;animal_id&quot;: 15,
+    &quot;animal_tag&quot;: &quot;COW-001&quot;,
+    &quot;group_id&quot;: null,
+    &quot;parent_id&quot;: null,
+    &quot;task_type&quot;: &quot;vaccination&quot;,
+    &quot;title&quot;: &quot;Vaccinate COW-001 \u2014 CBPP&quot;,
+    &quot;description&quot;: &quot;Annual CBPP shot&quot;,
+    &quot;status&quot;: &quot;assigned&quot;,
+    &quot;priority&quot;: &quot;high&quot;,
+    &quot;due_at&quot;: &quot;2026-08-28T08:00:00+00:00&quot;,
+    &quot;assigned_to&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+    &quot;assigned_to_email&quot;: &quot;ibrahim@farm.example&quot;,
+    &quot;created_by&quot;: &quot;7c9e6679-7425-40de-944b-e07fc1f90ae7&quot;,
+    &quot;accepted_at&quot;: null,
+    &quot;started_at&quot;: null,
+    &quot;completed_at&quot;: null,
+    &quot;result_reference_table&quot;: null,
+    &quot;result_reference_id&quot;: null,
+    &quot;created_at&quot;: &quot;2026-08-27T07:00:00+00:00&quot;
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 404</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;SCHEDULE_NOT_FOUND&quot;,
+  &quot;message&quot;: &quot;Schedule could not be found.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><h2 id='timeline'>Timeline</h2><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/timeline/</span><h3 style='margin-top:8px'>Unified timeline</h3></div><div class='endpoint-bd'><p>Do not invent history in the client. Filter with farm_id, animal_id, event_type. Events are written when domain records and tasks save.</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>Page</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>Page size</td></tr><tr><td><code>farm_id</code></td><td>int</td><td>no</td><td>Farm</td></tr><tr><td><code>animal_id</code></td><td>int</td><td>no</td><td>Animal</td></tr><tr><td><code>event_type</code></td><td>string</td><td>no</td><td>vaccination, treatment, task_completed, …</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Timeline fetched successfully.&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 88,
+      &quot;farm_id&quot;: 1,
+      &quot;animal_id&quot;: 15,
+      &quot;animal_tag&quot;: &quot;COW-001&quot;,
+      &quot;group_id&quot;: null,
+      &quot;event_type&quot;: &quot;vaccination&quot;,
+      &quot;event_date&quot;: &quot;2026-08-27T09:15:00+00:00&quot;,
+      &quot;event_title&quot;: &quot;Vaccination - CBPP&quot;,
+      &quot;event_summary&quot;: &quot;Administered in paddock&quot;,
+      &quot;reference_table&quot;: &quot;vaccination&quot;,
+      &quot;reference_id&quot;: 41,
+      &quot;created_by&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+      &quot;created_at&quot;: &quot;2026-08-27T09:15:00+00:00&quot;
+    }
+  ],
+  &quot;meta&quot;: {
+    &quot;pagination&quot;: {
+      &quot;page&quot;: 1,
+      &quot;page_size&quot;: 20,
+      &quot;total_items&quot;: 2,
+      &quot;total_pages&quot;: 1,
+      &quot;has_next&quot;: false,
+      &quot;has_previous&quot;: false
+    }
+  }
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><h2 id='health'>Health</h2><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/health/observations/</span><h3 style='margin-top:8px'>Record observation</h3></div><div class='endpoint-bd'><p>Thin clinical note. Optional case_id. create_task true opens a follow-up observation task. Treatments still use task complete() or legacy POST /api/health/treatment/.</p><p><span class='pill'>Auth</span> Cookie · add_health</p><div class='label'>Example request JSON</div><pre>{
+  &quot;farm_id&quot;: 1,
+  &quot;animal_id&quot;: 15,
+  &quot;symptoms&quot;: &quot;Limping on front left&quot;,
+  &quot;severity&quot;: &quot;mild&quot;,
+  &quot;create_task&quot;: false
+}</pre><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Observation recorded successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 3,
+    &quot;farm_id&quot;: 1,
+    &quot;animal_id&quot;: 15,
+    &quot;group_id&quot;: null,
+    &quot;case_id&quot;: 1,
+    &quot;observed_at&quot;: &quot;2026-08-27T10:00:00+00:00&quot;,
+    &quot;symptoms&quot;: &quot;Limping on front left&quot;,
+    &quot;severity&quot;: &quot;mild&quot;,
+    &quot;created_at&quot;: &quot;2026-08-27T10:00:00+00:00&quot;
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/health/observations/</span><h3 style='margin-top:8px'>List observations</h3></div><div class='endpoint-bd'><p>Filter by farm_id and animal_id.</p><p><span class='pill'>Auth</span> Cookie · view_health</p><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>Page</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>Page size</td></tr><tr><td><code>farm_id</code></td><td>int</td><td>no</td><td>Farm</td></tr><tr><td><code>animal_id</code></td><td>int</td><td>no</td><td>Animal</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Observations fetched successfully.&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 3,
+      &quot;farm_id&quot;: 1,
+      &quot;animal_id&quot;: 15,
+      &quot;case_id&quot;: 1,
+      &quot;observed_at&quot;: &quot;2026-08-27T10:00:00+00:00&quot;,
+      &quot;symptoms&quot;: &quot;Limping on front left&quot;,
+      &quot;severity&quot;: &quot;mild&quot;,
+      &quot;created_at&quot;: &quot;2026-08-27T10:00:00+00:00&quot;
+    }
+  ],
+  &quot;meta&quot;: {
+    &quot;pagination&quot;: {
+      &quot;page&quot;: 1,
+      &quot;page_size&quot;: 20,
+      &quot;total_items&quot;: 1,
+      &quot;total_pages&quot;: 1,
+      &quot;has_next&quot;: false,
+      &quot;has_previous&quot;: false
+    }
+  }
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/health/cases/</span><h3 style='margin-top:8px'>Open health case</h3></div><div class='endpoint-bd'><p>Groups observations. Does not replace TreatmentRecord.</p><p><span class='pill'>Auth</span> Cookie · add_health</p><div class='label'>Example request JSON</div><pre>{
+  &quot;farm_id&quot;: 1,
+  &quot;animal_id&quot;: 15,
+  &quot;title&quot;: &quot;Lameness&quot;,
+  &quot;notes&quot;: &quot;Seen at morning check&quot;
+}</pre><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Health case opened successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 1,
+    &quot;farm_id&quot;: 1,
+    &quot;animal_id&quot;: 15,
+    &quot;group_id&quot;: null,
+    &quot;title&quot;: &quot;Lameness&quot;,
+    &quot;notes&quot;: &quot;Seen at morning check&quot;,
+    &quot;status&quot;: &quot;open&quot;,
+    &quot;opened_at&quot;: &quot;2026-08-27T10:00:00+00:00&quot;,
+    &quot;closed_at&quot;: null
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/health/cases/</span><h3 style='margin-top:8px'>List health cases</h3></div><div class='endpoint-bd'><p>Default status=open.</p><p><span class='pill'>Auth</span> Cookie · view_health</p><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>Page</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>Page size</td></tr><tr><td><code>farm_id</code></td><td>int</td><td>no</td><td>Farm</td></tr><tr><td><code>status</code></td><td>string</td><td>no</td><td>open | closed</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Health cases fetched successfully.&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 1,
+      &quot;farm_id&quot;: 1,
+      &quot;animal_id&quot;: 15,
+      &quot;title&quot;: &quot;Lameness&quot;,
+      &quot;status&quot;: &quot;open&quot;,
+      &quot;opened_at&quot;: &quot;2026-08-27T10:00:00+00:00&quot;,
+      &quot;closed_at&quot;: null
+    }
+  ],
+  &quot;meta&quot;: {
+    &quot;pagination&quot;: {
+      &quot;page&quot;: 1,
+      &quot;page_size&quot;: 20,
+      &quot;total_items&quot;: 1,
+      &quot;total_pages&quot;: 1,
+      &quot;has_next&quot;: false,
+      &quot;has_previous&quot;: false
+    }
+  }
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/health/cases/{case_id}/close/</span><h3 style='margin-top:8px'>Close health case</h3></div><div class='endpoint-bd'><p>Sets status closed. Optional notes are appended.</p><p><span class='pill'>Auth</span> Cookie · update_health</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>case_id</code></td><td>int</td><td>Case ID</td></tr></table><div class='label'>Example request JSON</div><pre>{
+  &quot;notes&quot;: &quot;Resolved after treatment&quot;
+}</pre><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Health case closed successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 1,
+    &quot;title&quot;: &quot;Lameness&quot;,
+    &quot;status&quot;: &quot;closed&quot;,
+    &quot;closed_at&quot;: &quot;2026-08-28T16:00:00+00:00&quot;
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 409</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;CONFLICT&quot;,
+  &quot;message&quot;: &quot;Health case is already closed.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><h2 id='notifications'>Notifications</h2><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/notifications/</span><h3 style='margin-top:8px'>Notification inbox</h3></div><div class='endpoint-bd'><p>Per-user inbox (task assigned, completed, cancelled). Not the same as farm alerts.</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>Page</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>Page size</td></tr><tr><td><code>unread_only</code></td><td>bool</td><td>no</td><td>true for badge list</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Notifications fetched successfully.&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 21,
+      &quot;category&quot;: &quot;task&quot;,
+      &quot;title&quot;: &quot;Task assigned&quot;,
+      &quot;body&quot;: &quot;Vaccinate COW-001 \u2014 CBPP&quot;,
+      &quot;is_read&quot;: false,
+      &quot;read_at&quot;: null,
+      &quot;farm_id&quot;: 1,
+      &quot;reference_table&quot;: &quot;task&quot;,
+      &quot;reference_id&quot;: 12,
+      &quot;created_at&quot;: &quot;2026-08-27T07:00:00+00:00&quot;
+    }
+  ],
+  &quot;meta&quot;: {
+    &quot;pagination&quot;: {
+      &quot;page&quot;: 1,
+      &quot;page_size&quot;: 20,
+      &quot;total_items&quot;: 1,
+      &quot;total_pages&quot;: 1,
+      &quot;has_next&quot;: false,
+      &quot;has_previous&quot;: false
+    }
+  }
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/notifications/{notification_id}/read/</span><h3 style='margin-top:8px'>Mark one read</h3></div><div class='endpoint-bd'><p>Idempotent if already read.</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>notification_id</code></td><td>int</td><td>Notification ID</td></tr></table><div class='label'>Example request JSON</div><pre>{}</pre><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Notification marked as read.&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 21,
+    &quot;is_read&quot;: true,
+    &quot;read_at&quot;: &quot;2026-08-27T07:10:00+00:00&quot;,
+    &quot;title&quot;: &quot;Task assigned&quot;
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 404</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;NOTIFICATION_NOT_FOUND&quot;,
+  &quot;message&quot;: &quot;Notification could not be found.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/notifications/read-all/</span><h3 style='margin-top:8px'>Mark all read</h3></div><div class='endpoint-bd'><p>Clears the badge. Body optional.</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>Example request JSON</div><pre>{}</pre><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Notifications marked as read.&quot;,
+  &quot;data&quot;: {
+    &quot;updated&quot;: 4
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><h2 id='search'>Search</h2><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/search/</span><h3 style='margin-top:8px'>Search</h3></div><div class='endpoint-bd'><p>q is required. Returns animals (tag), people (email/username), and tasks (title). limit default 10, max 25.</p><p><span class='pill'>Auth</span> Cookie · view_animal_details</p><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>q</code></td><td>string</td><td>yes</td><td>Search text</td></tr><tr><td><code>farm_id</code></td><td>int</td><td>no</td><td>Scope to farm</td></tr><tr><td><code>limit</code></td><td>int</td><td>no</td><td>Max hits per bucket</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Search completed.&quot;,
+  &quot;data&quot;: {
+    &quot;query&quot;: &quot;COW-001&quot;,
+    &quot;animals&quot;: [
+      {
+        &quot;id&quot;: 15,
+        &quot;tag_id&quot;: &quot;COW-001&quot;,
+        &quot;farm_id&quot;: 1,
+        &quot;status&quot;: &quot;active&quot;
+      }
+    ],
+    &quot;people&quot;: [],
+    &quot;tasks&quot;: [
+      {
+        &quot;id&quot;: 12,
+        &quot;farm_id&quot;: 1,
+        &quot;organization_id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
+        &quot;animal_id&quot;: 15,
+        &quot;animal_tag&quot;: &quot;COW-001&quot;,
+        &quot;group_id&quot;: null,
+        &quot;parent_id&quot;: null,
+        &quot;task_type&quot;: &quot;vaccination&quot;,
+        &quot;title&quot;: &quot;Vaccinate COW-001 \u2014 CBPP&quot;,
+        &quot;description&quot;: &quot;Annual CBPP shot&quot;,
+        &quot;status&quot;: &quot;assigned&quot;,
+        &quot;priority&quot;: &quot;high&quot;,
+        &quot;due_at&quot;: &quot;2026-08-28T08:00:00+00:00&quot;,
+        &quot;assigned_to&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+        &quot;assigned_to_email&quot;: &quot;ibrahim@farm.example&quot;,
+        &quot;created_by&quot;: &quot;7c9e6679-7425-40de-944b-e07fc1f90ae7&quot;,
+        &quot;accepted_at&quot;: null,
+        &quot;started_at&quot;: null,
+        &quot;completed_at&quot;: null,
+        &quot;result_reference_table&quot;: null,
+        &quot;result_reference_id&quot;: null,
+        &quot;created_at&quot;: &quot;2026-08-27T07:00:00+00:00&quot;
+      }
+    ]
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><h2 id='dashboard'>Dashboard</h2><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/dashboard/organization/</span><h3 style='margin-top:8px'>Organization home</h3></div><div class='endpoint-bd'><p>One call for org home. Do not fan out the 29 legacy dashboard routes for this screen.</p><p><span class='pill'>Auth</span> Cookie</p><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Organization dashboard fetched successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;organization&quot;: {
+      &quot;id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
+      &quot;name&quot;: &quot;Zaima Farms&quot;,
+      &quot;status&quot;: &quot;active&quot;
+    },
+    &quot;farms&quot;: 1,
+    &quot;animals&quot;: {
+      &quot;total&quot;: 120,
+      &quot;active&quot;: 110,
+      &quot;sold&quot;: 6,
+      &quot;dead&quot;: 4,
+      &quot;sick&quot;: 8,
+      &quot;quarantine&quot;: 2
+    },
+    &quot;tasks&quot;: {
+      &quot;open&quot;: 6,
+      &quot;overdue&quot;: 1
+    },
+    &quot;my_work&quot;: {
+      &quot;open_tasks&quot;: 2,
+      &quot;overdue_tasks&quot;: 1,
+      &quot;completed_today&quot;: 1
+    },
+    &quot;farm_breakdown&quot;: [
+      {
+        &quot;id&quot;: 1,
+        &quot;name&quot;: &quot;North Paddock&quot;,
+        &quot;status&quot;: &quot;active&quot;,
+        &quot;animal_count&quot;: 120
+      }
+    ]
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/dashboard/farm/{farm_id}/</span><h3 style='margin-top:8px'>Farm home</h3></div><div class='endpoint-bd'><p>Role-aware farm aggregate.</p><p><span class='pill'>Auth</span> Cookie · farm access</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>int</td><td>Farm ID</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Farm dashboard fetched successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;farm&quot;: {
+      &quot;id&quot;: 1,
+      &quot;name&quot;: &quot;North Paddock&quot;,
+      &quot;status&quot;: &quot;active&quot;
+    },
+    &quot;animals&quot;: {
+      &quot;total&quot;: 120,
+      &quot;active&quot;: 110,
+      &quot;sold&quot;: 6,
+      &quot;dead&quot;: 4,
+      &quot;sick&quot;: 8,
+      &quot;quarantine&quot;: 2,
+      &quot;pregnant&quot;: 9,
+      &quot;lactating&quot;: 5
+    },
+    &quot;tasks&quot;: {
+      &quot;open&quot;: 6,
+      &quot;overdue&quot;: 1,
+      &quot;mine&quot;: 2
+    }
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 404</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;FARM_NOT_FOUND&quot;,
+  &quot;message&quot;: &quot;Farm could not be found.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/dashboard/my-work/</span><h3 style='margin-top:8px'>My Work dashboard</h3></div><div class='endpoint-bd'><p>Buckets: today, overdue, upcoming. Optional farm_id.</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>int</td><td>no</td><td>Filter farm</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;My work dashboard fetched successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;summary&quot;: {
+      &quot;open_tasks&quot;: 2,
+      &quot;overdue_tasks&quot;: 1,
+      &quot;completed_today&quot;: 1
+    },
+    &quot;today&quot;: [
+      {
+        &quot;id&quot;: 12,
+        &quot;farm_id&quot;: 1,
+        &quot;organization_id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
+        &quot;animal_id&quot;: 15,
+        &quot;animal_tag&quot;: &quot;COW-001&quot;,
+        &quot;group_id&quot;: null,
+        &quot;parent_id&quot;: null,
+        &quot;task_type&quot;: &quot;vaccination&quot;,
+        &quot;title&quot;: &quot;Vaccinate COW-001 \u2014 CBPP&quot;,
+        &quot;description&quot;: &quot;Annual CBPP shot&quot;,
+        &quot;status&quot;: &quot;assigned&quot;,
+        &quot;priority&quot;: &quot;high&quot;,
+        &quot;due_at&quot;: &quot;2026-08-28T08:00:00+00:00&quot;,
+        &quot;assigned_to&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+        &quot;assigned_to_email&quot;: &quot;ibrahim@farm.example&quot;,
+        &quot;created_by&quot;: &quot;7c9e6679-7425-40de-944b-e07fc1f90ae7&quot;,
+        &quot;accepted_at&quot;: null,
+        &quot;started_at&quot;: null,
+        &quot;completed_at&quot;: null,
+        &quot;result_reference_table&quot;: null,
+        &quot;result_reference_id&quot;: null,
+        &quot;created_at&quot;: &quot;2026-08-27T07:00:00+00:00&quot;
+      }
+    ],
+    &quot;overdue&quot;: [],
+    &quot;upcoming&quot;: []
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><p class='muted'>TATI FarmOS Frontend API Contract v2 · primary #209850 · do not parse legacy list keys (<code>current_page</code>, <code>num_pages</code>) on these routes.</p></div></body></html>

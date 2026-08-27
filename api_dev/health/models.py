@@ -327,3 +327,82 @@ class HealthAlert(models.Model):
 
     def __str__(self):
         return f"{self.alert_type} - {self.animal_id or self.drug_batch_id} ({self.severity})"
+
+
+class HealthCase(models.Model):
+    class Status(models.TextChoices):
+        OPEN = "open", "Open"
+        CLOSED = "closed", "Closed"
+
+    farm = models.ForeignKey(
+        "organization.Farm", on_delete=models.CASCADE, related_name="health_cases"
+    )
+    animal = models.ForeignKey(
+        "animals.Animal",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="health_cases",
+    )
+    group = models.ForeignKey(
+        "animals.AnimalGroup",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="health_cases",
+    )
+    title = models.CharField(max_length=255)
+    notes = models.TextField(blank=True)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.OPEN)
+    opened_by = models.ForeignKey(
+        User, null=True, on_delete=models.SET_NULL, related_name="opened_health_cases"
+    )
+    closed_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="closed_health_cases"
+    )
+    opened_at = models.DateTimeField(auto_now_add=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-opened_at"]
+
+    def __str__(self):
+        return f"{self.title} ({self.status})"
+
+
+class HealthObservation(models.Model):
+    farm = models.ForeignKey(
+        "organization.Farm", on_delete=models.CASCADE, related_name="health_observations"
+    )
+    animal = models.ForeignKey(
+        "animals.Animal",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="health_observations",
+    )
+    group = models.ForeignKey(
+        "animals.AnimalGroup",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="health_observations",
+    )
+    case = models.ForeignKey(
+        HealthCase,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="observations",
+    )
+    observed_at = models.DateTimeField()
+    symptoms = models.TextField()
+    severity = models.CharField(max_length=20, default="mild")
+    created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-observed_at"]
+
+    def __str__(self):
+        return f"Observation {self.id}"

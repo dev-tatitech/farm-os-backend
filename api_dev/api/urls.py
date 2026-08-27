@@ -21,6 +21,7 @@ from dashbaord.api import router as dashboard
 from finance.api import router as finance
 from pharmacy.api import router as pharmacy
 from reports.api import router as reports
+from contract.api import v2_api
 from django.conf import settings
 from django.conf.urls.static import static
 
@@ -28,8 +29,9 @@ api = NinjaAPI(
     title="FarmOS API — Dev",
     version="1.0",
     description="API documentation",
-    docs_url="/docs",  
-    openapi_url="/openapi.json", 
+    docs_url="/docs",
+    openapi_url="/openapi.json",
+    urls_namespace="api",
 )
 api.add_router("/auth/", router)
 api.add_router("/admin/", admin_panel)
@@ -50,6 +52,7 @@ api.add_router("/reports/", reports)
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path("api/v2/", v2_api.urls),
     path("api/", api.urls),
 ]
 

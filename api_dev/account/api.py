@@ -1,0 +1,521 @@
+from ninja import NinjaAPI
+from django.http import HttpRequest
+from .auth import get_current_user, validate_crftoken
+from .models import (
+    User as users, User,
+    EmailValidation,
+    PasswordResetOTP,
+    RefreshSession
+)
+from ninja.files import UploadedFile
+from ninja import File
+from ninja import Router, Query
+from django.contrib.auth.hashers import make_password, check_password
+from django.http import JsonResponse
+from typing import List
+from django.db.models import Count, Q, F, FloatField, ExpressionWrapper, Max
+import random
+import secrets
+from ninja.errors import HttpError
+from pydantic import EmailStr
+from .utils.token_hash import hash_token
+from django.utils.timezone import now
+from .utils.store_session import store_refresh_session
+from django.db.models import Q
+from uuid import UUID
+from django.shortcuts import get_object_or_404
+from django.core.exceptions import PermissionDenied
+from django.core.paginator import Paginator
+from django.db.models import Prefetch
+from django.db.models import Count
+from django.utils import timezone
+from datetime import timedelta
+from django.db.models.functions import TruncDate
+import calendar
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+import json
+import os
+import hashlib
+from common.utils import format_datetime
+from datetime import datetime
+from .helper import generate_unique_username, email_sender, send_account_otp_email, send_password_reset_otp_email, get_cookie_domain, get_app_type, save_uploaded_file
+from .utils.jwt_utils import create_access_token, create_refresh_token, decode_token
+from .utils.csrf import generate_csrf_token
+from django.utils.crypto import get_random_string
+from .schema import (
+    NewAccountSchema,
+    ErrorResponse,
+    Error_out,
+    LoginSchema,
+    APIResponse,
+    EmailValidationSchema,
+    ResendOtpSchema,
+    ForgotPasswordSchema,
+    VerifyResetOtpSchema,
+    ResetPasswordSchema,
+     RegionListResponse,
+    StateListResponse,
+    AccountInfoSchema,
+    LGAListResponse,
+   AccountInfoUpdate,
+   NextOfKinSchema,
+   BusinessProfileSchema
+)
+
+router = Router(tags=[" Authentication"])
+
+@router.post(
+    "/new-account",
+    auth=None,
+   
+    response={403: ErrorResponse, 200: APIResponse, 400: APIResponse},
+)
+def create_account(request, data: NewAccountSchema):
+
+    try:
+        validate_password(data.password)
+    except ValidationError as e:
+        return 400, APIResponse(
+            success=True,
+            message="Password validation failed",
+            data={"errors": e.messages},
+        )
+
+    if data.password != data.confirm_password:
+        return 400, APIResponse(
+            success=False, message="Passwords do not match", data=None
+        )
+
+    if User.objects.filter(email=data.email).exists():
+        return 400, APIResponse(
+            success=False, message="Email already exists.", data=None
+        )
+    username = generate_unique_username()
+    user = User.objects.create(
+        username=username, 
+        password=make_password(data.password), 
+        email=data.email
+    )
+    send_account_otp_email(user,data.email)
+    response = JsonResponse(
+                {
+                    "success": True,
+                    "message": "Account created successfully",
+                }
+            )
+    response.set_cookie(
+                key="email",
+                value=data.email,
+                httponly=True,
+                secure=True,
+                samesite="None",
+                path="/",
+                max_age=604800,
+            )
+    return response
+
+
+@router.post("/email-validate",response={200: APIResponse},)
+def email_validations(request, payload: EmailValidationSchema):
+    email = request.COOKIES.get("email")
+    #raise HttpError(200, f"is testing cookies {email}")
+    try:
+        otp=payload.otp.strip()  
+        otp_record = EmailValidation.objects.get(
+            email=email,
+            code=otp,
+            is_used=False,
+            expires_at__gte=datetime.now(),
+        )
+    except EmailValidation.DoesNotExist:
+        return JsonResponse({"detail": "Invalid OTP or Email"}, status=400)
+
+    # Mark OTP as used
+    otp_record.is_used = True
+    otp_record.save()
+    return 200,APIResponse(
+        success=True,
+        message="Your email has been successfully verified.",
+        data=None
+    )
+
+
+
+@router.post(
+    "/login", response={401: Error_out}, auth=None, 
+)
+def login(request, data: LoginSchema):
+    try:
+        user = users.objects.get(email=data.email)
+    except users.DoesNotExist:
+        return 401, Error_out(status="Error", message="Invalid credentials")
+
+    if user.account_status=="inactive":
+        raise HttpError(400, "Please activate your account")
+    
+    is_admin = user.is_superuser
+    if not check_password(data.password, user.password):
+        return 401, Error_out(status="Error", message="Invalid credentials")
+    
+    if not is_admin:
+        try:
+            otp_record = EmailValidation.objects.get(
+                email=user.email,
+                is_used=True,
+            )
+        except EmailValidation.DoesNotExist:
+            return JsonResponse({"detail": "Please verify your email"}, status=400)
+
+    domain = get_cookie_domain(request)
+    app_type = get_app_type(request)
+    ACCESS_COOKIE = f"{app_type}_access_token"
+    REFRESH_COOKIE = f"{app_type}_refresh_token"
+    CSRF_COOKIE = f"{app_type}_csrf_token"
+    # ---------- 4. Enforce domain ↔ role ----------
+    if app_type == "admin" and not is_admin:
+        raise HttpError(403, "Admins only")
+
+    if app_type == "client" and is_admin:
+        raise HttpError(403, f"client only {domain} my domain")
+    # Generate tokens
+    access_token = create_access_token({"sub": str(user.id)})
+    refresh_token = create_refresh_token({"sub": str(user.id)})
+    csrf_token = generate_csrf_token()  # just a random string
+    RefreshSession.objects.filter(user=user, is_active=True).update(is_active=False)
+    store_refresh_session(user, refresh_token, request)
+
+    # update csrftoken
+    user.csrf_token = csrf_token
+    user.save()
+    # Prepare response
+    response = JsonResponse(
+        {"status": "Success",
+         "message": f"Login successful", 
+         "is_admin": is_admin,
+         
+         }
+    )
+
+    # Access token cookie
+    response.set_cookie(
+        key=ACCESS_COOKIE,
+        value=access_token,
+        httponly=True,
+        secure=True,
+        samesite="None",
+        domain=domain,
+        path="/",
+        max_age=900,  # 15 minutes
+    )
+
+    # Refresh token cookie
+    response.set_cookie(
+        key=REFRESH_COOKIE,
+        value=refresh_token,
+        httponly=True,
+        secure=True,
+        samesite="None",
+        domain=domain,
+        path="/api/auth/refresh-token",
+        max_age=7 * 24 * 60 * 60,  # 7 days
+    )
+
+    # CSRF token (readable by JavaScript)
+    response.set_cookie(
+        key=CSRF_COOKIE,
+        value=csrf_token,
+        httponly=False,
+        secure=True,
+        samesite="None",
+        domain=domain,
+        path="/",
+        max_age=900,  # Match access token lifespan
+    )
+
+    return response
+
+@router.post("/resend_otp",response={200: APIResponse},)
+def resend_otp(request, payload: ResendOtpSchema):
+
+    try:
+        otp_record = EmailValidation.objects.get(
+            email=payload.email,
+            is_used=False,
+        )
+    except EmailValidation.DoesNotExist:
+        return JsonResponse({"detail": "Invalid Email"}, status=400)
+    try:
+        user = users.objects.get(email=payload.email)
+    except users.DoesNotExist:
+        return 401, Error_out(status="Error", message="Invalid credentials")
+
+    send_account_otp_email(user,payload.email)
+    response = JsonResponse(
+                {
+                    "success": True,
+                    "message": "The OTP has been resent to your email.",
+                }
+            )
+    response.set_cookie(
+                key="email",
+                value=payload.email,
+                httponly=True,
+                secure=True,
+                samesite="None",
+                path="/",
+                max_age=604800,
+            )
+    return response
+
+
+@router.post("/forgot-password", auth=None, response={200: APIResponse, 400: APIResponse})
+def forgot_password(request, payload: ForgotPasswordSchema):
+    try:
+        user = users.objects.get(email=payload.email)
+    except users.DoesNotExist:
+        return 400, APIResponse(success=False, message="No account found with this email", data=None)
+
+    send_password_reset_otp_email(user, payload.email)
+    return 200, APIResponse(
+        success=True,
+        message="A password reset code has been sent to your email.",
+        data=None,
+    )
+
+
+@router.post("/verify-reset-otp", auth=None, response={200: APIResponse, 400: APIResponse})
+def verify_reset_otp(request, payload: VerifyResetOtpSchema):
+    try:
+        otp_record = PasswordResetOTP.objects.get(
+            email=payload.email,
+            code=payload.otp.strip(),
+            is_used=False,
+            expires_at__gte=datetime.now(),
+        )
+    except PasswordResetOTP.DoesNotExist:
+        return 400, APIResponse(success=False, message="Invalid or expired OTP", data=None)
+
+    # OTP is single-use — verifying it consumes it. What the caller gets
+    # back is a separate, short-lived token; the OTP itself is never sent
+    # again alongside the new password.
+    otp_record.is_used = True
+    otp_record.reset_token = secrets.token_urlsafe(32)
+    otp_record.token_expires_at = datetime.now() + timedelta(minutes=15)
+    otp_record.token_used = False
+    otp_record.save()
+
+    return 200, APIResponse(
+        success=True,
+        message="OTP verified. Use the returned token to set your new password.",
+        data={"token": otp_record.reset_token, "expires_in_minutes": 15},
+    )
+
+
+@router.post("/reset-password", auth=None, response={200: APIResponse, 400: APIResponse})
+def reset_password(request, payload: ResetPasswordSchema):
+    try:
+        otp_record = PasswordResetOTP.objects.get(
+            reset_token=payload.token,
+            token_used=False,
+            token_expires_at__gte=datetime.now(),
+        )
+    except PasswordResetOTP.DoesNotExist:
+        return 400, APIResponse(success=False, message="Invalid or expired reset token", data=None)
+
+    try:
+        user = users.objects.get(email=otp_record.email)
+    except users.DoesNotExist:
+        return 400, APIResponse(success=False, message="No account found for this token", data=None)
+
+    if payload.new_password != payload.confirm_password:
+        return 400, APIResponse(success=False, message="Passwords do not match", data=None)
+
+    try:
+        validate_password(payload.new_password)
+    except ValidationError as e:
+        return 400, APIResponse(success=False, message="Password validation failed", data={"errors": e.messages})
+
+    user.password = make_password(payload.new_password)
+    user.save()
+
+    otp_record.token_used = True
+    otp_record.save()
+
+    # Force re-login everywhere — a password reset should invalidate any
+    # sessions issued under the old password, same as a fresh login rotates
+    # the previous active session.
+    RefreshSession.objects.filter(user=user, is_active=True).update(is_active=False)
+
+    return 200, APIResponse(
+        success=True,
+        message="Your password has been reset successfully. Please log in with your new password.",
+        data=None,
+    )
+
+
+@router.post("/refresh-token")
+def refresh_token(request):
+    domain = get_cookie_domain(request)
+    app_type = get_app_type(request)
+    ACCESS_COOKIE = f"{app_type}_access_token"
+    REFRESH_COOKIE = f"{app_type}_refresh_token"
+    CSRF_COOKIE = f"{app_type}_csrf_token"
+    
+    token = request.COOKIES.get(REFRESH_COOKIE)
+
+    if not token:
+        raise HttpError(401, f"No refresh token token{token}")
+
+    try:
+        payload = decode_token(token)
+    except Exception:
+        raise HttpError(401, "Invalid refresh token")
+    
+    new_access = create_access_token({"sub": payload["sub"]})
+    csrf_token = generate_csrf_token()
+    new_refresh = create_refresh_token({"sub": payload["sub"]})
+    # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+    token_hash = hash_token(token)
+
+    try:
+        session = RefreshSession.objects.select_related("user").get(
+            token_hash=token_hash, is_active=True
+        )
+    except RefreshSession.DoesNotExist:
+        raise HttpError(401, f"Token reuse or invalid session")
+    if session.expires_at < now():
+        raise HttpError(401, "Refresh token expired")
+
+    # Invalidate old session
+    session.is_active = False
+    session.save()
+
+    user = session.user
+    user.csrf_token = csrf_token
+    user.save()
+    # Save new session
+    domain = get_cookie_domain(request)
+    store_refresh_session(session.user, new_refresh, request)
+    # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>.
+    response = JsonResponse({"message": f"Token refreshed"})
+    response.set_cookie(
+        REFRESH_COOKIE,
+        new_refresh,
+        httponly=True,
+        secure=True,
+        samesite="None",
+        domain=domain,
+        path="/api/auth/refresh-token",
+        max_age=604800,
+    )
+
+    response.set_cookie(
+        ACCESS_COOKIE,
+        new_access,
+        httponly=True,
+        secure=True,
+        samesite="None",
+        domain=domain,
+        path="/",
+    )
+
+    response.set_cookie(
+        CSRF_COOKIE, csrf_token,
+        httponly=False, 
+        secure=True, 
+        samesite="None",
+        domain=domain,
+        path="/"
+    )
+
+    return response
+
+
+
+@router.post("/signout")
+def signout(request):
+    domain = get_cookie_domain(request)
+    app_type = get_app_type(request)
+    ACCESS_COOKIE = f"{app_type}_access_token"
+    REFRESH_COOKIE = f"{app_type}_refresh_token"
+    CSRF_COOKIE = f"{app_type}_csrf_token"
+
+    user_id = get_current_user(request)
+    if user_id:
+        RefreshSession.objects.filter(user_id=user_id, is_active=True).update(is_active=False)
+
+    response = JsonResponse({"message": f"Signed out successfully"})
+
+    # Delete cookies, matching the name/path/domain used when they were set
+    response.delete_cookie(REFRESH_COOKIE, path="/api/auth/refresh-token", domain=domain)
+    response.delete_cookie(ACCESS_COOKIE, path="/", domain=domain)
+    response.delete_cookie(CSRF_COOKIE, path="/", domain=domain)
+
+    return response
+
+@router.get(
+    "/profile",
+    response={200: APIResponse},
+)
+def profile(request):
+    user_id = get_current_user(request)
+    user = get_object_or_404(
+        User.objects.prefetch_related(
+            "user_roles__role", "user_roles__farm",
+            "user_roles__role__roles_permission__permission",
+        ),
+        pk=user_id,
+    )
+    owner = False
+    org = user.organization
+    if not org:
+            org = user.organizations.first()
+            if org:
+                owner = True
+    all_permission_codes = set()
+    roles = []
+    for ur in user.user_roles.all():
+        role_permissions = [
+            {"code": rp.permission.code, "name": rp.permission.name, "module": rp.permission.module}
+            for rp in ur.role.roles_permission.all()
+        ]
+        all_permission_codes.update(p["code"] for p in role_permissions)
+        roles.append({
+            "role_id": ur.role_id,
+            "role_name": ur.role.name,
+            "role_code": ur.role.code,
+            "farm_id": ur.farm_id,
+            "farm_name": ur.farm.name if ur.farm else None,
+            "permissions": role_permissions,
+        })
+
+    data = {
+        "email": user.email,
+        "is_admin": user.is_superuser,
+        "organization_id": org.id if org else None,
+        "organization_name": org.name if org else None,
+        "owner": owner,
+        "roles": roles,
+        "permissions": sorted(all_permission_codes),
+    }
+    return 200, APIResponse(success=True, message=f"user details", data=data)
+
+@router.get("/timezone")
+def timezone(request):
+    user_id = get_current_user(request)
+    user = get_object_or_404(User, pk=user_id)
+
+    naija = format_datetime(user.created_at, "Africa/Lagos")
+    us = format_datetime(user.created_at, "America/New_York")
+    data ={
+       "naija": naija,
+        "us": us,
+       
+    }
+    return JsonResponse(
+        {
+            "test":"this is test",
+            "data":data
+        }
+    )

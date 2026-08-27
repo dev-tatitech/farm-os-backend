@@ -25,7 +25,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 api = NinjaAPI(
-    title="FarmOS API DOCS",
+    title="FarmOS API — Live",
     version="1.0",
     description="API documentation",
     docs_url="/docs",  

@@ -1,0 +1,111 @@
+from django.db import models
+from django.contrib.auth.models import AbstractUser
+import uuid
+from django.core.exceptions import ValidationError
+from .helper import generate_unique_filename
+from core.models import TimeStampedModel
+# Create your models here.
+
+class Country(models.Model):
+    name = models.CharField(max_length=100)
+    def __str__(self):
+        return self.name
+
+def default_timezone(instance):
+    if instance.country.name == "Nigeria":
+        return "Africa/Lagos"
+    elif instance.country.name == "US":
+        return "America/New_York"  
+    else:
+        return "UTC"
+class AdminLevel1(models.Model):
+    country = models.ForeignKey(Country, on_delete=models.CASCADE, related_name="countries")
+    name = models.CharField(max_length=100)
+    timezone = models.CharField(max_length=50, blank=True, null=True) 
+
+    def __str__(self):
+        return self.name
+
+class AdminLevel2(models.Model):
+    name = models.CharField(max_length=100)
+    admin_level1 = models.ForeignKey(AdminLevel1, on_delete=models.CASCADE, related_name="admin_level1")
+    def __str__(self):
+        return self.name
+class User(AbstractUser):
+    ACCOUNT_STATUS_CHOICES = [
+        ("Active", "Active"),
+        ("Suspended", "Suspended"),
+        ("Deleted", "Deleted"),
+        ("inactive", "Inactive"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    email = models.EmailField(unique=True)
+    csrf_token = models.CharField(max_length=100, blank=True, null=True)
+    account_status = models.CharField(
+        max_length=50, choices=ACCOUNT_STATUS_CHOICES, default="Active"
+    )
+    organization = models.ForeignKey(
+        "organization.Organization",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name='users'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    USERNAME_FIELD = "email"
+    REQUIRED_FIELDS = ["username"]
+
+
+    def __str__(self):
+        return self.username
+    
+class EmailValidation(models.Model):
+    email = models.EmailField(unique=True)
+    code = models.CharField(max_length=6)  # 6-digit OTP
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    is_used = models.BooleanField(default=False)
+
+
+class PasswordResetOTP(models.Model):
+    """
+    Kept separate from EmailValidation on purpose: login() checks for an
+    EmailValidation row with is_used=True as its "email is verified" gate,
+    and issuing a password-reset code deletes any prior row for that email
+    before creating a fresh one. Sharing the table would wipe out a user's
+    verified-email record the moment they request a password reset.
+
+    Two-step flow, one row: /forgot-password creates the row (code +
+    expires_at). /verify-reset-otp consumes the code (is_used=True) and
+    issues a short-lived reset_token. /reset-password consumes the token
+    (token_used=True) to actually change the password — it never sees the
+    OTP again, only the token.
+    """
+    email = models.EmailField(unique=True)
+    code = models.CharField(max_length=6)  # 6-digit OTP
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    is_used = models.BooleanField(default=False)
+
+    reset_token = models.CharField(max_length=64, null=True, blank=True, unique=True)
+    token_expires_at = models.DateTimeField(null=True, blank=True)
+    token_used = models.BooleanField(default=False)
+
+
+class RefreshSession(models.Model):
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="refresh_sessions"
+    )
+    token_hash = models.CharField(max_length=256, unique=True)
+    user_agent = models.TextField(blank=True, null=True)
+    ip_address = models.GenericIPAddressField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    is_active = models.BooleanField(default=True)
+
+    def __str__(self):
+        return f"RefreshSession(user={self.user.username}, active={self.is_active})"
+
+ 

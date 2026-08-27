@@ -1,0 +1,49 @@
+from ninja import Schema
+from typing import Optional, Any, Literal, List
+from uuid import UUID
+from pydantic import EmailStr
+from datetime import date
+
+class ListResponseSchema(Schema):
+    success: bool
+    message: str
+    data: Any
+    num_pages: int
+    current_page: int
+    total_items: int
+    has_next: bool
+    has_previous: bool
+    
+class APIResponse(Schema):
+    success: bool
+    message: str
+    data: Any
+    
+class FarmSchemaIn(Schema):
+    farm_id: int
+    name: str
+    unit_type_id: int
+    capacity: int
+
+
+class FarmUnitSchemaV2(Schema):
+    farm_id: int
+    name: str
+    capacity: Optional[int] = None
+    location: Optional[str] = None
+    allowed_species_ids: Optional[List[int]] = None
+
+class FarmUnitUpdateSchemaV2(Schema):
+    name: Optional[str] = None
+    capacity: Optional[int] = None
+    location: Optional[str] = None
+    status: Optional[Literal["active", "inactive"]] = None
+    allowed_species_ids: Optional[List[int]] = None
+
+class HousingUnitTypeSchema(Schema):
+    id: int
+    name: str
+    description: Optional[str] = None
+    capacity: Optional[int] = None
+    created_at: Optional[date] = None
+    updated_at: Optional[date] = None

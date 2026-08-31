@@ -13,6 +13,8 @@ class Animal(TimeStampedModel):
         ("active", "Active"),
         ("sold", "Sold"),
         ("dead", "Dead"),
+        ("transferred_out", "Transferred out"),
+        ("culled", "Culled"),
     ]
     GENDER = [
         ("male", "Male"),
@@ -52,7 +54,7 @@ class Animal(TimeStampedModel):
     )
 
     # Core fields
-    tag_id = models.CharField(max_length=100, unique=True)
+    tag_id = models.CharField(max_length=100, unique=True, blank=True)
     gender = models.CharField(max_length=10, choices=GENDER)
     source_type = models.CharField(max_length=20, choices=SOURCE_TYPE)
 

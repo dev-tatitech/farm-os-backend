@@ -4,18 +4,39 @@ import os
 
 env = environ.Env(
     DEBUG=(bool, False),
+    CORS_ALLOW_CREDENTIALS=(bool, True),
 )
 BASE_DIR = Path(__file__).resolve().parent.parent
 environ.Env.read_env(env_file=BASE_DIR / ".env")
 
 SECRET_KEY = env("DJANGO_SECRET_KEY")
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = env.bool("DEBUG", default=True)
 
-ALLOWED_HOSTS = []
+
+def _csv(name, default=""):
+    return [item.strip() for item in env(name, default=default).split(",") if item.strip()]
+
+
+def _allowed_hosts(raw_items):
+    hosts = []
+    for item in raw_items:
+        host = item.replace("https://", "").replace("http://", "").split("/")[0]
+        host = host.split(":")[0]
+        if host and host not in hosts:
+            hosts.append(host)
+    return hosts
+
+
+def _unique(items):
+    out = []
+    for item in items:
+        if item and item not in out:
+            out.append(item)
+    return out
+
+
 AUTH_USER_MODEL = "account.User"
-
 
 # Application definition
 
@@ -26,6 +47,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "corsheaders",
     "ninja",
     "account",
     "common",
@@ -48,7 +70,9 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -58,6 +82,44 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = "api.urls"
+
+# Local defaults live in settings. Public domains come from .env only.
+CORS_ALLOWED_ORIGINS = _unique(
+    [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+    + _csv("CORS_ALLOWED_ORIGINS")
+)
+CORS_ALLOW_CREDENTIALS = env.bool("CORS_ALLOW_CREDENTIALS", default=True)
+CSRF_TRUSTED_ORIGINS = _unique(
+    [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://localhost:8081",
+        "http://127.0.0.1:8081",
+    ]
+    + _csv("CSRF_TRUSTED_ORIGINS")
+)
+ALLOWED_HOSTS = _allowed_hosts(
+    _unique(
+        [
+            "localhost",
+            "127.0.0.1",
+            "[::1]",
+            "localhost:3000",
+            "farmos",
+            "farmos_dev",
+            "nginx",
+            "nginx_dev",
+        ]
+        + _csv("ALLOWED_HOSTS")
+    )
+)
+USE_X_FORWARDED_HOST = True
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 TEMPLATES = [
     {
@@ -77,37 +139,36 @@ TEMPLATES = [
 WSGI_APPLICATION = "api.wsgi.application"
 
 
-# Database
+# Database: DATABASE_URL → DB_* Postgres → SQLite
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+_database_url = (env("DATABASE_URL", default="") or "").strip()
+_db_host = (env("DB_HOST", default="") or env("LOCAL_HOSTNAME", default="") or "").strip()
+if _database_url:
+    DATABASES = {"default": env.db("DATABASE_URL")}
+    DATABASES["default"].setdefault("OPTIONS", {})
+    DATABASES["default"]["OPTIONS"].setdefault(
+        "sslmode", env("DB_SSLMODE", default="disable")
+    )
+elif _db_host:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": env("DB_NAME", default="") or env("LOCAL_DB_NAME", default=""),
+            "USER": env("DB_USER", default="") or env("LOCAL_USERNAME", default=""),
+            "PASSWORD": env("DB_PASSWORD", default="") or env("LOCAL_PASSWORD", default=""),
+            "HOST": _db_host,
+            "PORT": env("DB_PORT", default="5432"),
+            "OPTIONS": {"sslmode": env("DB_SSLMODE", default="disable")},
+        }
     }
-}
-"""
-
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": env("DB_NAME"),
-        "USER": env("DB_USER"),
-        "PASSWORD": env("DB_PASSWORD"),
-        "HOST": env("DB_HOST"),
-        "PORT": env("DB_PORT"),
-        "OPTIONS": {"sslmode": "disable"},  # Enable SSL
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
     }
-}
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-    }
-}
-"""
-
 
 
 # Password validation
@@ -146,9 +207,16 @@ USE_TZ = True
 
 STATIC_URL = "/staticfiles/"
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
-STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, "static"),
-]
+_static_dir = BASE_DIR / "static"
+STATICFILES_DIRS = [_static_dir] if _static_dir.is_dir() else []
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
+    },
+}
 
 # Media files (if applicable)
 MEDIA_URL = "/media/"

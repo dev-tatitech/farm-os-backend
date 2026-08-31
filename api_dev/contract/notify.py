@@ -14,6 +14,20 @@ notify_router = Router(tags=["Notifications"])
 
 
 @notify_router.get(
+    "/unread-count/",
+    response={200: V2Success, 401: V2Error},
+    summary="Unread notification badge count",
+)
+def unread_count(request):
+    user = require_user(request)
+    org = resolve_organization(user)
+    count = Notification.objects.filter(user=user, organization=org, is_read=False).count()
+    return 200, success_body(
+        data={"count": count}, message="Unread notification count fetched successfully."
+    )
+
+
+@notify_router.get(
     "/",
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error},
     summary="In-app notification inbox",

@@ -12,6 +12,9 @@ class Task(TimeStampedModel):
         SALE = "sale", "Sale"
         MOVEMENT = "movement", "Movement"
         OBSERVATION = "observation", "Health observation"
+        WEIGHT = "weight", "Weight"
+        PREGNANCY_CHECK = "pregnancy_check", "Pregnancy check"
+        MORTALITY = "mortality", "Mortality"
         GENERIC = "generic", "Generic"
 
     class Status(models.TextChoices):
@@ -21,6 +24,18 @@ class Task(TimeStampedModel):
         IN_PROGRESS = "in_progress", "In progress"
         COMPLETED = "completed", "Completed"
         CANCELLED = "cancelled", "Cancelled"
+        UNABLE_TO_COMPLETE = "unable_to_complete", "Unable to complete"
+
+    class SourceType(models.TextChoices):
+        MANUAL = "manual", "Manual"
+        SCHEDULE = "schedule", "Schedule"
+        ALERT = "alert", "Alert"
+        HEALTH_CASE = "health_case", "Health case"
+        HEALTH_OBSERVATION = "health_observation", "Health observation"
+        TREATMENT_FOLLOW_UP = "treatment_follow_up", "Treatment follow-up"
+        REPRODUCTION_EVENT = "reproduction_event", "Reproduction event"
+        INVENTORY_RULE = "inventory_rule", "Inventory rule"
+        SYSTEM = "system", "System"
 
     class Priority(models.TextChoices):
         LOW = "low", "Low"
@@ -89,7 +104,15 @@ class Task(TimeStampedModel):
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     cancelled_at = models.DateTimeField(null=True, blank=True)
+    unable_to_complete_at = models.DateTimeField(null=True, blank=True)
+    unable_reason_code = models.CharField(max_length=64, blank=True)
+    unable_notes = models.TextField(blank=True)
     completion_payload = models.JSONField(null=True, blank=True)
+    source_type = models.CharField(
+        max_length=32, choices=SourceType.choices, default=SourceType.MANUAL
+    )
+    source_id = models.IntegerField(null=True, blank=True)
+    occurrence_key = models.CharField(max_length=120, blank=True, db_index=True)
     result_reference_table = models.CharField(max_length=100, blank=True)
     result_reference_id = models.IntegerField(null=True, blank=True)
     cancel_reason = models.TextField(blank=True)
@@ -102,13 +125,24 @@ class Task(TimeStampedModel):
             models.Index(fields=["assigned_to", "status"]),
             models.Index(fields=["task_type", "status"]),
         ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["schedule", "occurrence_key"],
+                condition=models.Q(occurrence_key__gt=""),
+                name="unique_schedule_occurrence",
+            )
+        ]
 
     def __str__(self):
         return f"{self.title} ({self.status})"
 
     @property
     def is_open(self):
-        return self.status not in (self.Status.COMPLETED, self.Status.CANCELLED)
+        return self.status not in (
+            self.Status.COMPLETED,
+            self.Status.CANCELLED,
+            self.Status.UNABLE_TO_COMPLETE,
+        )
 
 
 class TaskAssignment(models.Model):

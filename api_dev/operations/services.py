@@ -8,15 +8,16 @@ from django.db.models import Q
 from django.utils import timezone
 
 from animals.event import new_event
-from animals.models import Animal, AnimalEvent, AnimalGroup
+from animals.models import Animal, AnimalEvent, AnimalGroup, AnimalWeight
 from contract.authz import is_organization_owner
 from contract.codes import ErrorCode
 from contract.exceptions import ContractError
 from feed.models import FeedBatch, FeedInventory, FeedIssuanceRecord
-from health.models import HealthCase, HealthObservation, TreatmentRecord, VaccinationRecord
+from health.models import HealthCase, HealthObservation, MortalityRecord, TreatmentRecord, VaccinationRecord
 from movement_records.models import MovementRecord, SalesRecord
 from movement_records.sale_readiness import evaluate_sale_readiness
 from organization.models import Farm, Organization
+from reproduction.models import PregnancyRecord
 from pharmacy.models import Drug, DrugBatch
 
 from .models import Notification, Task, TaskAssignment, TaskEvidence, TaskSchedule
@@ -109,11 +110,9 @@ def notify(
 
 
 def serialize_task(task: Task) -> dict:
-    overdue = bool(
-        task.is_open
-        and task.due_at
-        and task.due_at < timezone.now()
-    )
+    from contract.identity import actor_payload, display_name, reference_payload, subject_payload
+
+    overdue = bool(task.is_open and task.due_at and task.due_at < timezone.now())
     return {
         "id": task.id,
         "farm_id": task.farm_id,
@@ -125,15 +124,28 @@ def serialize_task(task: Task) -> dict:
         "task_type": task.task_type,
         "title": task.title,
         "description": task.description,
-        "status": "overdue" if overdue and task.status != Task.Status.COMPLETED else task.status,
+        "status": "overdue" if overdue else task.status,
         "priority": task.priority,
         "due_at": json_value(task.due_at),
         "assigned_to": str(task.assigned_to_id) if task.assigned_to_id else None,
         "assigned_to_email": task.assigned_to.email if task.assigned_to_id else None,
+        "assignee": {
+            "id": str(task.assigned_to_id),
+            "display_name": display_name(task.assigned_to),
+        }
+        if task.assigned_to_id
+        else None,
         "created_by": str(task.created_by_id) if task.created_by_id else None,
+        "actor": actor_payload(task.created_by, task.organization),
         "accepted_at": json_value(task.accepted_at),
         "started_at": json_value(task.started_at),
         "completed_at": json_value(task.completed_at),
+        "cancelled_at": json_value(task.cancelled_at),
+        "unable_to_complete_at": json_value(task.unable_to_complete_at),
+        "unable_reason_code": task.unable_reason_code or None,
+        "source": reference_payload(task.source_type, task.source_id or task.schedule_id),
+        "result": reference_payload(task.result_reference_table, task.result_reference_id),
+        "subject": subject_payload(animal=task.animal, farm=task.farm),
         "result_reference_table": task.result_reference_table or None,
         "result_reference_id": task.result_reference_id,
         "created_at": json_value(task.created_at),
@@ -147,6 +159,7 @@ def work_summary_for(user, org: Organization) -> dict:
     )
     return {
         "open_tasks": assigned.count(),
+        "due_today": assigned.filter(due_at__date=today).count(),
         "overdue_tasks": assigned.filter(due_at__lt=timezone.now()).count(),
         "completed_today": Task.objects.filter(
             organization=org,
@@ -216,6 +229,9 @@ def create_task(
     assignee_id=None,
     parent=None,
     schedule=None,
+    source_type=None,
+    source_id=None,
+    occurrence_key="",
 ) -> Task:
     if task_type not in Task.Type.values:
         raise ContractError(
@@ -242,6 +258,10 @@ def create_task(
         created_by=user,
         status=Task.Status.ASSIGNED if assignee else Task.Status.DRAFT,
         assigned_to=assignee,
+        source_type=source_type
+        or (Task.SourceType.SCHEDULE if schedule else Task.SourceType.MANUAL),
+        source_id=source_id or (schedule.id if schedule else None),
+        occurrence_key=occurrence_key or "",
     )
     if assignee:
         TaskAssignment.objects.create(
@@ -312,8 +332,12 @@ def assign_task(task: Task, actor, assignee_id) -> Task:
 
 
 def accept_task(task: Task, actor) -> Task:
-    if task.status in (Task.Status.COMPLETED, Task.Status.CANCELLED):
-        raise ContractError(409, ErrorCode.TASK_INVALID_STATE, "Task cannot be accepted.")
+    if task.status == Task.Status.CANCELLED:
+        raise ContractError(409, ErrorCode.TASK_ALREADY_CANCELLED, "Task cannot be accepted.")
+    if task.status == Task.Status.COMPLETED:
+        raise ContractError(409, ErrorCode.TASK_ALREADY_COMPLETED, "Task cannot be accepted.")
+    if task.status == Task.Status.ACCEPTED and task.accepted_at:
+        raise ContractError(409, ErrorCode.TASK_ALREADY_ACCEPTED, "Task is already accepted.")
     if task.assigned_to_id and task.assigned_to_id != actor.id:
         if not is_organization_owner(actor, task.organization):
             raise ContractError(
@@ -334,7 +358,9 @@ def start_task(task: Task, actor) -> Task:
     if task.status not in (Task.Status.ASSIGNED, Task.Status.ACCEPTED, Task.Status.DRAFT):
         raise ContractError(409, ErrorCode.TASK_INVALID_STATE, "Task cannot be started.")
     if task.assigned_to_id != actor.id and not is_organization_owner(actor, task.organization):
-        raise ContractError(403, ErrorCode.PERMISSION_DENIED, "Only the assignee can start this task.")
+        raise ContractError(
+            403, ErrorCode.TASK_NOT_ASSIGNED_TO_USER, "Only the assignee can start this task."
+        )
     if task.status == Task.Status.ASSIGNED or task.status == Task.Status.DRAFT:
         accept_task(task, actor)
         task.refresh_from_db()
@@ -345,8 +371,10 @@ def start_task(task: Task, actor) -> Task:
 
 
 def cancel_task(task: Task, actor, reason: str = "") -> Task:
-    if task.status in (Task.Status.COMPLETED, Task.Status.CANCELLED):
-        raise ContractError(409, ErrorCode.TASK_INVALID_STATE, "Task cannot be cancelled.")
+    if task.status == Task.Status.CANCELLED:
+        raise ContractError(409, ErrorCode.TASK_ALREADY_CANCELLED, "Task cannot be cancelled.")
+    if task.status == Task.Status.COMPLETED:
+        raise ContractError(409, ErrorCode.TASK_ALREADY_COMPLETED, "Task cannot be cancelled.")
     task.status = Task.Status.CANCELLED
     task.cancelled_at = timezone.now()
     task.cancel_reason = reason or ""
@@ -379,7 +407,13 @@ def _ensure_completable(task: Task, actor):
     if task.status == Task.Status.COMPLETED:
         raise ContractError(409, ErrorCode.TASK_ALREADY_COMPLETED, "Task is already completed.")
     if task.status == Task.Status.CANCELLED:
-        raise ContractError(409, ErrorCode.TASK_INVALID_STATE, "Cancelled tasks cannot be completed.")
+        raise ContractError(409, ErrorCode.TASK_ALREADY_CANCELLED, "Cancelled tasks cannot be completed.")
+    if task.status == Task.Status.UNABLE_TO_COMPLETE:
+        raise ContractError(
+            409,
+            ErrorCode.TASK_UNABLE_TO_COMPLETE_RECORDED,
+            "Reopen this task before completing it.",
+        )
     if not task.assigned_to_id:
         raise ContractError(
             409,
@@ -495,6 +529,11 @@ def _complete_treatment(task: Task, actor, payload: dict):
             raise ContractError(422, ErrorCode.VALIDATION_ERROR, "Drug batch could not be found.")
     if payload.get("quantity_administered") is not None:
         data["quantity_administered"] = payload["quantity_administered"]
+    if payload.get("case_id"):
+        try:
+            data["case"] = HealthCase.objects.get(id=payload["case_id"], farm=task.farm)
+        except HealthCase.DoesNotExist:
+            raise ContractError(404, ErrorCode.HEALTH_CASE_NOT_FOUND, "Health case could not be found.")
     record = TreatmentRecord(**data)
     try:
         record.full_clean()
@@ -703,6 +742,233 @@ def _complete_observation(task: Task, actor, payload: dict):
     return "health_observation", observation.id
 
 
+def _complete_weight(task: Task, actor, payload: dict):
+    if not task.animal_id:
+        raise ContractError(422, ErrorCode.VALIDATION_ERROR, "A weight task requires an animal.")
+    weight = payload.get("weight")
+    if weight is None:
+        raise ContractError(422, ErrorCode.VALIDATION_ERROR, "weight is required.")
+    measured = payload.get("measured_at") or payload.get("date") or timezone.localdate()
+    if hasattr(measured, "date"):
+        measured = measured.date()
+    record, _ = AnimalWeight.objects.update_or_create(
+        animal=task.animal,
+        date=measured,
+        defaults={"farm": task.farm, "weight": float(weight)},
+    )
+    emit_event(
+        task.farm,
+        "weight",
+        f"Weight — {record.weight} kg",
+        payload.get("notes") or "",
+        "animal_weight",
+        record.id,
+        actor,
+        animal=task.animal,
+        event_date=record.date,
+    )
+    return "animal_weight", record.id
+
+
+def _complete_pregnancy_check(task: Task, actor, payload: dict):
+    if not task.animal_id:
+        raise ContractError(422, ErrorCode.VALIDATION_ERROR, "A pregnancy check requires an animal.")
+    result = payload.get("result")
+    if result not in ("pregnant", "not_pregnant"):
+        raise ContractError(422, ErrorCode.VALIDATION_ERROR, "result must be pregnant or not_pregnant.")
+    checked = payload.get("checked_at") or timezone.localdate()
+    if hasattr(checked, "date"):
+        checked = checked.date()
+    defaults = {
+        "check_date": checked,
+        "result": result,
+        "expected_delivery_date": payload.get("expected_delivery_date"),
+        "notes": payload.get("notes") or "",
+        "created_by": actor,
+    }
+    try:
+        record, created = PregnancyRecord.objects.get_or_create(
+            farm=task.farm, animal=task.animal, defaults=defaults
+        )
+    except ValidationError as exc:
+        _stock_error(exc)
+    if not created:
+        for key, value in defaults.items():
+            setattr(record, key, value)
+        record._override_eligibility = True
+        try:
+            record.save()
+        except ValidationError as exc:
+            _stock_error(exc)
+    task.animal.refresh_from_db()
+    task.animal.is_pregnant = result == "pregnant"
+    task.animal.save(update_fields=["is_pregnant"])
+    emit_event(
+        task.farm,
+        "pregnancy_check",
+        f"Pregnancy check — {result}",
+        record.notes or "",
+        "pregnancy_record",
+        record.id,
+        actor,
+        animal=task.animal,
+        event_date=record.check_date,
+    )
+    return "pregnancy_record", record.id
+
+
+def _complete_mortality(task: Task, actor, payload: dict):
+    if not task.animal_id:
+        raise ContractError(422, ErrorCode.VALIDATION_ERROR, "A mortality task requires an animal.")
+    animal = task.animal
+    if animal.status == "dead":
+        raise ContractError(409, ErrorCode.ANIMAL_ALREADY_DECEASED, "Animal is already deceased.")
+    died_at = payload.get("died_at") or payload.get("death_date") or timezone.localdate()
+    if hasattr(died_at, "date"):
+        died_at = died_at.date()
+    record = MortalityRecord(
+        farm=task.farm,
+        animal=animal,
+        cause=payload.get("cause") or payload.get("notes") or "Not specified",
+        death_date=died_at,
+        notes=payload.get("notes") or "",
+        created_by=actor,
+    )
+    try:
+        record.full_clean()
+        record.save()
+    except ValidationError as exc:
+        _stock_error(exc)
+    emit_event(
+        task.farm,
+        "mortality",
+        f"Mortality — {animal.tag_id or animal.id}",
+        record.cause,
+        "mortality_record",
+        record.id,
+        actor,
+        animal=animal,
+        event_date=record.death_date,
+    )
+    Task.objects.filter(
+        animal=animal, organization=task.organization
+    ).exclude(id=task.id).exclude(
+        status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED]
+    ).update(status=Task.Status.CANCELLED, cancel_reason="Animal deceased", cancelled_at=timezone.now())
+    return "mortality_record", record.id
+
+
+UNABLE_REASON_CODES = {
+    "animal_unavailable",
+    "animal_moved",
+    "animal_sick",
+    "material_unavailable",
+    "medicine_unavailable",
+    "equipment_unavailable",
+    "incorrect_assignment",
+    "unable_to_identify_subject",
+    "unsafe_to_proceed",
+    "other",
+}
+
+
+def mark_unable_to_complete(task: Task, actor, payload: Optional[dict] = None) -> Task:
+    payload = payload or {}
+    if task.status == Task.Status.COMPLETED:
+        raise ContractError(409, ErrorCode.TASK_ALREADY_COMPLETED, "Completed tasks cannot be marked unable.")
+    if task.status == Task.Status.CANCELLED:
+        raise ContractError(409, ErrorCode.TASK_ALREADY_CANCELLED, "Cancelled tasks cannot be marked unable.")
+    if task.status == Task.Status.UNABLE_TO_COMPLETE:
+        raise ContractError(
+            409, ErrorCode.TASK_UNABLE_TO_COMPLETE_RECORDED, "Unable-to-complete is already recorded."
+        )
+    if task.assigned_to_id != actor.id and not is_organization_owner(actor, task.organization):
+        raise ContractError(
+            403, ErrorCode.TASK_NOT_ASSIGNED_TO_USER, "Only the assignee can mark this task unable to complete."
+        )
+    reason = payload.get("reason_code") or "other"
+    if reason not in UNABLE_REASON_CODES:
+        raise ContractError(422, ErrorCode.VALIDATION_ERROR, "Invalid reason_code.")
+    previous = task.status
+    task.status = Task.Status.UNABLE_TO_COMPLETE
+    task.unable_to_complete_at = as_datetime(payload.get("performed_at"))
+    task.unable_reason_code = reason
+    task.unable_notes = payload.get("notes") or ""
+    task.save(
+        update_fields=[
+            "status",
+            "unable_to_complete_at",
+            "unable_reason_code",
+            "unable_notes",
+            "updated_at",
+        ]
+    )
+    emit_event(
+        task.farm,
+        "task_unable",
+        f"Unable to complete — {task.title}",
+        f"{reason}: {task.unable_notes} (was {previous})",
+        "task",
+        task.id,
+        actor,
+        animal=task.animal,
+        group=task.group,
+    )
+    if task.created_by_id:
+        notify(
+            task.created_by,
+            task.organization,
+            title="Task unable to complete",
+            body=task.title,
+            farm=task.farm,
+            reference_table="task",
+            reference_id=task.id,
+        )
+    return task
+
+
+def reopen_task(task: Task, actor, payload: Optional[dict] = None) -> Task:
+    payload = payload or {}
+    if task.status == Task.Status.COMPLETED:
+        raise ContractError(
+            409, ErrorCode.TASK_CANNOT_BE_REOPENED, "Ordinary workers must not reopen completed tasks."
+        )
+    if task.status not in (Task.Status.UNABLE_TO_COMPLETE, Task.Status.CANCELLED):
+        raise ContractError(409, ErrorCode.TASK_CANNOT_BE_REOPENED, "Only unable or cancelled tasks can be reopened.")
+    if payload.get("assignee_id"):
+        task.assigned_to = _get_assignee(task.organization, payload["assignee_id"])
+    if payload.get("due_at"):
+        task.due_at = as_datetime(payload["due_at"])
+    task.status = Task.Status.ASSIGNED if task.assigned_to_id else Task.Status.DRAFT
+    task.unable_to_complete_at = None
+    task.cancelled_at = None
+    task.accepted_at = None
+    task.started_at = None
+    task.save(
+        update_fields=[
+            "assigned_to",
+            "due_at",
+            "status",
+            "unable_to_complete_at",
+            "cancelled_at",
+            "accepted_at",
+            "started_at",
+            "updated_at",
+        ]
+    )
+    if task.assigned_to_id:
+        notify(
+            task.assigned_to,
+            task.organization,
+            title="Task reopened",
+            body=payload.get("reason") or task.title,
+            farm=task.farm,
+            reference_table="task",
+            reference_id=task.id,
+        )
+    return task
+
+
 def complete_task(task: Task, actor, payload: Optional[dict] = None, evidence: str = "") -> Task:
     payload = payload or {}
     _ensure_completable(task, actor)
@@ -713,6 +979,9 @@ def complete_task(task: Task, actor, payload: Optional[dict] = None, evidence: s
         Task.Type.SALE: _complete_sale,
         Task.Type.MOVEMENT: _complete_movement,
         Task.Type.OBSERVATION: _complete_observation,
+        Task.Type.WEIGHT: _complete_weight,
+        Task.Type.PREGNANCY_CHECK: _complete_pregnancy_check,
+        Task.Type.MORTALITY: _complete_mortality,
         Task.Type.GENERIC: None,
     }
     handler = handlers.get(task.task_type)
@@ -792,21 +1061,49 @@ def bump_schedule(schedule: TaskSchedule):
 def run_schedule(schedule: TaskSchedule, actor) -> Task:
     if not schedule.is_active:
         raise ContractError(409, ErrorCode.TASK_INVALID_STATE, "Schedule is not active.")
-    task = create_task(
-        org=schedule.organization,
-        farm=schedule.farm,
-        user=actor,
-        task_type=schedule.task_type,
-        title=schedule.title,
-        description=schedule.description,
-        animal_id=schedule.animal_id,
-        group_id=schedule.group_id,
-        due_at=schedule.next_run_at,
-        assignee_id=schedule.assignee_id,
-        schedule=schedule,
-    )
-    bump_schedule(schedule)
+    occurrence_key = schedule.next_run_at.isoformat()
+    existing = Task.objects.filter(schedule=schedule, occurrence_key=occurrence_key).first()
+    if existing:
+        return existing
+    with transaction.atomic():
+        locked = TaskSchedule.objects.select_for_update().get(id=schedule.id)
+        if not locked.is_active:
+            raise ContractError(409, ErrorCode.TASK_INVALID_STATE, "Schedule is not active.")
+        occurrence_key = locked.next_run_at.isoformat()
+        existing = Task.objects.filter(schedule=locked, occurrence_key=occurrence_key).first()
+        if existing:
+            return existing
+        task = create_task(
+            org=locked.organization,
+            farm=locked.farm,
+            user=actor or locked.created_by,
+            task_type=locked.task_type,
+            title=locked.title,
+            description=locked.description,
+            animal_id=locked.animal_id,
+            group_id=locked.group_id,
+            due_at=locked.next_run_at,
+            assignee_id=locked.assignee_id,
+            schedule=locked,
+            source_type=Task.SourceType.SCHEDULE,
+            source_id=locked.id,
+            occurrence_key=occurrence_key,
+        )
+        bump_schedule(locked)
     return task
+
+
+def process_due_schedules(now=None) -> int:
+    now = now or timezone.now()
+    created = 0
+    due = TaskSchedule.objects.filter(is_active=True, next_run_at__lte=now)
+    for schedule in due:
+        before = Task.objects.filter(schedule=schedule).count()
+        run_schedule(schedule, schedule.created_by)
+        after = Task.objects.filter(schedule=schedule).count()
+        if after > before:
+            created += 1
+    return created
 
 
 def serialize_notification(row: Notification) -> dict:
@@ -825,6 +1122,8 @@ def serialize_notification(row: Notification) -> dict:
 
 
 def serialize_event(event: AnimalEvent) -> dict:
+    from contract.identity import actor_payload, reference_payload, subject_payload
+
     return {
         "id": event.id,
         "farm_id": event.farm_id,
@@ -837,6 +1136,9 @@ def serialize_event(event: AnimalEvent) -> dict:
         "event_summary": event.event_summary,
         "reference_table": event.reference_table,
         "reference_id": event.reference_id,
+        "reference": reference_payload(event.reference_table, event.reference_id),
+        "subject": subject_payload(animal=event.animal, farm=event.farm),
         "created_by": str(event.created_by_id) if event.created_by_id else None,
+        "actor": actor_payload(event.created_by, getattr(event.farm, "organization", None)),
         "created_at": json_value(event.created_at),
     }

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Frontend guide for FarmOS API Contract v2.
+Frontend guide for FarmOS API Contract v2.1.
 
 Writes HTML + PDF. Brand green sampled from tatifarmos.com screenshot (#209850).
 
@@ -14,8 +14,10 @@ import subprocess
 from pathlib import Path
 
 OUTPUT_DIR = Path(__file__).resolve().parent
-HTML_PATH = OUTPUT_DIR / "FarmOS-Frontend-API-Contract-v2.html"
-PDF_PATH = OUTPUT_DIR / "FarmOS-Frontend-API-Contract-v2.pdf"
+HTML_PATH = OUTPUT_DIR / "FarmOS-Frontend-API-Contract-v2.1.html"
+PDF_PATH = OUTPUT_DIR / "FarmOS-Frontend-API-Contract-v2.1.pdf"
+HTML_ALIAS = OUTPUT_DIR / "FarmOS-Frontend-API-Contract-v2.html"
+PDF_ALIAS = OUTPUT_DIR / "FarmOS-Frontend-API-Contract-v2.pdf"
 
 PRIMARY = "#209850"
 PRIMARY_DARK = "#187A40"
@@ -67,6 +69,30 @@ def page_meta(page=1, page_size=20, total=2):
     }
 
 
+ACTOR = {"id": USER_ID, "display_name": "Amina Owner", "role_name": "Farm Manager"}
+WORKER = {"id": WORKER_ID, "display_name": "Ibrahim Musa"}
+SUBJECT = {"type": "animal", "id": 15, "label": "COW-001"}
+
+ANIMAL_CARD = {
+    "id": 15,
+    "tag_id": "COW-001",
+    "farm_id": 1,
+    "species": "Cattle",
+    "breed": "White Fulani",
+    "gender": "female",
+    "age_months": 18,
+    "lifecycle_status": "active",
+    "health_status": "healthy",
+    "housing_unit": {"id": 4, "name": "Pen A"},
+    "flags": {
+        "is_pregnant": False,
+        "is_lactating": False,
+        "is_quarantine": False,
+        "needs_attention": False,
+    },
+    "image_url": None,
+}
+
 TASK = {
     "id": 12,
     "farm_id": 1,
@@ -83,10 +109,18 @@ TASK = {
     "due_at": "2026-08-28T08:00:00+00:00",
     "assigned_to": WORKER_ID,
     "assigned_to_email": "ibrahim@farm.example",
+    "assignee": WORKER,
     "created_by": USER_ID,
+    "actor": ACTOR,
     "accepted_at": None,
     "started_at": None,
     "completed_at": None,
+    "cancelled_at": None,
+    "unable_to_complete_at": None,
+    "unable_reason_code": None,
+    "source": {"type": "manual", "id": None},
+    "result": None,
+    "subject": SUBJECT,
     "result_reference_table": None,
     "result_reference_id": None,
     "created_at": "2026-08-27T07:00:00+00:00",
@@ -104,7 +138,10 @@ EVENT = {
     "event_summary": "Administered in paddock",
     "reference_table": "vaccination",
     "reference_id": 41,
+    "reference": {"type": "vaccination", "id": 41},
+    "subject": SUBJECT,
     "created_by": WORKER_ID,
+    "actor": {"id": WORKER_ID, "display_name": "Ibrahim Musa", "role_name": "Field Worker"},
     "created_at": "2026-08-27T09:15:00+00:00",
 }
 
@@ -122,7 +159,7 @@ ENDPOINTS = [
         "auth": "Public",
         "success": envelope(
             {
-                "contract": "FarmOS Frontend API Contract v2",
+                "contract": "FarmOS Frontend API Contract v2.1",
                 "legacy_prefix": "/api/",
                 "this_prefix": "/api/v2/",
                 "identifiers": [
@@ -135,7 +172,27 @@ ENDPOINTS = [
                     "group_id",
                 ],
             },
-            "v2 contract is available.",
+            "v2.1 contract is available.",
+        ),
+        "error": AUTH_401,
+    },
+    {
+        "tag": "Contract",
+        "method": "GET",
+        "path": "/api/v2/registry/",
+        "title": "Endpoint registry",
+        "explain": "Machine-readable map of every MVP operation: v2, approved legacy, or deprecated. Cookie required. Use this instead of hard-coding which domains are still on /api/*.",
+        "auth": "Cookie",
+        "success": envelope(
+            {
+                "contract": "2.1",
+                "entries": [
+                    {"domain": "Auth", "operation": "Login", "endpoint": "POST /api/auth/login", "status": "legacy_approved", "notes": "Only approved non-v2 envelope."},
+                    {"domain": "Animals", "operation": "List", "endpoint": "GET /api/v2/animals/", "status": "v2"},
+                    {"domain": "Reproduction", "operation": "Pregnancy", "endpoint": "/api/reproduction/", "status": "legacy_approved"},
+                ],
+            },
+            "Endpoint registry fetched successfully.",
         ),
         "error": AUTH_401,
     },
@@ -161,6 +218,7 @@ ENDPOINTS = [
         "success": envelope(
             {
                 "id": USER_ID,
+                "display_name": "Amina Owner",
                 "email": "owner@farm.example",
                 "username": "owner",
                 "account_status": "Active",
@@ -181,7 +239,7 @@ ENDPOINTS = [
                     }
                 ],
                 "permissions": ["add_health", "view_animal_details", "view_health"],
-                "work_summary": {"open_tasks": 2, "overdue_tasks": 1, "completed_today": 1},
+                "work_summary": {"open_tasks": 2, "due_today": 1, "overdue_tasks": 1, "completed_today": 1},
             },
             "User profile fetched successfully.",
         ),
@@ -201,13 +259,19 @@ ENDPOINTS = [
                 "capabilities": {
                     "view_animal_details": True,
                     "add_animal_details": True,
+                    "update_animal_details": True,
                     "view_health": True,
                     "record_health": True,
+                    "record_health_observation": True,
+                    "manage_health_case": True,
                     "view_feed": True,
                     "record_feed_activity": True,
+                    "view_reproduction": True,
+                    "add_reproduction": True,
                     "view_operation": True,
                     "create_operation": True,
                     "assign_operation": True,
+                    "reassign_operation": True,
                     "complete_operation": True,
                     "cancel_operation": True,
                 },
@@ -216,6 +280,7 @@ ENDPOINTS = [
                     "livestock": True,
                     "health": True,
                     "feed": True,
+                    "reproduction": True,
                     "operations": True,
                     "my_work": True,
                     "people": True,
@@ -251,10 +316,111 @@ ENDPOINTS = [
         "query": [
             ("page", "int", "no", "1-based page"),
             ("page_size", "int", "no", "Default 20"),
-            ("status", "string", "no", "open | assigned | accepted | completed | cancelled | overdue"),
+            ("status", "string", "no", "open | assigned | accepted | completed | cancelled | unable_to_complete | overdue"),
         ],
         "success": envelope([TASK], "Tasks fetched successfully.", page_meta(total=1)),
         "error": AUTH_401,
+    },
+    {
+        "tag": "Users",
+        "method": "GET",
+        "path": "/api/v2/users/",
+        "title": "People list",
+        "explain": "Org people picker. Requires Farm.UPDATE or org owner. Invite still uses approved legacy POST /api/admin/invite/.",
+        "auth": "Cookie · manage people",
+        "query": [("page", "int", "no", "Page"), ("page_size", "int", "no", "Page size")],
+        "success": envelope(
+            [
+                {
+                    "id": WORKER_ID,
+                    "display_name": "Ibrahim Musa",
+                    "email": "ibrahim@farm.example",
+                    "account_status": "Active",
+                }
+            ],
+            "People fetched successfully.",
+            page_meta(total=1),
+        ),
+        "error": PERM_403,
+    },
+    {
+        "tag": "Users",
+        "method": "GET",
+        "path": "/api/v2/users/{user_id}/",
+        "title": "User operational profile",
+        "explain": "Same people-auth as the list. Includes display_name, assignments, and work_summary.",
+        "auth": "Cookie · manage people",
+        "path_params": [("user_id", "uuid", "User UUID")],
+        "success": envelope(
+            {
+                "id": WORKER_ID,
+                "display_name": "Ibrahim Musa",
+                "email": "ibrahim@farm.example",
+                "phone": None,
+                "account_status": "Active",
+                "organization": {"id": ORG_ID, "name": "Zaima Farms", "code": "ZAIMA"},
+                "assignments": [{"role_id": 4, "role_name": "Field Worker", "role_code": "e2e_field", "farm_id": 1, "farm_name": "North Paddock"}],
+                "work_summary": {"open_tasks": 2, "due_today": 1, "overdue_tasks": 0, "completed_today": 1},
+            },
+            "User profile fetched successfully.",
+        ),
+        "error": err("USER_NOT_FOUND", "User could not be found.", "404"),
+    },
+    {
+        "tag": "Users",
+        "method": "GET",
+        "path": "/api/v2/users/{user_id}/activity/",
+        "title": "User activity",
+        "explain": "Timeline of events this user created. Same people-auth.",
+        "auth": "Cookie · manage people",
+        "path_params": [("user_id", "uuid", "User UUID")],
+        "query": [("page", "int", "no", "Page"), ("page_size", "int", "no", "Page size")],
+        "success": envelope([EVENT], "Activity fetched successfully.", page_meta(total=1)),
+        "error": AUTH_401,
+    },
+    {
+        "tag": "Users",
+        "method": "GET",
+        "path": "/api/v2/users/{user_id}/tasks/",
+        "title": "Tasks assigned to a user",
+        "explain": "Manager view of one worker’s queue. Same filters as /users/me/tasks/.",
+        "auth": "Cookie · manage people",
+        "path_params": [("user_id", "uuid", "User UUID")],
+        "query": [
+            ("page", "int", "no", "Page"),
+            ("page_size", "int", "no", "Page size"),
+            ("status", "string", "no", "open | assigned | completed | …"),
+        ],
+        "success": envelope([TASK], "Tasks fetched successfully.", page_meta(total=1)),
+        "error": AUTH_401,
+    },
+    {
+        "tag": "Roles",
+        "method": "GET",
+        "path": "/api/v2/roles/",
+        "title": "Roles list",
+        "explain": "Org roles for people screens. Assigning a role still uses approved legacy POST /api/role/user-role/.",
+        "auth": "Cookie · manage people",
+        "success": envelope(
+            [{"id": 3, "name": "Farm Manager", "code": "farm_manager", "organization_id": ORG_ID}],
+            "Roles fetched successfully.",
+            page_meta(total=1),
+        ),
+        "error": PERM_403,
+    },
+    {
+        "tag": "Roles",
+        "method": "GET",
+        "path": "/api/v2/permissions/",
+        "title": "Permissions catalog",
+        "explain": "Permission codes the UI can show when editing roles.",
+        "auth": "Cookie · manage people",
+        "success": envelope(
+            [{"id": 1, "code": "view_animal_details", "name": "View animal details", "module": "animals"}],
+            "Permissions fetched successfully.",
+            page_meta(total=1),
+        ),
+        "error": PERM_403,
     },
     {
         "tag": "Organizations",
@@ -537,52 +703,83 @@ ENDPOINTS = [
     },
     {
         "tag": "Animals",
+        "method": "GET",
+        "path": "/api/v2/animals/",
+        "title": "List animals",
+        "explain": "Herd cards. Each row is the same card shape as create/profile (id, tag_id, flags, lifecycle_status). Filter; do not infer pregnancy/sold from this list’s flags for writes.",
+        "auth": "Cookie · view_animal_details",
+        "query": [
+            ("page", "int", "no", "Page"),
+            ("page_size", "int", "no", "Page size"),
+            ("farm_id", "int", "no", "Farm"),
+            ("search", "string", "no", "Tag, notes, or numeric id"),
+            ("livestock_species_id", "int", "no", "Species"),
+            ("livestock_breed_id", "int", "no", "Breed"),
+            ("gender", "string", "no", "female | male"),
+            ("lifecycle_status", "string", "no", "active | sold | dead | transferred_out | culled"),
+            ("health_status", "string", "no", "healthy | sick | at_risk | recovering"),
+            ("housing_unit_id", "int", "no", "Housing unit"),
+            ("is_pregnant", "bool", "no", "Filter pregnant"),
+            ("is_lactating", "bool", "no", "Filter lactating"),
+            ("is_quarantine", "bool", "no", "Filter quarantine"),
+            ("needs_attention", "bool", "no", "sick, at_risk, or quarantine"),
+            ("sort", "string", "no", "id | -id | tag_id | -tag_id | status | created_at"),
+        ],
+        "success": envelope([ANIMAL_CARD], "Animals fetched successfully.", page_meta(total=120)),
+        "error": AUTH_401,
+    },
+    {
+        "tag": "Animals",
         "method": "POST",
         "path": "/api/v2/animals/",
         "title": "Progressive animal create",
-        "explain": "status must be active | sold | dead only (not pregnant/sick). Breed and housing are optional. Born animals still need mother_id and dob. Optional client_request_id for offline retries.",
+        "explain": "status must be active | sold | dead | transferred_out | culled (not pregnant/sick). tag_id is optional; empty/null generates INT-{uuid}. Breed and housing are optional. Born animals still need mother_id and dob. Optional client_request_id for offline retries.",
         "auth": "Cookie · add_animal_details",
         "request": {
             "farm_id": 1,
-            "tag_id": "COW-001",
+            "tag_id": None,
             "gender": "female",
-            "source_type": "purchased",
+            "source_type": "opening_record",
             "status": "active",
             "livestock_species_id": 1,
             "livestock_breed_id": 2,
             "housing_unit_id": 4,
             "estimated_age_months": 18,
-            "notes": "Opening record",
-            "client_request_id": "create-cow-001",
+            "notes": "Untagged opening record",
+            "client_request_id": "create-untagged-001",
         },
         "success": envelope(
             {
-                "id": 15,
-                "tag_id": "COW-001",
+                "id": 16,
+                "tag_id": "INT-A1B2C3D4E5F6",
                 "status": "active",
                 "health_status": "healthy",
                 "flags": {
                     "is_pregnant": False,
                     "is_lactating": False,
                     "is_quarantine": False,
-                    "is_active": True,
-                    "is_breeding_restricted": False,
+                    "needs_attention": False,
                 },
-                "card": {
-                    "id": 15,
-                    "tag_id": "COW-001",
-                    "species": "Cattle",
-                    "breed": "White Fulani",
-                    "gender": "female",
-                    "status": "active",
-                    "age_months": 18,
-                    "housing_unit": "Pen A",
-                    "image_url": None,
-                },
+                "card": {**ANIMAL_CARD, "id": 16, "tag_id": "INT-A1B2C3D4E5F6"},
             },
             "Animal created successfully.",
         ),
         "error": err("DUPLICATE_RECORD", "Tag ID already exists.", "409"),
+    },
+    {
+        "tag": "Animals",
+        "method": "PATCH",
+        "path": "/api/v2/animals/{animal_id}/",
+        "title": "Partial animal update",
+        "explain": "Identity/housing/notes only. Do not send is_pregnant, is_lactating, is_quarantine, or sold/dead via PATCH — those change through operations (pregnancy_check, mortality, sale). Sold/dead via PATCH is rejected.",
+        "auth": "Cookie · update_animal_details",
+        "path_params": [("animal_id", "int", "Animal ID")],
+        "request": {"notes": "Moved to Pen A", "housing_unit_id": 4, "tag_id": "COW-001"},
+        "success": envelope(
+            {"id": 15, "tag_id": "COW-001", "overview": {"farm_id": 1, "farm": "North Paddock", "housing_unit_id": 4}},
+            "Animal updated successfully.",
+        ),
+        "error": err("VALIDATION_ERROR", "Sold or dead status must be recorded through operations.", "422"),
     },
     {
         "tag": "Animals",
@@ -602,20 +799,9 @@ ENDPOINTS = [
                     "is_pregnant": False,
                     "is_lactating": False,
                     "is_quarantine": False,
-                    "is_active": True,
-                    "is_breeding_restricted": False,
+                    "needs_attention": False,
                 },
-                "card": {
-                    "id": 15,
-                    "tag_id": "COW-001",
-                    "species": "Cattle",
-                    "breed": "White Fulani",
-                    "gender": "female",
-                    "status": "active",
-                    "age_months": 18,
-                    "housing_unit": "Pen A",
-                    "image_url": None,
-                },
+                "card": ANIMAL_CARD,
                 "overview": {
                     "species": "Cattle",
                     "livestock_species_id": 1,
@@ -691,7 +877,7 @@ ENDPOINTS = [
         "method": "POST",
         "path": "/api/v2/operations/tasks/",
         "title": "Create a task",
-        "explain": "task_type: vaccination | treatment | feed_issuance | sale | movement | observation | generic. If assignee_id is set, status becomes assigned and the worker is notified.",
+        "explain": "task_type: vaccination | treatment | feed_issuance | sale | movement | observation | weight | pregnancy_check | mortality | generic. If assignee_id is set, status becomes assigned and the worker is notified.",
         "auth": "Cookie · create health/feed/animal",
         "request": {
             "farm_id": 1,
@@ -780,7 +966,7 @@ ENDPOINTS = [
         "method": "POST",
         "path": "/api/v2/operations/tasks/{task_id}/complete/",
         "title": "Complete task (writes the domain record)",
-        "explain": "This is the important call. It runs in one DB transaction: validate → create vaccination / treatment / feed / sale / movement / observation using existing tables → mark task completed → emit timeline event. If stock is short the task stays incomplete. Send client_request_id (or header X-Client-Request-Id) so a retry does not double-write. Body fields depend on task_type — see the complete() payload appendix.",
+        "explain": "This is the important call. It runs in one DB transaction: validate → write the domain record → mark task completed → emit timeline. Body fields depend on task_type — see the complete() payload appendix. Weight writes AnimalWeight; pregnancy_check writes PregnancyRecord and sets is_pregnant; mortality writes MortalityRecord, marks the animal dead, and cancels open tasks. If stock is short the task stays incomplete. Send client_request_id (or header X-Client-Request-Id) so a retry does not double-write.",
         "auth": "Cookie · assignee with create permission",
         "path_params": [("task_id", "int", "Task ID")],
         "request": {
@@ -817,6 +1003,33 @@ ENDPOINTS = [
         "request": {"reason": "Animal sold before visit"},
         "success": envelope({**TASK, "status": "cancelled"}, "Task cancelled successfully."),
         "error": err("TASK_INVALID_STATE", "Task cannot be cancelled.", "409"),
+    },
+    {
+        "tag": "Operations",
+        "method": "POST",
+        "path": "/api/v2/operations/tasks/{task_id}/unable-to-complete/",
+        "title": "Unable to complete",
+        "explain": "Assignee (or owner) records that the work could not be done. reason_code: animal_unavailable | animal_moved | animal_sick | material_unavailable | medicine_unavailable | equipment_unavailable | incorrect_assignment | unable_to_identify_subject | unsafe_to_proceed | other. Status becomes unable_to_complete. Not the same as cancel.",
+        "auth": "Cookie · assignee",
+        "path_params": [("task_id", "int", "Task ID")],
+        "request": {"reason_code": "animal_unavailable", "notes": "Moved to another paddock", "client_request_id": "unable-12"},
+        "success": envelope(
+            {**TASK, "status": "unable_to_complete", "unable_reason_code": "animal_unavailable", "unable_to_complete_at": "2026-08-27T11:00:00+00:00"},
+            "Unable-to-complete recorded.",
+        ),
+        "error": err("TASK_ALREADY_COMPLETED", "Completed tasks cannot be marked unable.", "409"),
+    },
+    {
+        "tag": "Operations",
+        "method": "POST",
+        "path": "/api/v2/operations/tasks/{task_id}/reopen/",
+        "title": "Reopen task",
+        "explain": "Manager/owner only. Reopens unable_to_complete or cancelled tasks (not completed). Optional new assignee_id and due_at. Status becomes assigned if an assignee is set, otherwise draft.",
+        "auth": "Cookie · assign_operation / owner",
+        "path_params": [("task_id", "int", "Task ID")],
+        "request": {"reason": "Animal returned", "assignee_id": WORKER_ID},
+        "success": envelope({**TASK, "status": "assigned", "unable_reason_code": None}, "Task reopened successfully."),
+        "error": err("TASK_CANNOT_BE_REOPENED", "Ordinary workers must not reopen completed tasks.", "409"),
     },
     {
         "tag": "Operations",
@@ -860,7 +1073,7 @@ ENDPOINTS = [
         "method": "GET",
         "path": "/api/v2/operations/schedules/",
         "title": "List schedules",
-        "explain": "Recurring templates. Generating a task is a separate POST …/run/ — there is no background cron yet.",
+        "explain": "Recurring templates. List GET also runs due schedules (process_due_schedules). A cron command `run_due_schedules` does the same on sandbox start.",
         "auth": "Cookie",
         "query": [("page", "int", "no", "Page"), ("page_size", "int", "no", "Page size"), ("farm_id", "int", "no", "Farm")],
         "success": envelope(
@@ -917,6 +1130,52 @@ ENDPOINTS = [
         "error": err("SCHEDULE_NOT_FOUND", "Schedule could not be found.", "404"),
     },
     {
+        "tag": "Operations",
+        "method": "GET",
+        "path": "/api/v2/operations/schedules/{schedule_id}/",
+        "title": "Schedule detail",
+        "explain": "One recurring template.",
+        "auth": "Cookie · view_operation",
+        "path_params": [("schedule_id", "int", "Schedule ID")],
+        "success": envelope(
+            {
+                "id": 1,
+                "farm_id": 1,
+                "task_type": "vaccination",
+                "title": "Monthly CBPP round",
+                "recurrence": "monthly",
+                "next_run_at": "2026-09-01T07:00:00+00:00",
+                "is_active": True,
+            },
+            "Schedule fetched successfully.",
+        ),
+        "error": err("SCHEDULE_NOT_FOUND", "Schedule could not be found.", "404"),
+    },
+    {
+        "tag": "Operations",
+        "method": "PATCH",
+        "path": "/api/v2/operations/schedules/{schedule_id}/",
+        "title": "Update schedule",
+        "explain": "Partial update. Send only fields to change, including is_active.",
+        "auth": "Cookie · create_operation",
+        "path_params": [("schedule_id", "int", "Schedule ID")],
+        "request": {"title": "Monthly CBPP round", "next_run_at": "2026-10-01T07:00:00Z"},
+        "success": envelope({"id": 1, "title": "Monthly CBPP round", "is_active": True}, "Schedule updated successfully."),
+        "error": AUTH_401,
+    },
+    {
+        "tag": "Operations",
+        "method": "POST",
+        "path": "/api/v2/operations/schedules/{schedule_id}/deactivate/",
+        "title": "Deactivate schedule",
+        "explain": "Sets is_active false. Does not delete history. Reactivate with PATCH is_active true.",
+        "auth": "Cookie · create_operation",
+        "path_params": [("schedule_id", "int", "Schedule ID")],
+        "request": {},
+        "success": envelope({"id": 1, "title": "Monthly CBPP round", "is_active": False}, "Schedule deactivated successfully."),
+        "error": err("SCHEDULE_NOT_FOUND", "Schedule could not be found.", "404"),
+    },
+    {
         "tag": "Timeline",
         "method": "GET",
         "path": "/api/v2/timeline/",
@@ -938,14 +1197,16 @@ ENDPOINTS = [
         "method": "POST",
         "path": "/api/v2/health/observations/",
         "title": "Record observation",
-        "explain": "Thin clinical note. Optional case_id. create_task true opens a follow-up observation task. Treatments still use task complete() or legacy POST /api/health/treatment/.",
+        "explain": "Thin clinical note. Optional case_id. create_case true opens a HealthCase; default false does not auto-create a case. create_task true opens a follow-up observation task. Treatments still use task complete() or legacy POST /api/health/treatment/.",
         "auth": "Cookie · add_health",
         "request": {
             "farm_id": 1,
             "animal_id": 15,
             "symptoms": "Limping on front left",
             "severity": "mild",
+            "create_case": False,
             "create_task": False,
+            "client_request_id": "obs-standalone-001",
         },
         "success": envelope(
             {
@@ -953,7 +1214,7 @@ ENDPOINTS = [
                 "farm_id": 1,
                 "animal_id": 15,
                 "group_id": None,
-                "case_id": 1,
+                "case_id": None,
                 "observed_at": "2026-08-27T10:00:00+00:00",
                 "symptoms": "Limping on front left",
                 "severity": "mild",
@@ -1040,6 +1301,32 @@ ENDPOINTS = [
     },
     {
         "tag": "Health",
+        "method": "GET",
+        "path": "/api/v2/health/cases/{case_id}/",
+        "title": "Health case detail",
+        "explain": "Case plus observations, treatments, follow_up, and open_tasks. Does not rewrite the Health engine.",
+        "auth": "Cookie · view_health",
+        "path_params": [("case_id", "int", "Case ID")],
+        "success": envelope(
+            {
+                "id": 1,
+                "farm_id": 1,
+                "animal_id": 15,
+                "title": "Lameness",
+                "status": "open",
+                "animal": {"id": 15, "tag_id": "COW-001"},
+                "observations": [{"id": 3, "symptoms": "Limping on front left", "severity": "mild"}],
+                "diagnosis": None,
+                "treatments": [],
+                "follow_up": {"required": False, "next_due_at": None},
+                "open_tasks": [],
+            },
+            "Health case fetched successfully.",
+        ),
+        "error": err("HEALTH_CASE_NOT_FOUND", "Health case could not be found.", "404"),
+    },
+    {
+        "tag": "Health",
         "method": "POST",
         "path": "/api/v2/health/cases/{case_id}/close/",
         "title": "Close health case",
@@ -1052,6 +1339,49 @@ ENDPOINTS = [
             "Health case closed successfully.",
         ),
         "error": err("CONFLICT", "Health case is already closed.", "409"),
+    },
+    {
+        "tag": "Health",
+        "method": "GET",
+        "path": "/api/v2/health/alerts/",
+        "title": "Actionable health alerts",
+        "explain": "HealthAlert rows with subject (animal/farm) and reference. Distinct from farm attention alerts at /farms/{id}/alerts/ and from the notification inbox.",
+        "auth": "Cookie · view_health",
+        "query": [
+            ("page", "int", "no", "Page"),
+            ("page_size", "int", "no", "Page size"),
+            ("farm_id", "int", "no", "Farm"),
+            ("status", "string", "no", "open (default) or resolved"),
+        ],
+        "success": envelope(
+            [
+                {
+                    "id": 9,
+                    "alert_type": "vaccination_due",
+                    "priority": "warning",
+                    "title": "Vaccination Due",
+                    "message": "COW-001 CBPP due",
+                    "status": "open",
+                    "subject": SUBJECT,
+                    "reference": {"type": "health_alert", "id": 9},
+                    "available_actions": ["view_subject", "create_task"],
+                    "detected_date": "2026-08-20",
+                }
+            ],
+            "Alerts fetched successfully.",
+            page_meta(total=1),
+        ),
+        "error": AUTH_401,
+    },
+    {
+        "tag": "Notifications",
+        "method": "GET",
+        "path": "/api/v2/notifications/unread-count/",
+        "title": "Unread badge count",
+        "explain": "Lightweight badge. Prefer this over paging the inbox just to count unread.",
+        "auth": "Cookie",
+        "success": envelope({"count": 4}, "Unread notification count fetched successfully."),
+        "error": AUTH_401,
     },
     {
         "tag": "Notifications",
@@ -1116,8 +1446,8 @@ ENDPOINTS = [
         "method": "GET",
         "path": "/api/v2/search/",
         "title": "Search",
-        "explain": "q is required. Returns animals (tag), people (email/username), and tasks (title). limit default 10, max 25.",
-        "auth": "Cookie · view_animal_details",
+        "explain": "q is required. Returns animals (tag + farm + species), people (display_name), and tasks (subject + assignee). Each bucket is omitted unless the caller has that capability. limit default 10, max 25.",
+        "auth": "Cookie",
         "query": [
             ("q", "string", "yes", "Search text"),
             ("farm_id", "int", "no", "Scope to farm"),
@@ -1126,9 +1456,19 @@ ENDPOINTS = [
         "success": envelope(
             {
                 "query": "COW-001",
-                "animals": [{"id": 15, "tag_id": "COW-001", "farm_id": 1, "status": "active"}],
-                "people": [],
-                "tasks": [TASK],
+                "animals": [
+                    {
+                        "id": 15,
+                        "tag_id": "COW-001",
+                        "species": "Cattle",
+                        "breed": "White Fulani",
+                        "farm": "North Paddock",
+                        "farm_id": 1,
+                        "status": "active",
+                    }
+                ],
+                "people": [{"id": WORKER_ID, "display_name": "Ibrahim Musa", "email": "ibrahim@farm.example", "role": None, "farm": None}],
+                "tasks": [{"id": 12, "title": "Vaccinate COW-001 — CBPP", "status": "assigned", "subject": SUBJECT, "assignee": "Ibrahim Musa"}],
             },
             "Search completed.",
         ),
@@ -1139,16 +1479,26 @@ ENDPOINTS = [
         "method": "GET",
         "path": "/api/v2/dashboard/organization/",
         "title": "Organization home",
-        "explain": "One call for org home. Do not fan out the 29 legacy dashboard routes for this screen.",
+        "explain": "One call for org home. Timezone Africa/Lagos. livestock / operations / attention / upcoming / farm_breakdown / recent_activity. Do not fan out the 29 legacy dashboard routes for this screen.",
         "auth": "Cookie",
         "success": envelope(
             {
-                "organization": {"id": ORG_ID, "name": "Zaima Farms", "status": "active"},
-                "farms": 1,
-                "animals": {"total": 120, "active": 110, "sold": 6, "dead": 4, "sick": 8, "quarantine": 2},
-                "tasks": {"open": 6, "overdue": 1},
-                "my_work": {"open_tasks": 2, "overdue_tasks": 1, "completed_today": 1},
-                "farm_breakdown": [{"id": 1, "name": "North Paddock", "status": "active", "animal_count": 120}],
+                "organization": {"id": ORG_ID, "name": "Zaima Farms", "status": "active", "timezone": "Africa/Lagos"},
+                "livestock": {"total": 120, "active": 110, "sold": 6, "dead": 4},
+                "operations": {"scheduled_today": 6, "completed_today": 2, "in_progress": 1, "overdue": 1},
+                "attention": {"critical_health": 8, "feed_risk": 0, "quarantine": 2, "overdue_operations": 1},
+                "upcoming": {"vaccinations_7_days": 3, "followups_7_days": 1, "expected_births_14_days": 2},
+                "farm_breakdown": [
+                    {
+                        "farm_id": 1,
+                        "name": "North Paddock",
+                        "active_animals": 110,
+                        "open_alerts": 3,
+                        "overdue_tasks": 1,
+                        "work_completion_percent": 80,
+                    }
+                ],
+                "recent_activity": [EVENT],
             },
             "Organization dashboard fetched successfully.",
         ),
@@ -1159,23 +1509,26 @@ ENDPOINTS = [
         "method": "GET",
         "path": "/api/v2/dashboard/farm/{farm_id}/",
         "title": "Farm home",
-        "explain": "Role-aware farm aggregate.",
+        "explain": "Role-aware farm aggregate. timezone Africa/Lagos. today bucket is scheduled/completed/in_progress/pending/overdue.",
         "auth": "Cookie · farm access",
         "path_params": [("farm_id", "int", "Farm ID")],
         "success": envelope(
             {
-                "farm": {"id": 1, "name": "North Paddock", "status": "active"},
-                "animals": {
-                    "total": 120,
-                    "active": 110,
-                    "sold": 6,
-                    "dead": 4,
-                    "sick": 8,
-                    "quarantine": 2,
-                    "pregnant": 9,
-                    "lactating": 5,
-                },
-                "tasks": {"open": 6, "overdue": 1, "mine": 2},
+                "farm": {"id": 1, "name": "North Paddock", "status": "active", "timezone": "Africa/Lagos"},
+                "livestock": {"total": 120, "active": 110, "sold": 6, "dead": 4, "quarantine": 2},
+                "today": {"scheduled": 6, "completed": 2, "in_progress": 1, "pending": 3, "overdue": 1},
+                "attention": [{"type": "alert", "id": 9, "title": "vaccination_due", "animal_id": 15}],
+                "upcoming": [TASK],
+                "team_work": [
+                    {
+                        "user_id": WORKER_ID,
+                        "display_name": "Ibrahim Musa",
+                        "assigned_today": 2,
+                        "completed_today": 1,
+                        "overdue": 0,
+                    }
+                ],
+                "recent_activity": [EVENT],
             },
             "Farm dashboard fetched successfully.",
         ),
@@ -1197,6 +1550,31 @@ ENDPOINTS = [
                 "upcoming": [],
             },
             "My work dashboard fetched successfully.",
+        ),
+        "error": AUTH_401,
+    },
+    {
+        "tag": "Dashboard",
+        "method": "GET",
+        "path": "/api/v2/dashboard/health/",
+        "title": "Health workspace",
+        "explain": "Veterinarian home: active cases, due treatments/vaccinations, quarantine, mortality count, and my_tasks. Optional farm_id.",
+        "auth": "Cookie · view_health",
+        "query": [("farm_id", "int", "no", "Scope to one farm")],
+        "success": envelope(
+            {
+                "active_health_cases": 4,
+                "critical_cases": 1,
+                "new_observations": 2,
+                "treatments_due": 3,
+                "followups_due": 1,
+                "vaccinations_due": 5,
+                "quarantined_animals": 2,
+                "mortality_cases": 1,
+                "withdrawal_animals": 2,
+                "my_tasks": [TASK],
+            },
+            "Health dashboard fetched successfully.",
         ),
         "error": AUTH_401,
     },
@@ -1227,7 +1605,7 @@ def build_html() -> str:
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
-<title>FarmOS Frontend API Contract v2</title>
+<title>FarmOS Frontend API Contract v2.1</title>
 <style>
   :root {{
     --primary: {PRIMARY};
@@ -1302,8 +1680,8 @@ def build_html() -> str:
 <div class="cover">
   <div class="brand">TATI FarmOS · Livestock</div>
   <h1>Building the frontend for <span>African Agriculture</span></h1>
-  <p class="muted">Official Web/Mobile contract v2.0 · sandbox <code>http://127.0.0.1:8082/api/v2/</code> · Swagger <code>/api/v2/docs</code></p>
-  <p>Every route below is what new screens should call. Responses are JSON. Brand primary from tatifarmos.com: <code>{PRIMARY}</code>.</p>
+  <p class="muted">Official Web/Mobile contract v2.1 · sandbox <code>http://127.0.0.1:8082/api/v2/</code> · Swagger <code>/api/v2/docs</code></p>
+  <p>v2.1 completes v2.0 — it does not rewrite it. Every route below is what new screens should call. Brand primary from tatifarmos.com: <code>{PRIMARY}</code>.</p>
 </div>
 """]
 
@@ -1311,11 +1689,14 @@ def build_html() -> str:
     parts.append(f"""
 <div class="note">
 <p><span class="pill">Base</span> Nginx sandbox <code>http://127.0.0.1:8082</code> · direct app <code>http://127.0.0.1:8001</code>. Live stack is unchanged on 8081/8000.</p>
-<p><span class="pill">Prefix</span> Official contract is <code>/api/v2/</code>. Legacy <code>/api/*</code> (240 routes) stays for existing clients. Do not mix envelopes.</p>
+<p><span class="pill">Prefix</span> Official contract is <code>/api/v2/</code> version <strong>2.1</strong>. Legacy <code>/api/*</code> (240 routes) stays for existing clients. Do not mix envelopes. GET <code>/api/v2/registry/</code> lists v2 vs approved-legacy vs deprecated.</p>
 <p><span class="pill">Auth</span> <code>POST /api/auth/login</code> sets <code>client_access_token</code> (HTTP-only). Send cookies on v2 requests. Unauthenticated v2 calls return <code>AUTHENTICATION_REQUIRED</code>.</p>
-<p><span class="pill">IDs</span> Use <code>livestock_species_id</code>, <code>livestock_breed_id</code>, <code>housing_unit_id</code>, integer <code>farm_id</code> / <code>animal_id</code>, UUID <code>organization_id</code> / user ids.</p>
+<p><span class="pill">IDs</span> Use <code>livestock_species_id</code>, <code>livestock_breed_id</code>, <code>housing_unit_id</code>, integer <code>farm_id</code> / <code>animal_id</code>, UUID <code>organization_id</code> / user ids. People screens use <code>display_name</code>. Tasks and timeline include <code>actor</code>, <code>subject</code>, <code>source</code>, <code>result</code>.</p>
 <p><span class="pill">Idempotency</span> On writes send <code>client_request_id</code> in JSON or header <code>X-Client-Request-Id</code>. Same key + same user returns the first JSON body and must not create a second vaccination/feed/sale.</p>
+<p><span class="pill">Timezone</span> Dashboard clocks use <code>Africa/Lagos</code>.</p>
 </div>
+<div class="label">What’s new in 2.1</div>
+<p>Animal list + PATCH, optional untagged create (<code>INT-…</code>), statuses <code>transferred_out</code> / <code>culled</code>, people/roles/permissions GETs, unable-to-complete + reopen, schedule GET/PATCH/deactivate + due-schedule runner, observation <code>create_case</code>, case detail, health alerts, health dashboard, unread-count, weight / pregnancy_check / mortality complete handlers. Reproduction, feed, finance, reports, movement, and master data stay on approved legacy <code>/api/*</code>.</p>
 <div class="label">Success envelope (every v2 200)</div>
 <pre>{escape(dumps({
     "success": True,
@@ -1342,11 +1723,14 @@ def build_html() -> str:
 <tr><td>App shell / nav</td><td><code>GET /users/me/</code> then <code>GET /users/me/capabilities/</code></td></tr>
 <tr><td>Org home</td><td><code>GET /dashboard/organization/</code> and <code>GET /organizations/{{id}}/summary/</code></td></tr>
 <tr><td>Farm home</td><td><code>GET /dashboard/farm/{{id}}/</code>, overview, people, units, alerts</td></tr>
+<tr><td>Herd list</td><td><code>GET /animals/</code> with filters; PATCH for identity/housing only</td></tr>
 <tr><td>Animal page</td><td><code>GET /animals/{{id}}/profile/</code> + <code>/timeline/</code></td></tr>
 <tr><td>Scanner</td><td><code>GET /animals/resolve-tag/{{tag}}/</code> or <code>GET /search/?q=</code></td></tr>
-<tr><td>My Work</td><td><code>GET /operations/my-work/</code>, today, overdue; accept / start / complete</td></tr>
-<tr><td>Ops manager</td><td><code>POST /operations/tasks/</code>, assign, list, schedules</td></tr>
-<tr><td>Inbox</td><td><code>GET /notifications/</code> — not farm alerts</td></tr>
+<tr><td>My Work</td><td><code>GET /operations/my-work/</code>, today, overdue; accept / start / complete / unable-to-complete</td></tr>
+<tr><td>Ops manager</td><td><code>POST /operations/tasks/</code>, assign, reopen, schedules, <code>GET /registry/</code></td></tr>
+<tr><td>People</td><td><code>GET /users/</code>, <code>/roles/</code>, <code>/permissions/</code> — invite stays <code>POST /api/admin/invite/</code></td></tr>
+<tr><td>Health workspace</td><td><code>GET /dashboard/health/</code>, cases, observations (<code>create_case</code>), <code>/health/alerts/</code></td></tr>
+<tr><td>Inbox</td><td><code>GET /notifications/unread-count/</code> then <code>GET /notifications/</code> — not farm alerts</td></tr>
 </table>
 <h3>Ibrahim vaccination flow</h3>
 <ol>
@@ -1366,6 +1750,9 @@ def build_html() -> str:
 <tr><td><code>sale</code></td><td><code>buyer_name</code>, <code>price</code>; <code>override_reason</code> if restricted</td><td>SalesRecord (sale_readiness rules)</td></tr>
 <tr><td><code>movement</code></td><td><code>to_housing_unit_id</code> or <code>to_unit_id</code></td><td>MovementRecord</td></tr>
 <tr><td><code>observation</code></td><td><code>symptoms</code></td><td>HealthObservation</td></tr>
+<tr><td><code>weight</code></td><td><code>weight</code>, optional <code>unit</code>, <code>measured_at</code></td><td>AnimalWeight (one per animal per day)</td></tr>
+<tr><td><code>pregnancy_check</code></td><td><code>result</code> (pregnant | not_pregnant); <code>expected_delivery_date</code> if pregnant</td><td>PregnancyRecord + <code>is_pregnant</code></td></tr>
+<tr><td><code>mortality</code></td><td>optional <code>cause</code>, <code>died_at</code></td><td>MortalityRecord + mark_dead + cancel open tasks</td></tr>
 <tr><td><code>generic</code></td><td>none</td><td>Task only + timeline</td></tr>
 </table>
 <p class="muted">Useful error codes: <code>TASK_ASSIGNMENT_REQUIRED</code>, <code>TASK_ALREADY_COMPLETED</code>, <code>INSUFFICIENT_FEED_STOCK</code>, <code>INSUFFICIENT_DRUG_STOCK</code>, <code>INVALID_ANIMAL_STATE</code> (sale blocked), <code>SESSION_EXPIRED</code>.</p>
@@ -1432,8 +1819,9 @@ def build_html() -> str:
         parts.append("</div></div>")
 
     parts.append(
-        f"<p class='muted'>TATI FarmOS Frontend API Contract v2 · primary {PRIMARY} · "
-        "do not parse legacy list keys (<code>current_page</code>, <code>num_pages</code>) on these routes.</p>"
+        f"<p class='muted'>TATI FarmOS Frontend API Contract v2.1 · primary {PRIMARY} · "
+        "do not parse legacy list keys (<code>current_page</code>, <code>num_pages</code>) on these routes. "
+        "Evidence uploads, bootstrap, retag history, and birth/offspring integrity enforcement are deferred.</p>"
         "</div></body></html>"
     )
     return "".join(parts)
@@ -1479,6 +1867,9 @@ def main():
     print(f"Wrote {HTML_PATH}")
     html_to_pdf(HTML_PATH, PDF_PATH)
     print(f"Wrote {PDF_PATH}")
+    shutil.copyfile(HTML_PATH, HTML_ALIAS)
+    shutil.copyfile(PDF_PATH, PDF_ALIAS)
+    print(f"Updated {PDF_ALIAS}")
 
 
 if __name__ == "__main__":

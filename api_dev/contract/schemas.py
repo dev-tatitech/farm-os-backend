@@ -22,7 +22,7 @@ class FarmPatchIn(Schema):
 
 class AnimalCreateIn(Schema):
     farm_id: int
-    tag_id: str
+    tag_id: Optional[str] = None
     gender: str
     source_type: str
     status: str = "active"
@@ -33,6 +33,18 @@ class AnimalCreateIn(Schema):
     estimated_age_months: Optional[int] = None
     mother_id: Optional[int] = None
     notes: Optional[str] = None
+    client_request_id: Optional[str] = None
+
+
+class AnimalPatchIn(Schema):
+    livestock_breed_id: Optional[int] = None
+    livestock_species_id: Optional[int] = None
+    housing_unit_id: Optional[int] = None
+    notes: Optional[str] = None
+    tag_id: Optional[str] = None
+    gender: Optional[str] = None
+    dob: Optional[date] = None
+    estimated_age_months: Optional[int] = None
     client_request_id: Optional[str] = None
 
 
@@ -92,7 +104,45 @@ class TaskCompleteIn(Schema):
     symptoms: Optional[str] = None
     observed_at: Optional[datetime] = None
     case_id: Optional[int] = None
+    weight: Optional[float] = None
+    unit: Optional[str] = None
+    measured_at: Optional[datetime] = None
+    result: Optional[str] = None
+    checked_at: Optional[date] = None
+    expected_delivery_date: Optional[date] = None
+    died_at: Optional[datetime] = None
+    cause: Optional[str] = None
+    related_case_id: Optional[int] = None
+    performed_at: Optional[datetime] = None
+    device_id: Optional[str] = None
+    recorded_at_device: Optional[datetime] = None
     payload: Optional[Any] = None
+
+
+class TaskUnableIn(Schema):
+    reason_code: str
+    notes: str = ""
+    performed_at: Optional[datetime] = None
+    client_request_id: Optional[str] = None
+
+
+class TaskReopenIn(Schema):
+    due_at: Optional[datetime] = None
+    assignee_id: Optional[UUID] = None
+    reason: str = ""
+    client_request_id: Optional[str] = None
+
+
+class SchedulePatchIn(Schema):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    recurrence: Optional[str] = None
+    next_run_at: Optional[datetime] = None
+    assignee_id: Optional[UUID] = None
+    animal_id: Optional[int] = None
+    group_id: Optional[int] = None
+    is_active: Optional[bool] = None
+    client_request_id: Optional[str] = None
 
 
 class ScheduleCreateIn(Schema):
@@ -119,6 +169,7 @@ class ObservationIn(Schema):
     severity: str = "mild"
     observed_at: Optional[datetime] = None
     create_task: bool = False
+    create_case: bool = False
     assignee_id: Optional[UUID] = None
     client_request_id: Optional[str] = None
 

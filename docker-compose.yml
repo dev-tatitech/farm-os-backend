@@ -9,13 +9,18 @@ services:
       daphne -b 0.0.0.0 -p 8000 api.asgi:application
       "
     environment:
-      - DEBUG=True
+      - DEBUG=${DEBUG:-True}
       - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
       - LOCAL_PORT=8000
       - LOCAL_DB_NAME=${DB_NAME}
       - LOCAL_USERNAME=${DB_USER}
       - LOCAL_HOSTNAME=${DB_HOST}
       - LOCAL_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_HOST=farmos_db
+      - DB_PORT=5432
     depends_on:
       - farmos_db
       - redis
@@ -34,20 +39,19 @@ services:
     container_name: farmos-dev-backend
     command: >
       sh -c "
-      python manage.py migrate --noinput &&
+      python manage.py migrate --noinput || true
       python manage.py collectstatic --noinput &&
+      python manage.py run_due_schedules || true &&
       daphne -b 0.0.0.0 -p 8000 api.asgi:application
       "
     environment:
-      - DEBUG=True
+      - DEBUG=${DEBUG:-True}
       - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
       - DB_NAME=farmos_dev
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_HOST=farmos_dev_db
       - DB_PORT=5432
-      - ALLOWED_HOSTS=localhost,127.0.0.1,[::1],farmos_dev,nginx,nginx_dev
-      - CSRF_TRUSTED_ORIGINS=http://localhost:8082,http://127.0.0.1:8082,http://localhost:8001,http://127.0.0.1:8001
     depends_on:
       farmos_dev_db:
         condition: service_healthy

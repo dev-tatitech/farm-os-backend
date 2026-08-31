@@ -11,13 +11,14 @@ from .farms import farms_router
 from .health import health_router
 from .notify import notify_router
 from .ops import ops_router
-from .orgs import orgs_router, users_router
+from .orgs import orgs_router, permissions_router, roles_router, users_router
+from .registry import registry_router
 from .search import search_router
 from .timeline import timeline_router
 
 v2_api = NinjaAPI(
-    title="FarmOS Frontend API Contract v2 — Dev",
-    version="2.0",
+    title="FarmOS Frontend API Contract v2.1 — Dev",
+    version="2.1",
     description=(
         "Official Web/Mobile contract. Uses livestock_species_id, "
         "livestock_breed_id, housing_unit_id. Response envelope includes "
@@ -88,7 +89,7 @@ def on_django_validation(request, exc: DjangoValidationError):
 def contract_root(request):
     return 200, success_body(
         data={
-            "contract": "FarmOS Frontend API Contract v2",
+            "contract": "FarmOS Frontend API Contract v2.1",
             "legacy_prefix": "/api/",
             "this_prefix": "/api/v2/",
             "identifiers": [
@@ -101,11 +102,14 @@ def contract_root(request):
                 "group_id",
             ],
         },
-        message="v2 contract is available.",
+        message="v2.1 contract is available.",
     )
 
 
+v2_api.add_router("/registry/", registry_router)
 v2_api.add_router("/users/", users_router)
+v2_api.add_router("/roles/", roles_router)
+v2_api.add_router("/permissions/", permissions_router)
 v2_api.add_router("/organizations/", orgs_router)
 v2_api.add_router("/farms/", farms_router)
 v2_api.add_router("/animals/", animals_router)

@@ -1,5 +1,7 @@
+import uuid
+
 from django.core.exceptions import ValidationError
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.utils import timezone
 from ninja import Router
 
@@ -19,9 +21,61 @@ from .codes import ErrorCode
 from .envelope import V2Error, V2Success, success_body
 from .exceptions import ContractError
 from .helpers import begin_idempotency, paginated, store_idempotency
-from .schemas import AnimalCreateIn
+from .schemas import AnimalCreateIn, AnimalPatchIn
 
 animals_router = Router(tags=["Animals"])
+
+ALLOWED_CREATE_STATUSES = ("active", "sold", "dead", "transferred_out", "culled")
+ACTIVE_POPULATION = ("active",)
+
+
+def _age_months(animal):
+    today = timezone.localdate()
+    if animal.dob:
+        from dateutil.relativedelta import relativedelta as rdelta
+
+        diff = rdelta(today, animal.dob)
+        return diff.years * 12 + diff.months
+    return animal.estimated_age_months or 0
+
+
+def _internal_tag():
+    return f"INT-{uuid.uuid4().hex[:12].upper()}"
+
+
+def serialize_animal_card(animal):
+    species_name = (
+        animal.livestock_species.name
+        if animal.livestock_species
+        else (animal.species.name if animal.species else None)
+    )
+    breed_name = (
+        animal.livestock_breed.name
+        if animal.livestock_breed
+        else (animal.breed.name if animal.breed else None)
+    )
+    housing = None
+    if animal.housing_unit_id:
+        housing = {"id": animal.housing_unit_id, "name": animal.housing_unit.name}
+    return {
+        "id": animal.id,
+        "tag_id": animal.tag_id or None,
+        "farm_id": animal.farm_id,
+        "species": species_name,
+        "breed": breed_name,
+        "gender": animal.gender,
+        "age_months": _age_months(animal),
+        "lifecycle_status": animal.status,
+        "health_status": animal.health_status,
+        "housing_unit": housing,
+        "flags": {
+            "is_pregnant": animal.is_pregnant,
+            "is_lactating": animal.is_lactating,
+            "is_quarantine": animal.is_quarantine,
+            "needs_attention": animal.health_status in ("sick", "at_risk") or animal.is_quarantine,
+        },
+        "image_url": animal.image.url if animal.image else None,
+    }
 
 
 def build_animal_profile(animal):
@@ -112,6 +166,13 @@ def build_animal_profile(animal):
             "is_quarantine": animal.is_quarantine,
             "is_active": animal.is_active,
             "is_breeding_restricted": animal.is_breeding_restricted,
+            "_mutability": {
+                "is_active": "derived",
+                "is_pregnant": "derived",
+                "is_lactating": "derived",
+                "is_quarantine": "derived",
+                "is_breeding_restricted": "derived",
+            },
         },
         "card": {
             "id": animal.id,
@@ -182,6 +243,140 @@ def build_animal_profile(animal):
 
 
 @animals_router.get(
+    "/",
+    response={200: V2Success, 401: V2Error, 403: V2Error},
+    summary="List animals (card records)",
+)
+def list_animals(
+    request,
+    page: int = 1,
+    page_size: int = 20,
+    farm_id: int = None,
+    search: str = None,
+    livestock_species_id: int = None,
+    livestock_breed_id: int = None,
+    gender: str = None,
+    lifecycle_status: str = None,
+    health_status: str = None,
+    housing_unit_id: int = None,
+    group_id: int = None,
+    is_pregnant: bool = None,
+    is_lactating: bool = None,
+    is_quarantine: bool = None,
+    needs_attention: bool = None,
+    sort: str = "-id",
+):
+    user = require_user(request)
+    org = resolve_organization(user)
+    require_permission(user, org, Permissions.Animal.VIEW)
+    qs = Animal.objects.filter(farm__organization=org).select_related(
+        "farm", "livestock_species", "livestock_breed", "housing_unit", "species", "breed"
+    )
+    if farm_id is not None:
+        farm = require_farm(org, farm_id, user)
+        qs = qs.filter(farm=farm)
+    if search:
+        lookup = Q(tag_id__icontains=search) | Q(notes__icontains=search)
+        if search.isdigit():
+            lookup |= Q(id=int(search))
+        qs = qs.filter(lookup)
+    if livestock_species_id:
+        qs = qs.filter(livestock_species_id=livestock_species_id)
+    if livestock_breed_id:
+        qs = qs.filter(livestock_breed_id=livestock_breed_id)
+    if gender:
+        qs = qs.filter(gender=gender)
+    if lifecycle_status:
+        qs = qs.filter(status=lifecycle_status)
+    if health_status:
+        qs = qs.filter(health_status=health_status)
+    if housing_unit_id:
+        qs = qs.filter(housing_unit_id=housing_unit_id)
+    if group_id:
+        from animals.models import AnimalGroupMember
+
+        qs = qs.filter(group_memberships__group_id=group_id, group_memberships__status="ACTIVE")
+    if is_pregnant is not None:
+        qs = qs.filter(is_pregnant=is_pregnant)
+    if is_lactating is not None:
+        qs = qs.filter(is_lactating=is_lactating)
+    if is_quarantine is not None:
+        qs = qs.filter(is_quarantine=is_quarantine)
+    if needs_attention:
+        qs = qs.filter(Q(health_status__in=["sick", "at_risk"]) | Q(is_quarantine=True))
+    allowed_sort = {
+        "id",
+        "-id",
+        "tag_id",
+        "-tag_id",
+        "status",
+        "-status",
+        "created_at",
+        "-created_at",
+    }
+    qs = qs.order_by(sort if sort in allowed_sort else "-id").distinct()
+    return 200, paginated(qs, page, page_size, serialize_animal_card, "Animals fetched successfully.")
+
+
+@animals_router.patch(
+    "/{animal_id}/",
+    response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 409: V2Error, 422: V2Error},
+    summary="Partial animal update",
+)
+def patch_animal(request, animal_id: int, payload: AnimalPatchIn):
+    user = require_user(request)
+    org = resolve_organization(user)
+    require_permission(user, org, Permissions.Animal.UPDATE)
+    animal = require_animal(org, animal_id)
+    require_farm(org, animal.farm_id, user)
+    if animal.status in ("dead", "sold"):
+        code = ErrorCode.ANIMAL_ALREADY_DECEASED if animal.status == "dead" else ErrorCode.ANIMAL_ALREADY_SOLD
+        raise ContractError(409, code, "Exited animals cannot be updated through generic PATCH.")
+    if payload.tag_id:
+        if Animal.objects.filter(tag_id__iexact=payload.tag_id).exclude(id=animal.id).exists():
+            raise ContractError(409, ErrorCode.DUPLICATE_RECORD, "Tag ID already exists.")
+        animal.tag_id = payload.tag_id
+    if payload.notes is not None:
+        animal.notes = payload.notes
+    if payload.gender:
+        animal.gender = payload.gender
+    if payload.dob is not None:
+        animal.dob = payload.dob
+    if payload.estimated_age_months is not None:
+        animal.estimated_age_months = payload.estimated_age_months
+    if payload.livestock_species_id:
+        try:
+            animal.livestock_species = LivestockSpecies.objects.get(
+                id=payload.livestock_species_id, is_active=True
+            )
+        except LivestockSpecies.DoesNotExist:
+            raise ContractError(422, ErrorCode.INVALID_SPECIES, "Species could not be found.")
+    if payload.livestock_breed_id:
+        try:
+            breed = LivestockBreed.objects.get(id=payload.livestock_breed_id, is_active=True)
+        except LivestockBreed.DoesNotExist:
+            raise ContractError(422, ErrorCode.INVALID_BREED, "Breed could not be found.")
+        animal.livestock_breed = breed
+    if payload.housing_unit_id:
+        try:
+            animal.housing_unit = FarmHousingUnit.objects.get(
+                id=payload.housing_unit_id, farm=animal.farm, status="active"
+            )
+        except FarmHousingUnit.DoesNotExist:
+            raise ContractError(422, ErrorCode.INVALID_HOUSING_UNIT, "Housing unit could not be found.")
+    try:
+        animal.save()
+    except ValidationError as exc:
+        raise ContractError(
+            422,
+            ErrorCode.VALIDATION_ERROR,
+            "Animal could not be updated.",
+            errors=getattr(exc, "message_dict", {"details": getattr(exc, "messages", [str(exc)])}),
+        )
+    return 200, success_body(data=build_animal_profile(animal), message="Animal updated successfully.")
+
+
+@animals_router.get(
     "/{animal_id}/profile/",
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error},
     summary="Animal operational profile",
@@ -229,19 +424,20 @@ def create_animal(request, payload: AnimalCreateIn):
     if cached:
         return cached
     farm = require_farm(org, payload.farm_id, user)
-    if payload.status not in ("active", "sold", "dead"):
+    if payload.status not in ALLOWED_CREATE_STATUSES:
         raise ContractError(
             422,
             ErrorCode.VALIDATION_ERROR,
-            "status must be active, sold, or dead.",
+            "status must be active, sold, dead, transferred_out, or culled.",
             errors={"status": payload.status},
         )
-    if Animal.objects.filter(tag_id__iexact=payload.tag_id).exists():
+    tag_id = (payload.tag_id or "").strip()
+    if tag_id and Animal.objects.filter(tag_id__iexact=tag_id).exists():
         raise ContractError(409, ErrorCode.DUPLICATE_RECORD, "Tag ID already exists.")
     data = {
         "user": user,
         "farm": farm,
-        "tag_id": payload.tag_id,
+        "tag_id": tag_id or _internal_tag(),
         "gender": payload.gender,
         "source_type": payload.source_type,
         "status": payload.status,

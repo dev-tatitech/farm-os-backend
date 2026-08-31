@@ -10,6 +10,9 @@ from operations.services import (
     complete_task,
     create_task,
     get_task,
+    mark_unable_to_complete,
+    process_due_schedules,
+    reopen_task,
     run_schedule,
     serialize_schedule,
     serialize_task,
@@ -21,13 +24,49 @@ from .codes import ErrorCode
 from .envelope import V2Error, V2Success, success_body
 from .exceptions import ContractError
 from .helpers import begin_idempotency, paginated, store_idempotency
-from .schemas import ScheduleCreateIn, TaskAssignIn, TaskCancelIn, TaskCompleteIn, TaskCreateIn
+from .capabilities import build_capabilities, permission_codes_for_user
+from .identity import can_manage_people
+from .schemas import (
+    ScheduleCreateIn,
+    SchedulePatchIn,
+    TaskAssignIn,
+    TaskCancelIn,
+    TaskCompleteIn,
+    TaskCreateIn,
+    TaskReopenIn,
+    TaskUnableIn,
+)
 
 ops_router = Router(tags=["Operations"])
 
 
 def _task_perm(user, org, *codes):
     require_permission(user, org, *codes)
+
+
+def _caps(user, org):
+    return build_capabilities(user, org, permission_codes_for_user(user, org))["capabilities"]
+
+
+def _require_cap(user, org, name: str):
+    if not _caps(user, org).get(name):
+        raise ContractError(403, ErrorCode.PERMISSION_DENIED, f"{name} is required.")
+
+
+def _domain_complete_perm(task):
+    mapping = {
+        Task.Type.VACCINATION: (Permissions.Health.CREATE,),
+        Task.Type.TREATMENT: (Permissions.Health.CREATE,),
+        Task.Type.OBSERVATION: (Permissions.Health.CREATE,),
+        Task.Type.MORTALITY: (Permissions.Health.CREATE,),
+        Task.Type.WEIGHT: (Permissions.Animal.UPDATE, Permissions.Animal.CREATE),
+        Task.Type.PREGNANCY_CHECK: (Permissions.Reproduction.CREATE,),
+        Task.Type.FEED_ISSUANCE: (Permissions.Feed.CREATE,),
+        Task.Type.SALE: (Permissions.SalesRecord.CREATE,),
+        Task.Type.MOVEMENT: (Permissions.MovementRecord.CREATE,),
+        Task.Type.GENERIC: (Permissions.Animal.CREATE, Permissions.Farm.UPDATE),
+    }
+    return mapping.get(task.task_type, (Permissions.Animal.CREATE,))
 
 
 def _open_qs(org, user, farm_id=None):
@@ -59,7 +98,7 @@ def _payload_dict(payload: TaskCompleteIn) -> dict:
 def create_operations_task(request, payload: TaskCreateIn):
     user = require_user(request)
     org = resolve_organization(user)
-    _task_perm(user, org, Permissions.Health.CREATE, Permissions.Feed.CREATE, Permissions.Animal.CREATE)
+    _require_cap(user, org, "create_operation")
     key, cached = begin_idempotency(user, request, payload)
     if cached:
         return cached
@@ -98,7 +137,7 @@ def list_tasks(
 ):
     user = require_user(request)
     org = resolve_organization(user)
-    _task_perm(user, org, Permissions.Health.VIEW, Permissions.Feed.VIEW, Permissions.Animal.VIEW)
+    _require_cap(user, org, "view_operation")
     qs = _open_qs(org, user, farm_id)
     if assigned_to_me:
         qs = qs.filter(assigned_to=user)
@@ -123,7 +162,7 @@ def list_tasks(
 def task_detail(request, task_id: int):
     user = require_user(request)
     org = resolve_organization(user)
-    _task_perm(user, org, Permissions.Health.VIEW, Permissions.Feed.VIEW, Permissions.Animal.VIEW)
+    _require_cap(user, org, "view_operation")
     task = get_task(org, task_id)
     require_farm(org, task.farm_id, user)
     return 200, success_body(data=serialize_task(task), message="Task fetched successfully.")
@@ -137,7 +176,7 @@ def task_detail(request, task_id: int):
 def task_assign(request, task_id: int, payload: TaskAssignIn):
     user = require_user(request)
     org = resolve_organization(user)
-    _task_perm(user, org, Permissions.Farm.UPDATE)
+    _require_cap(user, org, "assign_operation")
     task = get_task(org, task_id)
     require_farm(org, task.farm_id, user)
     task = assign_task(task, user, payload.assignee_id)
@@ -180,19 +219,13 @@ def task_start(request, task_id: int):
 def task_complete(request, task_id: int, payload: TaskCompleteIn):
     user = require_user(request)
     org = resolve_organization(user)
-    _task_perm(
-        user,
-        org,
-        Permissions.Health.CREATE,
-        Permissions.Feed.CREATE,
-        Permissions.SalesRecord.CREATE,
-        Permissions.MovementRecord.CREATE,
-    )
+    _require_cap(user, org, "complete_operation")
     key, cached = begin_idempotency(user, request, payload)
     if cached:
         return cached
     task = get_task(org, task_id)
     require_farm(org, task.farm_id, user)
+    require_permission(user, org, *_domain_complete_perm(task))
     task = complete_task(task, user, _payload_dict(payload), evidence=payload.evidence or "")
     body = success_body(data=serialize_task(task), message="Task completed successfully.")
     store_idempotency(user, key, 200, body)
@@ -207,7 +240,7 @@ def task_complete(request, task_id: int, payload: TaskCompleteIn):
 def task_cancel(request, task_id: int, payload: TaskCancelIn):
     user = require_user(request)
     org = resolve_organization(user)
-    _task_perm(user, org, Permissions.Farm.UPDATE)
+    _require_cap(user, org, "cancel_operation")
     task = get_task(org, task_id)
     require_farm(org, task.farm_id, user)
     task = cancel_task(task, user, payload.reason)
@@ -223,7 +256,7 @@ def my_work(request, page: int = 1, page_size: int = 20, farm_id: int = None):
     user = require_user(request)
     org = resolve_organization(user)
     qs = _open_qs(org, user, farm_id).filter(assigned_to=user).exclude(
-        status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED]
+        status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED, Task.Status.UNABLE_TO_COMPLETE]
     )
     return 200, paginated(
         qs.order_by("due_at", "-priority"), page, page_size, serialize_task, "My work fetched successfully."
@@ -242,7 +275,7 @@ def today_work(request, page: int = 1, page_size: int = 20, farm_id: int = None)
     qs = (
         _open_qs(org, user, farm_id)
         .filter(assigned_to=user, due_at__date=today)
-        .exclude(status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED])
+        .exclude(status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED, Task.Status.UNABLE_TO_COMPLETE])
     )
     return 200, paginated(qs, page, page_size, serialize_task, "Today's work fetched successfully.")
 
@@ -258,7 +291,9 @@ def overdue_work(request, page: int = 1, page_size: int = 20, farm_id: int = Non
     qs = (
         _open_qs(org, user, farm_id)
         .filter(assigned_to=user, due_at__lt=timezone.now())
-        .exclude(status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED])
+        .exclude(
+            status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED, Task.Status.UNABLE_TO_COMPLETE]
+        )
     )
     return 200, paginated(qs, page, page_size, serialize_task, "Overdue work fetched successfully.")
 
@@ -271,7 +306,8 @@ def overdue_work(request, page: int = 1, page_size: int = 20, farm_id: int = Non
 def list_schedules(request, page: int = 1, page_size: int = 20, farm_id: int = None):
     user = require_user(request)
     org = resolve_organization(user)
-    _task_perm(user, org, Permissions.Health.VIEW, Permissions.Feed.VIEW)
+    _require_cap(user, org, "view_operation")
+    process_due_schedules()
     qs = TaskSchedule.objects.filter(organization=org)
     if farm_id is not None:
         farm = require_farm(org, farm_id, user)
@@ -287,7 +323,7 @@ def list_schedules(request, page: int = 1, page_size: int = 20, farm_id: int = N
 def create_schedule(request, payload: ScheduleCreateIn):
     user = require_user(request)
     org = resolve_organization(user)
-    _task_perm(user, org, Permissions.Health.CREATE, Permissions.Feed.CREATE)
+    _require_cap(user, org, "create_operation")
     farm = require_farm(org, payload.farm_id, user)
     if payload.recurrence not in TaskSchedule.Recurrence.values:
         raise ContractError(422, ErrorCode.VALIDATION_ERROR, "Invalid recurrence.")
@@ -320,7 +356,7 @@ def create_schedule(request, payload: ScheduleCreateIn):
 def run_schedule_endpoint(request, schedule_id: int):
     user = require_user(request)
     org = resolve_organization(user)
-    _task_perm(user, org, Permissions.Health.CREATE, Permissions.Feed.CREATE)
+    _require_cap(user, org, "create_operation")
     try:
         schedule = TaskSchedule.objects.get(id=schedule_id, organization=org)
     except TaskSchedule.DoesNotExist:
@@ -328,3 +364,110 @@ def run_schedule_endpoint(request, schedule_id: int):
     require_farm(org, schedule.farm_id, user)
     task = run_schedule(schedule, user)
     return 200, success_body(data=serialize_task(task), message="Schedule run successfully.")
+
+
+@ops_router.post(
+    "/tasks/{task_id}/unable-to-complete/",
+    response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 409: V2Error, 422: V2Error},
+    summary="Mark a task unable to complete",
+)
+def task_unable(request, task_id: int, payload: TaskUnableIn):
+    user = require_user(request)
+    org = resolve_organization(user)
+    key, cached = begin_idempotency(user, request, payload)
+    if cached:
+        return cached
+    task = get_task(org, task_id)
+    require_farm(org, task.farm_id, user)
+    task = mark_unable_to_complete(task, user, payload.dict())
+    body = success_body(data=serialize_task(task), message="Unable-to-complete recorded.")
+    store_idempotency(user, key, 200, body)
+    return 200, body
+
+
+@ops_router.post(
+    "/tasks/{task_id}/reopen/",
+    response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 409: V2Error},
+    summary="Reopen or reschedule unable work",
+)
+def task_reopen(request, task_id: int, payload: TaskReopenIn):
+    user = require_user(request)
+    org = resolve_organization(user)
+    if not (can_manage_people(user, org) or _caps(user, org).get("assign_operation")):
+        raise ContractError(403, ErrorCode.PERMISSION_DENIED, "Only a manager can reopen this task.")
+    task = get_task(org, task_id)
+    require_farm(org, task.farm_id, user)
+    task = reopen_task(task, user, payload.dict())
+    return 200, success_body(data=serialize_task(task), message="Task reopened successfully.")
+
+
+@ops_router.get(
+    "/schedules/{schedule_id}/",
+    response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error},
+    summary="Schedule detail",
+)
+def schedule_detail(request, schedule_id: int):
+    user = require_user(request)
+    org = resolve_organization(user)
+    _require_cap(user, org, "view_operation")
+    try:
+        schedule = TaskSchedule.objects.get(id=schedule_id, organization=org)
+    except TaskSchedule.DoesNotExist:
+        raise ContractError(404, ErrorCode.SCHEDULE_NOT_FOUND, "Schedule could not be found.")
+    require_farm(org, schedule.farm_id, user)
+    return 200, success_body(data=serialize_schedule(schedule), message="Schedule fetched successfully.")
+
+
+@ops_router.patch(
+    "/schedules/{schedule_id}/",
+    response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 422: V2Error},
+    summary="Update a schedule",
+)
+def schedule_patch(request, schedule_id: int, payload: SchedulePatchIn):
+    user = require_user(request)
+    org = resolve_organization(user)
+    _require_cap(user, org, "create_operation")
+    try:
+        schedule = TaskSchedule.objects.get(id=schedule_id, organization=org)
+    except TaskSchedule.DoesNotExist:
+        raise ContractError(404, ErrorCode.SCHEDULE_NOT_FOUND, "Schedule could not be found.")
+    require_farm(org, schedule.farm_id, user)
+    if payload.title is not None:
+        schedule.title = payload.title
+    if payload.description is not None:
+        schedule.description = payload.description
+    if payload.recurrence:
+        if payload.recurrence not in TaskSchedule.Recurrence.values:
+            raise ContractError(422, ErrorCode.VALIDATION_ERROR, "Invalid recurrence.")
+        schedule.recurrence = payload.recurrence
+    if payload.next_run_at:
+        schedule.next_run_at = payload.next_run_at
+    if payload.assignee_id is not None:
+        schedule.assignee_id = payload.assignee_id
+    if payload.animal_id is not None:
+        schedule.animal_id = payload.animal_id
+    if payload.group_id is not None:
+        schedule.group_id = payload.group_id
+    if payload.is_active is not None:
+        schedule.is_active = payload.is_active
+    schedule.save()
+    return 200, success_body(data=serialize_schedule(schedule), message="Schedule updated successfully.")
+
+
+@ops_router.post(
+    "/schedules/{schedule_id}/deactivate/",
+    response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error},
+    summary="Deactivate a schedule without deleting history",
+)
+def schedule_deactivate(request, schedule_id: int):
+    user = require_user(request)
+    org = resolve_organization(user)
+    _require_cap(user, org, "create_operation")
+    try:
+        schedule = TaskSchedule.objects.get(id=schedule_id, organization=org)
+    except TaskSchedule.DoesNotExist:
+        raise ContractError(404, ErrorCode.SCHEDULE_NOT_FOUND, "Schedule could not be found.")
+    require_farm(org, schedule.farm_id, user)
+    schedule.is_active = False
+    schedule.save(update_fields=["is_active", "updated_at"])
+    return 200, success_body(data=serialize_schedule(schedule), message="Schedule deactivated successfully.")

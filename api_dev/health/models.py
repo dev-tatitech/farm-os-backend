@@ -35,6 +35,13 @@ class TreatmentRecord(models.Model):
     treatment_date = models.DateField()
     next_follow_up_date = models.DateField(null=True, blank=True)
     notes = models.TextField(blank=True)
+    case = models.ForeignKey(
+        "health.HealthCase",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="treatments",
+    )
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

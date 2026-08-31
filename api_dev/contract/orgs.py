@@ -5,10 +5,11 @@ from ninja import Router
 
 from account.models import User
 from animals.models import Animal, AnimalEvent
+from common.permissions import Permissions
 from operations.models import Task
-from operations.services import serialize_event, work_summary_for
+from operations.services import serialize_event, serialize_task, work_summary_for
 from organization.models import Farm
-from role.models import Role
+from role.models import Permission, Role
 
 from .authz import (
     is_organization_owner,
@@ -21,6 +22,7 @@ from .codes import ErrorCode
 from .envelope import V2Error, V2Success, success_body
 from .exceptions import ContractError
 from .helpers import paginated
+from .identity import can_view_people, display_name
 from .schemas import OrgPatchIn
 
 orgs_router = Router(tags=["Organizations"])
@@ -44,6 +46,7 @@ def _org_payload(org, user):
         "state_region": org.state_region.name if org.state_region_id else None,
         "logo": org.logo.url if org.logo else None,
         "is_owner": is_organization_owner(user, org),
+        "timezone": "Africa/Lagos",
         "counts": {
             "farms": farms.count(),
             "people": people.count(),
@@ -65,8 +68,10 @@ def users_me(request):
     codes = permission_codes_for_user(user, org)
     data = {
         "id": str(user.id),
+        "display_name": display_name(user),
         "email": user.email,
         "username": user.username,
+        "phone": getattr(user, "phone", None) or getattr(user, "phone_number", None),
         "account_status": user.account_status,
         "is_admin": user.is_superuser,
         "organization": {
@@ -129,6 +134,151 @@ def users_me_tasks(request, page: int = 1, page_size: int = 20, status: str = No
     elif status:
         qs = qs.filter(status=status)
     return 200, paginated(qs, page, page_size, serialize_task, "Tasks fetched successfully.")
+
+
+def _user_operational(target: User, org, viewer):
+    return {
+        "id": str(target.id),
+        "display_name": display_name(target),
+        "email": target.email,
+        "phone": getattr(target, "phone", None) or getattr(target, "phone_number", None),
+        "account_status": target.account_status,
+        "organization": {"id": str(org.id), "name": org.name, "code": org.code},
+        "assignments": user_assignments(target, org),
+        "work_summary": work_summary_for(target, org),
+    }
+
+
+def _require_org_user(org, user_id) -> User:
+    try:
+        target = User.objects.get(id=user_id)
+    except (User.DoesNotExist, ValueError):
+        raise ContractError(404, ErrorCode.USER_NOT_FOUND, "User could not be found.")
+    if target.organization_id != org.id and org.user_id != target.id:
+        if not target.organizations.filter(id=org.id).exists():
+            raise ContractError(404, ErrorCode.USER_NOT_FOUND, "User could not be found.")
+    return target
+
+
+@users_router.get(
+    "/",
+    response={200: V2Success, 401: V2Error, 403: V2Error},
+    summary="List organization people",
+)
+def list_users(request, page: int = 1, page_size: int = 20, search: str = None):
+    user = require_user(request)
+    org = resolve_organization(user)
+    if not can_view_people(user, org):
+        raise ContractError(403, ErrorCode.PERMISSION_DENIED, "People administration is not available.")
+    qs = User.objects.filter(Q(organization=org) | Q(id=org.user_id)).distinct()
+    if search:
+        qs = qs.filter(Q(email__icontains=search) | Q(username__icontains=search) | Q(first_name__icontains=search))
+    return 200, paginated(
+        qs.order_by("email"),
+        page,
+        page_size,
+        lambda row: {
+            "id": str(row.id),
+            "display_name": display_name(row),
+            "email": row.email,
+            "account_status": row.account_status,
+        },
+        "People fetched successfully.",
+    )
+
+
+@users_router.get(
+    "/{user_id}/",
+    response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error},
+    summary="Manager-visible user operational profile",
+)
+def user_profile(request, user_id: UUID):
+    user = require_user(request)
+    org = resolve_organization(user)
+    if str(user.id) != str(user_id) and not can_view_people(user, org):
+        raise ContractError(403, ErrorCode.PERMISSION_DENIED, "You cannot view this user profile.")
+    target = _require_org_user(org, user_id)
+    return 200, success_body(
+        data=_user_operational(target, org, user), message="User profile fetched successfully."
+    )
+
+
+@users_router.get(
+    "/{user_id}/activity/",
+    response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error},
+    summary="Manager-visible user activity",
+)
+def user_activity(request, user_id: UUID, page: int = 1, page_size: int = 20):
+    user = require_user(request)
+    org = resolve_organization(user)
+    if str(user.id) != str(user_id) and not can_view_people(user, org):
+        raise ContractError(403, ErrorCode.PERMISSION_DENIED, "You cannot view this user activity.")
+    target = _require_org_user(org, user_id)
+    qs = (
+        AnimalEvent.objects.filter(farm__organization=org, created_by=target)
+        .select_related("event_type", "animal", "farm", "created_by")
+        .order_by("-event_date", "-id")
+    )
+    return 200, paginated(qs, page, page_size, serialize_event, "Activity fetched successfully.")
+
+
+@users_router.get(
+    "/{user_id}/tasks/",
+    response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error},
+    summary="Manager-visible user tasks",
+)
+def user_tasks(request, user_id: UUID, page: int = 1, page_size: int = 20, status: str = None):
+    user = require_user(request)
+    org = resolve_organization(user)
+    if str(user.id) != str(user_id) and not can_view_people(user, org):
+        raise ContractError(403, ErrorCode.PERMISSION_DENIED, "You cannot view this user's tasks.")
+    target = _require_org_user(org, user_id)
+    qs = Task.objects.filter(organization=org, assigned_to=target).select_related(
+        "animal", "assigned_to", "created_by", "farm"
+    )
+    if status == "open":
+        qs = qs.exclude(status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED, Task.Status.UNABLE_TO_COMPLETE])
+    elif status:
+        qs = qs.filter(status=status)
+    return 200, paginated(qs, page, page_size, serialize_task, "Tasks fetched successfully.")
+
+
+roles_router = Router(tags=["Users"])
+permissions_router = Router(tags=["Users"])
+
+
+@roles_router.get(
+    "/",
+    response={200: V2Success, 401: V2Error, 403: V2Error},
+    summary="List organization roles",
+)
+def list_roles(request):
+    user = require_user(request)
+    org = resolve_organization(user)
+    if not can_view_people(user, org):
+        raise ContractError(403, ErrorCode.PERMISSION_DENIED, "Roles are not available.")
+    rows = Role.objects.filter(Q(organization=org) | Q(organization__isnull=True)).order_by("name")
+    return 200, success_body(
+        data=[{"id": r.id, "name": r.name, "code": r.code} for r in rows],
+        message="Roles fetched successfully.",
+    )
+
+
+@permissions_router.get(
+    "/",
+    response={200: V2Success, 401: V2Error, 403: V2Error},
+    summary="List permission catalog",
+)
+def list_permissions(request):
+    user = require_user(request)
+    org = resolve_organization(user)
+    if not can_view_people(user, org):
+        raise ContractError(403, ErrorCode.PERMISSION_DENIED, "Permissions are not available.")
+    rows = Permission.objects.all().order_by("code")
+    return 200, success_body(
+        data=[{"id": p.id, "code": p.code, "name": getattr(p, "name", p.code)} for p in rows],
+        message="Permissions fetched successfully.",
+    )
 
 
 @orgs_router.get(

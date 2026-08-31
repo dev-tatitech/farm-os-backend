@@ -130,12 +130,14 @@ animal = Animal(
 )
 animal.save()
 
-inventory = FeedInventory.objects.create(
+inventory, _ = FeedInventory.objects.get_or_create(
     farm=farm,
     feed_name="E2E Hay",
-    quantity_available=Decimal("100.00"),
-    unit="kg",
+    defaults={"quantity_available": Decimal("100.00"), "unit": "kg"},
 )
+if inventory.quantity_available < Decimal("50.00"):
+    inventory.quantity_available = Decimal("100.00")
+    inventory.save(update_fields=["quantity_available"])
 
 owner_token = create_access_token({"sub": str(owner.id)})
 ibrahim_token = create_access_token({"sub": str(ibrahim.id)})

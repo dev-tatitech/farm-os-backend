@@ -42,7 +42,3 @@ __pycache__/
 *.config.local
 
 Arch.jpeg
-
-# Django migrations
-**/migrations/*
-!**/migrations/__init__.py

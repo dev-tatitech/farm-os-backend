@@ -106,6 +106,8 @@ def create_observation(request, payload: ObservationIn):
             animal_id=payload.animal_id,
             group_id=payload.group_id,
             assignee_id=payload.assignee_id,
+            source_type=Task.SourceType.HEALTH_OBSERVATION,
+            source_id=row.id,
         )
         data["task_id"] = task.id
     body = success_body(data=data, message="Observation recorded successfully.")

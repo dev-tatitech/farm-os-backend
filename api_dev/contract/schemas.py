@@ -186,3 +186,24 @@ class HealthCaseIn(Schema):
 class HealthCaseCloseIn(Schema):
     notes: str = ""
     client_request_id: Optional[str] = None
+
+
+class BirthCreateIn(Schema):
+    farm_id: int
+    mother_id: int
+    birth_date: date
+    number_of_offspring: int
+    number_alive: int
+    number_dead: int
+    notes: Optional[str] = None
+    client_request_id: Optional[str] = None
+
+
+class BirthRegisterOffspringIn(Schema):
+    tag_id: Optional[str] = None
+    gender: str
+    offspring_sequence: Optional[int] = None
+    birth_weight: Optional[float] = None
+    livestock_species_id: Optional[int] = None
+    livestock_breed_id: Optional[int] = None
+    client_request_id: Optional[str] = None

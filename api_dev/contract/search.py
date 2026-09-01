@@ -13,6 +13,25 @@ from .identity import can_view_people, display_name
 search_router = Router(tags=["Search"])
 
 
+def _search_person(user, org):
+    from role.models import UserRole
+
+    assignment = (
+        UserRole.objects.filter(user=user)
+        .select_related("role", "farm")
+        .filter(Q(farm__organization=org) | Q(farm__isnull=True))
+        .first()
+    )
+    return {
+        "id": str(user.id),
+        "display_name": display_name(user),
+        "email": user.email,
+        "role": assignment.role.name if assignment else None,
+        "farm": assignment.farm.name if assignment and assignment.farm_id else None,
+        "farm_id": assignment.farm_id if assignment else None,
+    }
+
+
 @search_router.get(
     "/",
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error},
@@ -62,20 +81,12 @@ def search(request, q: str, farm_id: int = None, limit: int = 10):
                 "breed": a.livestock_breed.name if a.livestock_breed else None,
                 "farm": a.farm.name,
                 "farm_id": a.farm_id,
+                "lifecycle_status": a.status,
                 "status": a.status,
             }
             for a in animals
         ],
-        "people": [
-            {
-                "id": str(p.id),
-                "display_name": display_name(p),
-                "email": p.email,
-                "role": None,
-                "farm": None,
-            }
-            for p in people
-        ],
+        "people": [_search_person(p, org) for p in people],
         "tasks": [
             {
                 "id": t.id,

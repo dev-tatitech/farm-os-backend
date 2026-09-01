@@ -45,7 +45,8 @@ REGISTRY = [
     {"domain": "Health", "operation": "Health alerts", "endpoint": "GET /api/v2/health/alerts/", "status": V2},
     {"domain": "Reproduction", "operation": "Insemination", "endpoint": "/api/reproduction/", "status": LEGACY},
     {"domain": "Reproduction", "operation": "Pregnancy", "endpoint": "/api/reproduction/", "status": LEGACY},
-    {"domain": "Reproduction", "operation": "Birth / offspring", "endpoint": "/api/reproduction/", "status": LEGACY},
+    {"domain": "Reproduction", "operation": "Birth / offspring slots", "endpoint": "/api/v2/reproduction/births/", "status": V2},
+    {"domain": "Reproduction", "operation": "Legacy birth / insemination", "endpoint": "/api/reproduction/", "status": LEGACY},
     {"domain": "Feed", "operation": "Inventory / issuance / batches", "endpoint": "/api/feed/", "status": LEGACY},
     {"domain": "Production", "operation": "Milk / production records", "endpoint": "/api/animals/", "status": LEGACY},
     {"domain": "Finance", "operation": "Transactions / cost summary", "endpoint": "/api/finance/", "status": LEGACY},
@@ -66,6 +67,6 @@ REGISTRY = [
 def endpoint_registry(request):
     require_user(request)
     return 200, success_body(
-        data={"contract": "2.1", "entries": REGISTRY},
+        data={"contract": "2.2", "entries": REGISTRY},
         message="Endpoint registry fetched successfully.",
     )

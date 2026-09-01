@@ -113,6 +113,7 @@ def serialize_task(task: Task) -> dict:
     from contract.identity import actor_payload, display_name, reference_payload, subject_payload
 
     overdue = bool(task.is_open and task.due_at and task.due_at < timezone.now())
+    source_id = task.source_id or (task.schedule_id if task.source_type == Task.SourceType.SCHEDULE else None)
     return {
         "id": task.id,
         "farm_id": task.farm_id,
@@ -124,7 +125,8 @@ def serialize_task(task: Task) -> dict:
         "task_type": task.task_type,
         "title": task.title,
         "description": task.description,
-        "status": "overdue" if overdue else task.status,
+        "status": task.status,
+        "is_overdue": overdue,
         "priority": task.priority,
         "due_at": json_value(task.due_at),
         "assigned_to": str(task.assigned_to_id) if task.assigned_to_id else None,
@@ -143,7 +145,10 @@ def serialize_task(task: Task) -> dict:
         "cancelled_at": json_value(task.cancelled_at),
         "unable_to_complete_at": json_value(task.unable_to_complete_at),
         "unable_reason_code": task.unable_reason_code or None,
-        "source": reference_payload(task.source_type, task.source_id or task.schedule_id),
+        "source": {
+            "type": task.source_type or Task.SourceType.MANUAL,
+            "id": source_id,
+        },
         "result": reference_payload(task.result_reference_table, task.result_reference_id),
         "subject": subject_payload(animal=task.animal, farm=task.farm),
         "result_reference_table": task.result_reference_table or None,
@@ -346,7 +351,8 @@ def accept_task(task: Task, actor) -> Task:
     if not task.assigned_to_id:
         task.assigned_to = actor
     task.status = Task.Status.ACCEPTED
-    task.accepted_at = timezone.now()
+    if not task.accepted_at:
+        task.accepted_at = timezone.now()
     task.save(update_fields=["assigned_to", "status", "accepted_at", "updated_at"])
     TaskAssignment.objects.filter(task=task, user=task.assigned_to).update(
         status=TaskAssignment.Status.ACCEPTED, accepted_at=task.accepted_at
@@ -361,12 +367,15 @@ def start_task(task: Task, actor) -> Task:
         raise ContractError(
             403, ErrorCode.TASK_NOT_ASSIGNED_TO_USER, "Only the assignee can start this task."
         )
-    if task.status == Task.Status.ASSIGNED or task.status == Task.Status.DRAFT:
+    if task.status in (Task.Status.ASSIGNED, Task.Status.DRAFT):
         accept_task(task, actor)
         task.refresh_from_db()
     task.status = Task.Status.IN_PROGRESS
-    task.started_at = timezone.now()
-    task.save(update_fields=["status", "started_at", "updated_at"])
+    if not task.started_at:
+        task.started_at = timezone.now()
+    if not task.accepted_at:
+        task.accepted_at = task.started_at
+    task.save(update_fields=["status", "started_at", "accepted_at", "updated_at"])
     return task
 
 
@@ -375,9 +384,12 @@ def cancel_task(task: Task, actor, reason: str = "") -> Task:
         raise ContractError(409, ErrorCode.TASK_ALREADY_CANCELLED, "Task cannot be cancelled.")
     if task.status == Task.Status.COMPLETED:
         raise ContractError(409, ErrorCode.TASK_ALREADY_COMPLETED, "Task cannot be cancelled.")
+    if not (reason or "").strip():
+        raise ContractError(422, ErrorCode.VALIDATION_ERROR, "cancelled_reason is required.")
     task.status = Task.Status.CANCELLED
-    task.cancelled_at = timezone.now()
-    task.cancel_reason = reason or ""
+    if not task.cancelled_at:
+        task.cancelled_at = timezone.now()
+    task.cancel_reason = reason.strip()
     task.save(update_fields=["status", "cancelled_at", "cancel_reason", "updated_at"])
     emit_event(
         task.farm,
@@ -493,6 +505,8 @@ def _complete_vaccination(task: Task, actor, payload: dict):
             due_at=record.next_due_date,
             assignee_id=task.assigned_to_id,
             parent=task,
+            source_type=Task.SourceType.VACCINATION_FOLLOW_UP,
+            source_id=record.id,
         )
     return "vaccination_record", record.id
 
@@ -564,6 +578,8 @@ def _complete_treatment(task: Task, actor, payload: dict):
             due_at=record.next_follow_up_date,
             assignee_id=task.assigned_to_id,
             parent=task,
+            source_type=Task.SourceType.TREATMENT_FOLLOW_UP,
+            source_id=record.id,
         )
     return "treatment_record", record.id
 
@@ -850,11 +866,38 @@ def _complete_mortality(task: Task, actor, payload: dict):
         animal=animal,
         event_date=record.death_date,
     )
-    Task.objects.filter(
-        animal=animal, organization=task.organization
-    ).exclude(id=task.id).exclude(
-        status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED]
-    ).update(status=Task.Status.CANCELLED, cancel_reason="Animal deceased", cancelled_at=timezone.now())
+    incompatible = (
+        Task.Type.VACCINATION,
+        Task.Type.TREATMENT,
+        Task.Type.FEED_ISSUANCE,
+        Task.Type.SALE,
+        Task.Type.MOVEMENT,
+        Task.Type.OBSERVATION,
+        Task.Type.WEIGHT,
+        Task.Type.PREGNANCY_CHECK,
+        Task.Type.MORTALITY,
+    )
+    now = timezone.now()
+    open_tasks = (
+        Task.objects.filter(animal=animal, organization=task.organization, task_type__in=incompatible)
+        .exclude(id=task.id)
+        .exclude(status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED])
+    )
+    for sibling in open_tasks:
+        sibling.status = Task.Status.CANCELLED
+        sibling.cancelled_at = now
+        sibling.cancel_reason = "system mortality"
+        sibling.save(update_fields=["status", "cancelled_at", "cancel_reason", "updated_at"])
+        emit_event(
+            sibling.farm,
+            "task_cancelled",
+            f"Task cancelled — {sibling.title}",
+            "system mortality",
+            "task",
+            sibling.id,
+            actor,
+            animal=animal,
+        )
     return "mortality_record", record.id
 
 
@@ -891,7 +934,7 @@ def mark_unable_to_complete(task: Task, actor, payload: Optional[dict] = None) -
         raise ContractError(422, ErrorCode.VALIDATION_ERROR, "Invalid reason_code.")
     previous = task.status
     task.status = Task.Status.UNABLE_TO_COMPLETE
-    task.unable_to_complete_at = as_datetime(payload.get("performed_at"))
+    task.unable_to_complete_at = timezone.now()
     task.unable_reason_code = reason
     task.unable_notes = payload.get("notes") or ""
     task.save(
@@ -935,6 +978,8 @@ def reopen_task(task: Task, actor, payload: Optional[dict] = None) -> Task:
         )
     if task.status not in (Task.Status.UNABLE_TO_COMPLETE, Task.Status.CANCELLED):
         raise ContractError(409, ErrorCode.TASK_CANNOT_BE_REOPENED, "Only unable or cancelled tasks can be reopened.")
+    previous = task.status
+    previous_reason = task.unable_reason_code or task.cancel_reason or ""
     if payload.get("assignee_id"):
         task.assigned_to = _get_assignee(task.organization, payload["assignee_id"])
     if payload.get("due_at"):
@@ -955,6 +1000,17 @@ def reopen_task(task: Task, actor, payload: Optional[dict] = None) -> Task:
             "started_at",
             "updated_at",
         ]
+    )
+    emit_event(
+        task.farm,
+        "task_reopened",
+        f"Task reopened — {task.title}",
+        f"Was {previous}. {payload.get('reason') or previous_reason}",
+        "task",
+        task.id,
+        actor,
+        animal=task.animal,
+        group=task.group,
     )
     if task.assigned_to_id:
         notify(
@@ -1073,6 +1129,7 @@ def run_schedule(schedule: TaskSchedule, actor) -> Task:
         existing = Task.objects.filter(schedule=locked, occurrence_key=occurrence_key).first()
         if existing:
             return existing
+        previous_next = locked.next_run_at
         task = create_task(
             org=locked.organization,
             farm=locked.farm,
@@ -1096,13 +1153,19 @@ def run_schedule(schedule: TaskSchedule, actor) -> Task:
 def process_due_schedules(now=None) -> int:
     now = now or timezone.now()
     created = 0
-    due = TaskSchedule.objects.filter(is_active=True, next_run_at__lte=now)
-    for schedule in due:
-        before = Task.objects.filter(schedule=schedule).count()
-        run_schedule(schedule, schedule.created_by)
-        after = Task.objects.filter(schedule=schedule).count()
-        if after > before:
-            created += 1
+    due_ids = list(
+        TaskSchedule.objects.filter(is_active=True, next_run_at__lte=now).values_list("id", flat=True)
+    )
+    for schedule_id in due_ids:
+        try:
+            schedule = TaskSchedule.objects.get(id=schedule_id)
+            before_key = schedule.next_run_at
+            task = run_schedule(schedule, schedule.created_by)
+            schedule.refresh_from_db()
+            if task and (schedule.next_run_at != before_key or not schedule.is_active):
+                created += 1
+        except ContractError:
+            continue
     return created
 
 

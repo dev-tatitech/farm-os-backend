@@ -64,7 +64,7 @@ entries = (body.get("data") or {}).get("entries") or []
 check("registry", ok(st, body) and len(entries) >= 20, http=st, n=len(entries))
 
 st, body = http("GET", "/api/v2/", token=owner_token)
-check("contract_version_2_1", ok(st, body) and "2.1" in str((body.get("data") or {}).get("contract")), http=st)
+check("contract_version_2_2", ok(st, body) and "2.2" in str((body.get("data") or {}).get("contract")), http=st)
 
 st, body = http("GET", "/api/v2/animals/?page=1&page_size=5", token=owner_token)
 data = body.get("data") or []

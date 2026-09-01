@@ -33,6 +33,7 @@ class Task(TimeStampedModel):
         HEALTH_CASE = "health_case", "Health case"
         HEALTH_OBSERVATION = "health_observation", "Health observation"
         TREATMENT_FOLLOW_UP = "treatment_follow_up", "Treatment follow-up"
+        VACCINATION_FOLLOW_UP = "vaccination_follow_up", "Vaccination follow-up"
         REPRODUCTION_EVENT = "reproduction_event", "Reproduction event"
         INVENTORY_RULE = "inventory_rule", "Inventory rule"
         SYSTEM = "system", "System"

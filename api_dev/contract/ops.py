@@ -11,7 +11,6 @@ from operations.services import (
     create_task,
     get_task,
     mark_unable_to_complete,
-    process_due_schedules,
     reopen_task,
     run_schedule,
     serialize_schedule,
@@ -25,7 +24,6 @@ from .envelope import V2Error, V2Success, success_body
 from .exceptions import ContractError
 from .helpers import begin_idempotency, paginated, store_idempotency
 from .capabilities import build_capabilities, permission_codes_for_user
-from .identity import can_manage_people
 from .schemas import (
     ScheduleCreateIn,
     SchedulePatchIn,
@@ -176,9 +174,9 @@ def task_detail(request, task_id: int):
 def task_assign(request, task_id: int, payload: TaskAssignIn):
     user = require_user(request)
     org = resolve_organization(user)
-    _require_cap(user, org, "assign_operation")
     task = get_task(org, task_id)
     require_farm(org, task.farm_id, user)
+    _require_cap(user, org, "reassign_operation" if task.assigned_to_id else "assign_operation")
     task = assign_task(task, user, payload.assignee_id)
     return 200, success_body(data=serialize_task(task), message="Task assigned successfully.")
 
@@ -255,6 +253,7 @@ def task_cancel(request, task_id: int, payload: TaskCancelIn):
 def my_work(request, page: int = 1, page_size: int = 20, farm_id: int = None):
     user = require_user(request)
     org = resolve_organization(user)
+    _require_cap(user, org, "view_operation")
     qs = _open_qs(org, user, farm_id).filter(assigned_to=user).exclude(
         status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED, Task.Status.UNABLE_TO_COMPLETE]
     )
@@ -271,6 +270,7 @@ def my_work(request, page: int = 1, page_size: int = 20, farm_id: int = None):
 def today_work(request, page: int = 1, page_size: int = 20, farm_id: int = None):
     user = require_user(request)
     org = resolve_organization(user)
+    _require_cap(user, org, "view_operation")
     today = timezone.localdate()
     qs = (
         _open_qs(org, user, farm_id)
@@ -288,6 +288,7 @@ def today_work(request, page: int = 1, page_size: int = 20, farm_id: int = None)
 def overdue_work(request, page: int = 1, page_size: int = 20, farm_id: int = None):
     user = require_user(request)
     org = resolve_organization(user)
+    _require_cap(user, org, "view_operation")
     qs = (
         _open_qs(org, user, farm_id)
         .filter(assigned_to=user, due_at__lt=timezone.now())
@@ -307,7 +308,6 @@ def list_schedules(request, page: int = 1, page_size: int = 20, farm_id: int = N
     user = require_user(request)
     org = resolve_organization(user)
     _require_cap(user, org, "view_operation")
-    process_due_schedules()
     qs = TaskSchedule.objects.filter(organization=org)
     if farm_id is not None:
         farm = require_farm(org, farm_id, user)
@@ -393,8 +393,7 @@ def task_unable(request, task_id: int, payload: TaskUnableIn):
 def task_reopen(request, task_id: int, payload: TaskReopenIn):
     user = require_user(request)
     org = resolve_organization(user)
-    if not (can_manage_people(user, org) or _caps(user, org).get("assign_operation")):
-        raise ContractError(403, ErrorCode.PERMISSION_DENIED, "Only a manager can reopen this task.")
+    _require_cap(user, org, "assign_operation")
     task = get_task(org, task_id)
     require_farm(org, task.farm_id, user)
     task = reopen_task(task, user, payload.dict())

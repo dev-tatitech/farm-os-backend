@@ -20,6 +20,7 @@ from .authz import (
 )
 from .envelope import V2Error, V2Success, success_body
 from .helpers import paginated
+from .identity import display_name, reference_payload, subject_payload
 from .schemas import FarmPatchIn
 
 farms_router = Router(tags=["Farms"])
@@ -156,10 +157,12 @@ def farm_people(request, farm_id: int):
         if owner:
             people[str(owner.id)] = {
                 "id": str(owner.id),
+                "display_name": display_name(owner),
                 "email": owner.email,
                 "username": owner.username,
+                "account_status": owner.account_status,
                 "is_owner": True,
-                "roles": [{"role": "owner", "farm_id": None}],
+                "roles": [{"role": "owner", "role_code": "owner", "farm_id": None}],
             }
     for row in rows:
         key = str(row.user_id)
@@ -167,8 +170,10 @@ def farm_people(request, farm_id: int):
             key,
             {
                 "id": key,
+                "display_name": display_name(row.user),
                 "email": row.user.email,
                 "username": row.user.username,
+                "account_status": row.user.account_status,
                 "is_owner": org.user_id == row.user_id,
                 "roles": [],
             },
@@ -236,6 +241,9 @@ def farm_alerts(request, farm_id: int, page: int = 1, page_size: int = 20, statu
         qs = qs.filter(status=status)
 
     def serialize(alert):
+        animal = None
+        if alert.reference_table == "animal" and alert.reference_id:
+            animal = Animal.objects.filter(id=alert.reference_id, farm=farm).first()
         return {
             "id": alert.id,
             "alert_type": alert.alert_type,
@@ -245,6 +253,9 @@ def farm_alerts(request, farm_id: int, page: int = 1, page_size: int = 20, statu
             "status": alert.status,
             "due_date": alert.due_date.isoformat() if alert.due_date else None,
             "created_at": alert.created_at.isoformat() if alert.created_at else None,
+            "subject": subject_payload(animal=animal, farm=farm),
+            "reference": reference_payload(alert.reference_table or alert.alert_type, alert.reference_id),
+            "available_actions": ["view_subject", "create_task"],
         }
 
     return 200, paginated(qs, page, page_size, serialize, "Alerts fetched successfully.")

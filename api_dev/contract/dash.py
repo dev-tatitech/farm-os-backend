@@ -121,6 +121,13 @@ def org_dashboard(request):
         },
         "farm_breakdown": farm_breakdown,
         "recent_activity": [serialize_event(event) for event in recent],
+        "formulas": {
+            "work_completion_percent": "completed_today / scheduled_today * 100; 100 when scheduled_today = 0",
+            "active_animals": "lifecycle_status = active",
+            "critical_health": "count of animals with health_status = sick",
+            "feed_risk": "open HealthAlert whose alert_type contains 'feed'",
+            "expected_births": "PregnancyRecord result=pregnant and expected_delivery_date within 14 days",
+        },
     }
     return 200, success_body(data=data, message="Organization dashboard fetched successfully.")
 
@@ -185,7 +192,18 @@ def farm_dashboard(request, farm_id: int):
             "overdue": open_tasks.filter(due_at__lt=now).count(),
         },
         "attention": [
-            {"type": "alert", "id": row.id, "title": row.alert_type, "animal_id": row.animal_id}
+            {
+                "type": "alert",
+                "id": row.id,
+                "title": row.alert_type.replace("_", " ").title(),
+                "priority": row.severity,
+                "subject": {
+                    "type": "animal",
+                    "id": row.animal_id,
+                    "label": row.animal.tag_id if row.animal_id else None,
+                },
+                "available_actions": ["view_subject", "create_task"],
+            }
             for row in alerts
         ],
         "upcoming": [
@@ -194,6 +212,11 @@ def farm_dashboard(request, farm_id: int):
         ],
         "team_work": team,
         "recent_activity": [serialize_event(event) for event in recent],
+        "formulas": {
+            "today.scheduled": "open tasks with due_at date = today",
+            "today.completed": "tasks completed today",
+            "active_animals": "lifecycle_status = active",
+        },
     }
     return 200, success_body(data=data, message="Farm dashboard fetched successfully.")
 

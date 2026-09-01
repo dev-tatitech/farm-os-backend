@@ -3,6 +3,7 @@ from ninja import NinjaAPI
 from ninja.errors import HttpError, ValidationError as NinjaValidationError
 
 from .animals import animals_router
+from .births import births_router
 from .codes import ErrorCode
 from .dash import dash_router
 from .envelope import V2Error, V2Success, error_body, success_body
@@ -17,12 +18,12 @@ from .search import search_router
 from .timeline import timeline_router
 
 v2_api = NinjaAPI(
-    title="FarmOS Frontend API Contract v2.1 — Dev",
-    version="2.1",
+    title="FarmOS Frontend API Contract v2.2 — Livestock MVP Release Candidate",
+    version="2.2",
     description=(
-        "Official Web/Mobile contract. Uses livestock_species_id, "
-        "livestock_breed_id, housing_unit_id. Response envelope includes "
-        "code and meta. Legacy /api/* is unchanged."
+        "v2.2 is the Livestock MVP Release Candidate. It closes the final "
+        "Product/QA findings from v2.1. No new MVP functionality should be "
+        "added after this point without Product change approval."
     ),
     docs_url="/docs",
     openapi_url="/openapi.json",
@@ -89,7 +90,8 @@ def on_django_validation(request, exc: DjangoValidationError):
 def contract_root(request):
     return 200, success_body(
         data={
-            "contract": "FarmOS Frontend API Contract v2.1",
+            "contract": "FarmOS Frontend API Contract v2.2",
+            "release": "Livestock MVP Release Candidate",
             "legacy_prefix": "/api/",
             "this_prefix": "/api/v2/",
             "identifiers": [
@@ -102,7 +104,7 @@ def contract_root(request):
                 "group_id",
             ],
         },
-        message="v2.1 contract is available.",
+        message="v2.2 Livestock MVP Release Candidate is available.",
     )
 
 
@@ -119,3 +121,4 @@ v2_api.add_router("/notifications/", notify_router)
 v2_api.add_router("/search/", search_router)
 v2_api.add_router("/dashboard/", dash_router)
 v2_api.add_router("/health/", health_router)
+v2_api.add_router("/reproduction/births/", births_router)

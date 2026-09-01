@@ -158,21 +158,17 @@ def build_animal_profile(animal):
     return {
         "id": animal.id,
         "tag_id": animal.tag_id,
+        "lifecycle_status": animal.status,
         "status": animal.status,
         "health_status": animal.health_status,
         "flags": {
             "is_pregnant": animal.is_pregnant,
             "is_lactating": animal.is_lactating,
             "is_quarantine": animal.is_quarantine,
-            "is_active": animal.is_active,
+            "needs_attention": animal.health_status in ("sick", "at_risk") or animal.is_quarantine,
+            "is_active": animal.status == "active",
             "is_breeding_restricted": animal.is_breeding_restricted,
-            "_mutability": {
-                "is_active": "derived",
-                "is_pregnant": "derived",
-                "is_lactating": "derived",
-                "is_quarantine": "derived",
-                "is_breeding_restricted": "derived",
-            },
+            "_mutability": "read_only_derived",
         },
         "card": {
             "id": animal.id,
@@ -180,6 +176,7 @@ def build_animal_profile(animal):
             "species": species_name,
             "breed": breed_name,
             "gender": animal.gender,
+            "lifecycle_status": animal.status,
             "status": animal.status,
             "age_months": age_months,
             "housing_unit": unit_name,

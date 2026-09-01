@@ -41,7 +41,6 @@ services:
       sh -c "
       python manage.py migrate --noinput || true
       python manage.py collectstatic --noinput &&
-      python manage.py run_due_schedules || true &&
       daphne -b 0.0.0.0 -p 8000 api.asgi:application
       "
     environment:
@@ -65,6 +64,28 @@ services:
       - ./api_dev:/app
       - static_volume_dev:/app/staticfiles
       - media_volume_dev:/app/media
+    restart: on-failure
+
+  farmos_dev_scheduler:
+    build: ./api_dev
+    container_name: farmos-dev-scheduler
+    command: >
+      sh -c "while true; do python manage.py run_due_schedules || true; sleep 60; done"
+    environment:
+      - DEBUG=${DEBUG:-True}
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+      - DB_NAME=farmos_dev
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_HOST=farmos_dev_db
+      - DB_PORT=5432
+    depends_on:
+      farmos_dev_db:
+        condition: service_healthy
+    networks:
+      - app_network
+    volumes:
+      - ./api_dev:/app
     restart: on-failure
 
   farmos_db:

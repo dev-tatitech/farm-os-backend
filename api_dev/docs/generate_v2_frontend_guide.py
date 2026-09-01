@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Frontend guide for FarmOS API Contract v2.1.
+Frontend guide for FarmOS API Contract v2.2 Release Candidate.
 
 Writes HTML + PDF. Brand green sampled from tatifarmos.com screenshot (#209850).
 
@@ -14,8 +14,8 @@ import subprocess
 from pathlib import Path
 
 OUTPUT_DIR = Path(__file__).resolve().parent
-HTML_PATH = OUTPUT_DIR / "FarmOS-Frontend-API-Contract-v2.1.html"
-PDF_PATH = OUTPUT_DIR / "FarmOS-Frontend-API-Contract-v2.1.pdf"
+HTML_PATH = OUTPUT_DIR / "FarmOS-Frontend-API-Contract-v2.2.html"
+PDF_PATH = OUTPUT_DIR / "FarmOS-Frontend-API-Contract-v2.2.pdf"
 HTML_ALIAS = OUTPUT_DIR / "FarmOS-Frontend-API-Contract-v2.html"
 PDF_ALIAS = OUTPUT_DIR / "FarmOS-Frontend-API-Contract-v2.pdf"
 
@@ -105,6 +105,7 @@ TASK = {
     "title": "Vaccinate COW-001 — CBPP",
     "description": "Annual CBPP shot",
     "status": "assigned",
+    "is_overdue": False,
     "priority": "high",
     "due_at": "2026-08-28T08:00:00+00:00",
     "assigned_to": WORKER_ID,
@@ -159,7 +160,8 @@ ENDPOINTS = [
         "auth": "Public",
         "success": envelope(
             {
-                "contract": "FarmOS Frontend API Contract v2.1",
+                "contract": "FarmOS Frontend API Contract v2.2",
+                "release": "Livestock MVP Release Candidate",
                 "legacy_prefix": "/api/",
                 "this_prefix": "/api/v2/",
                 "identifiers": [
@@ -172,7 +174,7 @@ ENDPOINTS = [
                     "group_id",
                 ],
             },
-            "v2.1 contract is available.",
+            "v2.2 Livestock MVP Release Candidate is available.",
         ),
         "error": AUTH_401,
     },
@@ -631,8 +633,10 @@ ENDPOINTS = [
             [
                 {
                     "id": WORKER_ID,
+                    "display_name": "Ibrahim Musa",
                     "email": "ibrahim@farm.example",
                     "username": "ibrahim",
+                    "account_status": "Active",
                     "is_owner": False,
                     "roles": [{"role": "Field Worker", "role_code": "e2e_field", "farm_id": 1}],
                 }
@@ -694,6 +698,9 @@ ENDPOINTS = [
                     "status": "open",
                     "due_date": "2026-08-29T00:00:00+00:00",
                     "created_at": "2026-08-20T00:00:00+00:00",
+                    "subject": SUBJECT,
+                    "reference": {"type": "vaccination_schedule", "id": 52},
+                    "available_actions": ["view_subject", "create_task"],
                 }
             ],
             "Alerts fetched successfully.",
@@ -928,7 +935,7 @@ ENDPOINTS = [
         "path": "/api/v2/operations/tasks/{task_id}/assign/",
         "title": "Assign or reassign",
         "explain": "Replaces the current assignee. Previous pending assignment is superseded. Worker gets a notification.",
-        "auth": "Cookie · update_farm / owner",
+        "auth": "Cookie · assign_operation / reassign_operation",
         "path_params": [("task_id", "int", "Task ID")],
         "request": {"assignee_id": WORKER_ID},
         "success": envelope({**TASK, "status": "assigned"}, "Task assigned successfully."),
@@ -958,7 +965,15 @@ ENDPOINTS = [
         "auth": "Cookie · assignee",
         "path_params": [("task_id", "int", "Task ID")],
         "request": {},
-        "success": envelope({**TASK, "status": "in_progress"}, "Task started successfully."),
+        "success": envelope(
+            {
+                **TASK,
+                "status": "in_progress",
+                "accepted_at": "2026-08-27T08:05:00+00:00",
+                "started_at": "2026-08-27T08:06:00+00:00",
+            },
+            "Task started successfully.",
+        ),
         "error": err("TASK_INVALID_STATE", "Task cannot be started.", "409"),
     },
     {
@@ -967,7 +982,7 @@ ENDPOINTS = [
         "path": "/api/v2/operations/tasks/{task_id}/complete/",
         "title": "Complete task (writes the domain record)",
         "explain": "This is the important call. It runs in one DB transaction: validate → write the domain record → mark task completed → emit timeline. Body fields depend on task_type — see the complete() payload appendix. Weight writes AnimalWeight; pregnancy_check writes PregnancyRecord and sets is_pregnant; mortality writes MortalityRecord, marks the animal dead, and cancels open tasks. If stock is short the task stays incomplete. Send client_request_id (or header X-Client-Request-Id) so a retry does not double-write.",
-        "auth": "Cookie · assignee with create permission",
+        "auth": "Cookie · complete_operation + domain write permission",
         "path_params": [("task_id", "int", "Task ID")],
         "request": {
             "vaccine_name": "CBPP",
@@ -981,6 +996,7 @@ ENDPOINTS = [
                 **TASK,
                 "status": "completed",
                 "completed_at": "2026-08-27T09:15:00+00:00",
+                "result": {"type": "vaccination_record", "id": 41},
                 "result_reference_table": "vaccination_record",
                 "result_reference_id": 41,
             },
@@ -998,10 +1014,13 @@ ENDPOINTS = [
         "path": "/api/v2/operations/tasks/{task_id}/cancel/",
         "title": "Cancel task",
         "explain": "Open tasks only. Notifies the assignee.",
-        "auth": "Cookie · update_farm / owner",
+        "auth": "Cookie · cancel_operation",
         "path_params": [("task_id", "int", "Task ID")],
         "request": {"reason": "Animal sold before visit"},
-        "success": envelope({**TASK, "status": "cancelled"}, "Task cancelled successfully."),
+        "success": envelope(
+            {**TASK, "status": "cancelled", "cancelled_at": "2026-08-27T11:30:00+00:00"},
+            "Task cancelled successfully.",
+        ),
         "error": err("TASK_INVALID_STATE", "Task cannot be cancelled.", "409"),
     },
     {
@@ -1073,7 +1092,7 @@ ENDPOINTS = [
         "method": "GET",
         "path": "/api/v2/operations/schedules/",
         "title": "List schedules",
-        "explain": "Recurring templates. List GET also runs due schedules (process_due_schedules). A cron command `run_due_schedules` does the same on sandbox start.",
+        "explain": "Read-only. GET never creates tasks. Due occurrences are generated by the farmos_dev_scheduler loop (`run_due_schedules` every 60s) or POST …/run/.",
         "auth": "Cookie",
         "query": [("page", "int", "no", "Page"), ("page_size", "int", "no", "Page size"), ("farm_id", "int", "no", "Farm")],
         "success": envelope(
@@ -1578,6 +1597,52 @@ ENDPOINTS = [
         ),
         "error": AUTH_401,
     },
+    {
+        "tag": "Reproduction",
+        "method": "POST",
+        "path": "/api/v2/reproduction/births/",
+        "title": "Record a birth",
+        "explain": "alive + dead must equal total_offspring. Creates one registration_required slot per live offspring. Dead offspring stay on the birth history only. Does not create animals for dead offspring.",
+        "auth": "Cookie · add_reproduction",
+        "request": {
+            "farm_id": 1,
+            "mother_id": 15,
+            "birth_date": "2026-08-31",
+            "number_of_offspring": 3,
+            "number_alive": 2,
+            "number_dead": 1,
+            "client_request_id": "birth-001",
+        },
+        "success": envelope(
+            {
+                "id": 8,
+                "mother_id": 15,
+                "total_offspring": 3,
+                "alive": 2,
+                "dead": 1,
+                "pending_offspring_registration": 2,
+                "registered": 0,
+                "offspring": [
+                    {"offspring_sequence": 1, "registration_status": "registration_required", "animal_id": None},
+                    {"offspring_sequence": 2, "registration_status": "registration_required", "animal_id": None},
+                ],
+            },
+            "Birth recorded successfully.",
+        ),
+        "error": err("VALIDATION_ERROR", "alive + dead must equal total_offspring.", "422"),
+    },
+    {
+        "tag": "Reproduction",
+        "method": "POST",
+        "path": "/api/v2/reproduction/births/{birth_id}/register-offspring/",
+        "title": "Register one live offspring",
+        "explain": "Consumes one registration_required slot and creates a born animal. Rejects a third live registration when only two live offspring were recorded.",
+        "auth": "Cookie · add_animal_details",
+        "path_params": [("birth_id", "int", "Birth ID")],
+        "request": {"gender": "female", "tag_id": "CALF-001", "client_request_id": "offspring-1"},
+        "success": envelope({"animal_id": 44, "birth": {"pending_offspring_registration": 1, "registered": 1}}, "Offspring registered successfully."),
+        "error": err("DUPLICATE_RECORD", "No live offspring registration slots remain.", "409"),
+    },
 ]
 
 
@@ -1605,7 +1670,7 @@ def build_html() -> str:
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
-<title>FarmOS Frontend API Contract v2.1</title>
+<title>FarmOS Frontend API Contract v2.2</title>
 <style>
   :root {{
     --primary: {PRIMARY};
@@ -1680,8 +1745,8 @@ def build_html() -> str:
 <div class="cover">
   <div class="brand">TATI FarmOS · Livestock</div>
   <h1>Building the frontend for <span>African Agriculture</span></h1>
-  <p class="muted">Official Web/Mobile contract v2.1 · sandbox <code>http://127.0.0.1:8082/api/v2/</code> · Swagger <code>/api/v2/docs</code></p>
-  <p>v2.1 completes v2.0 — it does not rewrite it. Every route below is what new screens should call. Brand primary from tatifarmos.com: <code>{PRIMARY}</code>.</p>
+  <p class="muted">Official Web/Mobile contract v2.2 · Livestock MVP Release Candidate · sandbox <code>http://127.0.0.1:8082/api/v2/</code></p>
+  <p><strong>Release freeze:</strong> v2.2 closes the final Product/QA findings from v2.1. No new MVP functionality after this point without Product change approval.</p>
 </div>
 """]
 
@@ -1696,7 +1761,7 @@ def build_html() -> str:
 <p><span class="pill">Timezone</span> Dashboard clocks use <code>Africa/Lagos</code>.</p>
 </div>
 <div class="label">What’s new in 2.1</div>
-<p>Animal list + PATCH, optional untagged create (<code>INT-…</code>), statuses <code>transferred_out</code> / <code>culled</code>, people/roles/permissions GETs, unable-to-complete + reopen, schedule GET/PATCH/deactivate + due-schedule runner, observation <code>create_case</code>, case detail, health alerts, health dashboard, unread-count, weight / pregnancy_check / mortality complete handlers. Reproduction, feed, finance, reports, movement, and master data stay on approved legacy <code>/api/*</code>.</p>
+<p>v2.2 RC: task timestamps, read-only schedule GET + independent scheduler, Operations capabilities, navigable farm alerts, correct task source/result, birth/offspring integrity, derived flags, <code>lifecycle_status</code>, farm people <code>display_name</code>, search role/farm context, and dashboard formulas. Feed, finance, reports, and movement stay approved legacy <code>/api/*</code>.</p>
 <div class="label">Success envelope (every v2 200)</div>
 <pre>{escape(dumps({
     "success": True,
@@ -1819,7 +1884,7 @@ def build_html() -> str:
         parts.append("</div></div>")
 
     parts.append(
-        f"<p class='muted'>TATI FarmOS Frontend API Contract v2.1 · primary {PRIMARY} · "
+        f"<p class='muted'>TATI FarmOS Frontend API Contract v2.2 RC · primary {PRIMARY} · "
         "do not parse legacy list keys (<code>current_page</code>, <code>num_pages</code>) on these routes. "
         "Evidence uploads, bootstrap, retag history, and birth/offspring integrity enforcement are deferred.</p>"
         "</div></body></html>"

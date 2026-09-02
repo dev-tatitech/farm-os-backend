@@ -122,11 +122,11 @@ def org_dashboard(request):
         "farm_breakdown": farm_breakdown,
         "recent_activity": [serialize_event(event) for event in recent],
         "formulas": {
-            "work_completion_percent": "completed_today / scheduled_today * 100; 100 when scheduled_today = 0",
-            "active_animals": "lifecycle_status = active",
+            "work_completion_percent": "completed eligible work today / scheduled eligible work today x 100; 100 when the denominator is 0",
+            "active_animals": "count of animals whose lifecycle_status = active",
             "critical_health": "count of animals with health_status = sick",
-            "feed_risk": "open HealthAlert whose alert_type contains 'feed'",
-            "expected_births": "PregnancyRecord result=pregnant and expected_delivery_date within 14 days",
+            "feed_risk": "count of open HealthAlert rows whose alert_type contains 'feed'",
+            "expected_births": "count of PregnancyRecord with result=pregnant and expected_delivery_date in the next 14 days",
         },
     }
     return 200, success_body(data=data, message="Organization dashboard fetched successfully.")
@@ -187,8 +187,10 @@ def farm_dashboard(request, farm_id: int):
             "completed": Task.objects.filter(
                 farm=farm, status=Task.Status.COMPLETED, completed_at__date=today
             ).count(),
-            "in_progress": open_tasks.filter(status=Task.Status.IN_PROGRESS).count(),
-            "pending": open_tasks.filter(status__in=[Task.Status.ASSIGNED, Task.Status.ACCEPTED]).count(),
+            "in_progress": open_tasks.filter(due_at__date=today, status=Task.Status.IN_PROGRESS).count(),
+            "pending": open_tasks.filter(due_at__date=today)
+            .exclude(status=Task.Status.IN_PROGRESS)
+            .count(),
             "overdue": open_tasks.filter(due_at__lt=now).count(),
         },
         "attention": [
@@ -213,9 +215,15 @@ def farm_dashboard(request, farm_id: int):
         "team_work": team,
         "recent_activity": [serialize_event(event) for event in recent],
         "formulas": {
-            "today.scheduled": "open tasks with due_at date = today",
-            "today.completed": "tasks completed today",
-            "active_animals": "lifecycle_status = active",
+            "today.scheduled": "open tasks whose due_at date is today",
+            "today.completed": "tasks with completed_at date = today",
+            "today.in_progress": "due-today open tasks whose lifecycle status is in_progress",
+            "today.pending": "due-today open tasks that are not in_progress (draft, assigned, or accepted). pending is an aggregate, not a task lifecycle status",
+            "today.overdue": "open tasks whose due_at is in the past; each row still returns its real lifecycle status plus is_overdue=true",
+            "active_animals": "count of animals whose lifecycle_status = active",
+            "critical_health": "count of animals with health_status = sick",
+            "feed_risk": "count of open HealthAlert rows whose alert_type contains 'feed'",
+            "expected_births": "count of PregnancyRecord with result=pregnant and expected_delivery_date in the next 14 days",
         },
     }
     return 200, success_body(data=data, message="Farm dashboard fetched successfully.")

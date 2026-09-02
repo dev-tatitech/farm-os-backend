@@ -1114,9 +1114,10 @@ def bump_schedule(schedule: TaskSchedule):
     schedule.save(update_fields=["next_run_at", "is_active", "updated_at"])
 
 
-def run_schedule(schedule: TaskSchedule, actor) -> Task:
+def run_schedule(schedule: TaskSchedule, actor, *, due_only: bool = False) -> Task:
     if not schedule.is_active:
         raise ContractError(409, ErrorCode.TASK_INVALID_STATE, "Schedule is not active.")
+    now = timezone.now()
     occurrence_key = schedule.next_run_at.isoformat()
     existing = Task.objects.filter(schedule=schedule, occurrence_key=occurrence_key).first()
     if existing:
@@ -1125,11 +1126,17 @@ def run_schedule(schedule: TaskSchedule, actor) -> Task:
         locked = TaskSchedule.objects.select_for_update().get(id=schedule.id)
         if not locked.is_active:
             raise ContractError(409, ErrorCode.TASK_INVALID_STATE, "Schedule is not active.")
+        if due_only and locked.next_run_at > now:
+            return (
+                Task.objects.filter(schedule=locked)
+                .exclude(occurrence_key="")
+                .order_by("-id")
+                .first()
+            )
         occurrence_key = locked.next_run_at.isoformat()
         existing = Task.objects.filter(schedule=locked, occurrence_key=occurrence_key).first()
         if existing:
             return existing
-        previous_next = locked.next_run_at
         task = create_task(
             org=locked.organization,
             farm=locked.farm,
@@ -1160,7 +1167,7 @@ def process_due_schedules(now=None) -> int:
         try:
             schedule = TaskSchedule.objects.get(id=schedule_id)
             before_key = schedule.next_run_at
-            task = run_schedule(schedule, schedule.created_by)
+            task = run_schedule(schedule, schedule.created_by, due_only=True)
             schedule.refresh_from_db()
             if task and (schedule.next_run_at != before_key or not schedule.is_active):
                 created += 1

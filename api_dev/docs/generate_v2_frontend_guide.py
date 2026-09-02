@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Frontend guide for FarmOS API Contract v2.2 Release Candidate.
+Frontend guide for FarmOS API Contract v2.2 Final Release Candidate.
 
 Writes HTML + PDF. Brand green sampled from tatifarmos.com screenshot (#209850).
 
@@ -89,6 +89,8 @@ ANIMAL_CARD = {
         "is_lactating": False,
         "is_quarantine": False,
         "needs_attention": False,
+        "is_active": True,
+        "_mutability": "read_only_derived",
     },
     "image_url": None,
 }
@@ -127,6 +129,14 @@ TASK = {
     "created_at": "2026-08-27T07:00:00+00:00",
 }
 
+OVERDUE_TASK = {**TASK, "status": "assigned", "is_overdue": True, "due_at": "2026-08-20T08:00:00+00:00"}
+SCHEDULE_TASK = {
+    **TASK,
+    "id": 302,
+    "source": {"type": "schedule", "id": 14},
+    "title": "Monthly CBPP round",
+}
+
 EVENT = {
     "id": 88,
     "farm_id": 1,
@@ -161,7 +171,7 @@ ENDPOINTS = [
         "success": envelope(
             {
                 "contract": "FarmOS Frontend API Contract v2.2",
-                "release": "Livestock MVP Release Candidate",
+                "release": "Livestock MVP Final Release Candidate",
                 "legacy_prefix": "/api/",
                 "this_prefix": "/api/v2/",
                 "identifiers": [
@@ -174,7 +184,7 @@ ENDPOINTS = [
                     "group_id",
                 ],
             },
-            "v2.2 Livestock MVP Release Candidate is available.",
+            "v2.2 Livestock MVP Final Release Candidate is available.",
         ),
         "error": AUTH_401,
     },
@@ -187,7 +197,7 @@ ENDPOINTS = [
         "auth": "Cookie",
         "success": envelope(
             {
-                "contract": "2.1",
+                "contract": "2.2",
                 "entries": [
                     {"domain": "Auth", "operation": "Login", "endpoint": "POST /api/auth/login", "status": "legacy_approved", "notes": "Only approved non-v2 envelope."},
                     {"domain": "Animals", "operation": "List", "endpoint": "GET /api/v2/animals/", "status": "v2"},
@@ -252,7 +262,7 @@ ENDPOINTS = [
         "method": "GET",
         "path": "/api/v2/users/me/capabilities/",
         "title": "Capabilities and navigation map",
-        "explain": "Drive UI chrome from capabilities and navigation booleans. Do not infer menus from raw permission strings alone. operations and my_work are true when the user can view health/feed/animal work.",
+        "explain": "Drive UI chrome from capabilities and navigation booleans. Do not infer menus from raw permission strings alone. operations and my_work follow view_operation.",
         "auth": "Cookie",
         "success": envelope(
             {
@@ -713,7 +723,7 @@ ENDPOINTS = [
         "method": "GET",
         "path": "/api/v2/animals/",
         "title": "List animals",
-        "explain": "Herd cards. Each row is the same card shape as create/profile (id, tag_id, flags, lifecycle_status). Filter; do not infer pregnancy/sold from this list’s flags for writes.",
+        "explain": "Herd cards. Each row is the same card shape as create/profile (id, tag_id, flags, lifecycle_status). status is a deprecated alias of lifecycle_status. Animal condition flags are read-only derived operational state — do not infer pregnancy/sold from this list’s flags for writes.",
         "auth": "Cookie · view_animal_details",
         "query": [
             ("page", "int", "no", "Page"),
@@ -740,7 +750,7 @@ ENDPOINTS = [
         "method": "POST",
         "path": "/api/v2/animals/",
         "title": "Progressive animal create",
-        "explain": "status must be active | sold | dead | transferred_out | culled (not pregnant/sick). tag_id is optional; empty/null generates INT-{uuid}. Breed and housing are optional. Born animals still need mother_id and dob. Optional client_request_id for offline retries.",
+        "explain": "Request field status is the lifecycle write value: active | sold | dead | transferred_out | culled (not pregnant/sick). Response uses lifecycle_status as the authoritative field; status is a deprecated alias. tag_id is optional; empty/null generates INT-{uuid}. Breed and housing are optional. Born animals still need mother_id and dob. Optional client_request_id for offline retries.",
         "auth": "Cookie · add_animal_details",
         "request": {
             "farm_id": 1,
@@ -759,6 +769,7 @@ ENDPOINTS = [
             {
                 "id": 16,
                 "tag_id": "INT-A1B2C3D4E5F6",
+                "lifecycle_status": "active",
                 "status": "active",
                 "health_status": "healthy",
                 "flags": {
@@ -766,6 +777,8 @@ ENDPOINTS = [
                     "is_lactating": False,
                     "is_quarantine": False,
                     "needs_attention": False,
+                    "is_active": True,
+                    "_mutability": "read_only_derived",
                 },
                 "card": {**ANIMAL_CARD, "id": 16, "tag_id": "INT-A1B2C3D4E5F6"},
             },
@@ -778,7 +791,7 @@ ENDPOINTS = [
         "method": "PATCH",
         "path": "/api/v2/animals/{animal_id}/",
         "title": "Partial animal update",
-        "explain": "Identity/housing/notes only. Do not send is_pregnant, is_lactating, is_quarantine, or sold/dead via PATCH — those change through operations (pregnancy_check, mortality, sale). Sold/dead via PATCH is rejected.",
+        "explain": "Identity/housing/notes only. Animal condition flags are read-only derived operational state: is_pregnant from an active pregnancy record, is_lactating from reproduction/production state, is_quarantine from an active quarantine record, needs_attention from backend health/ops rules, is_active from lifecycle_status = active. Do not PATCH is_pregnant, is_lactating, is_quarantine, needs_attention, is_active, or lifecycle_status — those change through domain workflows. Sold/dead via PATCH is rejected.",
         "auth": "Cookie · update_animal_details",
         "path_params": [("animal_id", "int", "Animal ID")],
         "request": {"notes": "Moved to Pen A", "housing_unit_id": 4, "tag_id": "COW-001"},
@@ -793,13 +806,14 @@ ENDPOINTS = [
         "method": "GET",
         "path": "/api/v2/animals/{animal_id}/profile/",
         "title": "Animal operational profile",
-        "explain": "Single screen payload: card, overview, reproduction, production, health, feeding, movement, sale_readiness, open_tasks. Keep GET /api/animals/animal-profile/v2/{id} working for old clients; new UI should use this path.",
+        "explain": "Single screen payload: card, overview, reproduction, production, health, feeding, movement, sale_readiness, open_tasks. lifecycle_status is authoritative; status is a deprecated alias. Keep GET /api/animals/animal-profile/v2/{id} working for old clients; new UI should use this path.",
         "auth": "Cookie · view_animal_details",
         "path_params": [("animal_id", "int", "Animal ID")],
         "success": envelope(
             {
                 "id": 15,
                 "tag_id": "COW-001",
+                "lifecycle_status": "active",
                 "status": "active",
                 "health_status": "healthy",
                 "flags": {
@@ -807,6 +821,8 @@ ENDPOINTS = [
                     "is_lactating": False,
                     "is_quarantine": False,
                     "needs_attention": False,
+                    "is_active": True,
+                    "_mutability": "read_only_derived",
                 },
                 "card": ANIMAL_CARD,
                 "overview": {
@@ -874,7 +890,7 @@ ENDPOINTS = [
         "path_params": [("tag_id", "string", "Ear tag, e.g. COW-001")],
         "query": [("farm_id", "int", "no", "Limit to one farm")],
         "success": envelope(
-            {"id": 15, "tag_id": "COW-001", "farm_id": 1, "status": "active", "health_status": "healthy"},
+            {"id": 15, "tag_id": "COW-001", "farm_id": 1, "lifecycle_status": "active", "status": "active", "health_status": "healthy"},
             "Tag resolved successfully.",
         ),
         "error": err("TAG_NOT_FOUND", "No animal found for this tag.", "404"),
@@ -885,7 +901,7 @@ ENDPOINTS = [
         "path": "/api/v2/operations/tasks/",
         "title": "Create a task",
         "explain": "task_type: vaccination | treatment | feed_issuance | sale | movement | observation | weight | pregnancy_check | mortality | generic. If assignee_id is set, status becomes assigned and the worker is notified.",
-        "auth": "Cookie · create health/feed/animal",
+        "auth": "Cookie · create_operation",
         "request": {
             "farm_id": 1,
             "task_type": "vaccination",
@@ -905,8 +921,8 @@ ENDPOINTS = [
         "method": "GET",
         "path": "/api/v2/operations/tasks/",
         "title": "List tasks",
-        "explain": "Manager queue. status=open excludes completed/cancelled. status=overdue is due_at in the past and still open.",
-        "auth": "Cookie · view health/feed/animal",
+        "explain": "Manager queue. status=open excludes completed/cancelled/unable_to_complete. status=overdue is a filter shortcut for open tasks whose due_at has passed — it is not a persisted lifecycle state. Each matching row returns its real status (assigned, accepted, in_progress, …) plus is_overdue=true.",
+        "auth": "Cookie · view_operation",
         "query": [
             ("page", "int", "no", "Page"),
             ("page_size", "int", "no", "Page size"),
@@ -923,8 +939,8 @@ ENDPOINTS = [
         "method": "GET",
         "path": "/api/v2/operations/tasks/{task_id}/",
         "title": "Task detail",
-        "explain": "Single task. status may render as overdue when due_at is past and the task is still open.",
-        "auth": "Cookie",
+        "explain": "Single task. Persisted lifecycle states: draft, assigned, accepted, in_progress, completed, unable_to_complete, cancelled. Overdue is computed as is_overdue=true; status is never overdue.",
+        "auth": "Cookie · view_operation",
         "path_params": [("task_id", "int", "Task ID")],
         "success": envelope(TASK, "Task fetched successfully."),
         "error": err("TASK_NOT_FOUND", "Task could not be found.", "404"),
@@ -981,7 +997,7 @@ ENDPOINTS = [
         "method": "POST",
         "path": "/api/v2/operations/tasks/{task_id}/complete/",
         "title": "Complete task (writes the domain record)",
-        "explain": "This is the important call. It runs in one DB transaction: validate → write the domain record → mark task completed → emit timeline. Body fields depend on task_type — see the complete() payload appendix. Weight writes AnimalWeight; pregnancy_check writes PregnancyRecord and sets is_pregnant; mortality writes MortalityRecord, marks the animal dead, and cancels open tasks. If stock is short the task stays incomplete. Send client_request_id (or header X-Client-Request-Id) so a retry does not double-write.",
+        "explain": "This is the important call. It runs in one DB transaction: validate → write the domain record → mark task completed → emit timeline. A simple domain task may be completed directly without Accept or Start, so status=completed with accepted_at=null and started_at=null is valid. Body fields depend on task_type — see the complete() payload appendix. Weight writes AnimalWeight; pregnancy_check writes PregnancyRecord and sets is_pregnant; mortality writes MortalityRecord, marks the animal dead, and cancels incompatible open tasks. If stock is short the task stays incomplete. Send client_request_id (or header X-Client-Request-Id) so a retry does not double-write. New clients should navigate with result, not result_reference_table/result_reference_id.",
         "auth": "Cookie · complete_operation + domain write permission",
         "path_params": [("task_id", "int", "Task ID")],
         "request": {
@@ -1056,7 +1072,7 @@ ENDPOINTS = [
         "path": "/api/v2/operations/my-work/",
         "title": "My Work inbox",
         "explain": "Open tasks assigned to the current user. Primary field-worker screen.",
-        "auth": "Cookie",
+        "auth": "Cookie · view_operation",
         "query": [
             ("page", "int", "no", "Page"),
             ("page_size", "int", "no", "Page size"),
@@ -1071,7 +1087,7 @@ ENDPOINTS = [
         "path": "/api/v2/operations/today/",
         "title": "Due today",
         "explain": "Assigned to me, due_at date = today, not completed/cancelled.",
-        "auth": "Cookie",
+        "auth": "Cookie · view_operation",
         "query": [("page", "int", "no", "Page"), ("page_size", "int", "no", "Page size"), ("farm_id", "int", "no", "Farm")],
         "success": envelope([TASK], "Today's work fetched successfully.", page_meta(total=1)),
         "error": AUTH_401,
@@ -1081,10 +1097,10 @@ ENDPOINTS = [
         "method": "GET",
         "path": "/api/v2/operations/overdue/",
         "title": "Overdue work",
-        "explain": "Assigned to me, due_at in the past, still open.",
-        "auth": "Cookie",
+        "explain": "Assigned to me, due_at in the past, still open. Each row returns its real lifecycle status plus is_overdue=true. status is never overdue.",
+        "auth": "Cookie · view_operation",
         "query": [("page", "int", "no", "Page"), ("page_size", "int", "no", "Page size"), ("farm_id", "int", "no", "Farm")],
-        "success": envelope([{**TASK, "status": "overdue"}], "Overdue work fetched successfully.", page_meta(total=1)),
+        "success": envelope([OVERDUE_TASK], "Overdue work fetched successfully.", page_meta(total=1)),
         "error": AUTH_401,
     },
     {
@@ -1092,8 +1108,8 @@ ENDPOINTS = [
         "method": "GET",
         "path": "/api/v2/operations/schedules/",
         "title": "List schedules",
-        "explain": "Read-only. GET never creates tasks. Due occurrences are generated by the farmos_dev_scheduler loop (`run_due_schedules` every 60s) or POST …/run/.",
-        "auth": "Cookie",
+        "explain": "Read-only. GET never creates tasks. Due occurrences are generated by the farmos_dev_scheduler loop (`run_due_schedules` every 60s) or POST …/run/. Two workers processing the same due occurrence still produce exactly one task.",
+        "auth": "Cookie · view_operation",
         "query": [("page", "int", "no", "Page"), ("page_size", "int", "no", "Page size"), ("farm_id", "int", "no", "Farm")],
         "success": envelope(
             [
@@ -1122,8 +1138,8 @@ ENDPOINTS = [
         "method": "POST",
         "path": "/api/v2/operations/schedules/",
         "title": "Create schedule",
-        "explain": "recurrence: once | daily | weekly | monthly. run_now true immediately creates a task.",
-        "auth": "Cookie",
+        "explain": "recurrence: once | daily | weekly | monthly. run_now true immediately creates a task with source.type=schedule.",
+        "auth": "Cookie · create_operation",
         "request": {
             "farm_id": 1,
             "task_type": "vaccination",
@@ -1141,11 +1157,11 @@ ENDPOINTS = [
         "method": "POST",
         "path": "/api/v2/operations/schedules/{schedule_id}/run/",
         "title": "Run schedule",
-        "explain": "Creates one task from the template and bumps next_run_at (or deactivates once schedules).",
-        "auth": "Cookie",
+        "explain": "Creates one task from the template and bumps next_run_at (or deactivates once schedules). The generated task source is always {type: schedule, id: schedule_id} even when a manager pressed Run Now. Actor records who triggered the run.",
+        "auth": "Cookie · create_operation",
         "path_params": [("schedule_id", "int", "Schedule ID")],
         "request": {},
-        "success": envelope(TASK, "Schedule run successfully."),
+        "success": envelope(SCHEDULE_TASK, "Schedule run successfully."),
         "error": err("SCHEDULE_NOT_FOUND", "Schedule could not be found.", "404"),
     },
     {
@@ -1465,7 +1481,7 @@ ENDPOINTS = [
         "method": "GET",
         "path": "/api/v2/search/",
         "title": "Search",
-        "explain": "q is required. Returns animals (tag + farm + species), people (display_name), and tasks (subject + assignee). Each bucket is omitted unless the caller has that capability. limit default 10, max 25.",
+        "explain": "q is required. Returns animals (tag + farm + species + lifecycle_status), people (display_name plus role/farm context when assignment data exists), and tasks (subject + assignee). Each bucket is omitted unless the caller has that capability. limit default 10, max 25.",
         "auth": "Cookie",
         "query": [
             ("q", "string", "yes", "Search text"),
@@ -1483,10 +1499,20 @@ ENDPOINTS = [
                         "breed": "White Fulani",
                         "farm": "North Paddock",
                         "farm_id": 1,
+                        "lifecycle_status": "active",
                         "status": "active",
                     }
                 ],
-                "people": [{"id": WORKER_ID, "display_name": "Ibrahim Musa", "email": "ibrahim@farm.example", "role": None, "farm": None}],
+                "people": [
+                    {
+                        "id": WORKER_ID,
+                        "display_name": "Ibrahim Musa",
+                        "email": "ibrahim@farm.example",
+                        "role": "Veterinarian",
+                        "farm": "Minna Farm",
+                        "farm_id": 1,
+                    }
+                ],
                 "tasks": [{"id": 12, "title": "Vaccinate COW-001 — CBPP", "status": "assigned", "subject": SUBJECT, "assignee": "Ibrahim Musa"}],
             },
             "Search completed.",
@@ -1498,7 +1524,7 @@ ENDPOINTS = [
         "method": "GET",
         "path": "/api/v2/dashboard/organization/",
         "title": "Organization home",
-        "explain": "One call for org home. Timezone Africa/Lagos. livestock / operations / attention / upcoming / farm_breakdown / recent_activity. Do not fan out the 29 legacy dashboard routes for this screen.",
+        "explain": "One call for org home. Timezone Africa/Lagos. livestock / operations / attention / upcoming / farm_breakdown / recent_activity / formulas. Do not fan out the 29 legacy dashboard routes for this screen. Do not reproduce these KPIs in the client.",
         "auth": "Cookie",
         "success": envelope(
             {
@@ -1518,6 +1544,13 @@ ENDPOINTS = [
                     }
                 ],
                 "recent_activity": [EVENT],
+                "formulas": {
+                    "work_completion_percent": "completed eligible work today / scheduled eligible work today x 100; 100 when the denominator is 0",
+                    "active_animals": "count of animals whose lifecycle_status = active",
+                    "critical_health": "count of animals with health_status = sick",
+                    "feed_risk": "count of open HealthAlert rows whose alert_type contains 'feed'",
+                    "expected_births": "count of PregnancyRecord with result=pregnant and expected_delivery_date in the next 14 days",
+                },
             },
             "Organization dashboard fetched successfully.",
         ),
@@ -1528,7 +1561,7 @@ ENDPOINTS = [
         "method": "GET",
         "path": "/api/v2/dashboard/farm/{farm_id}/",
         "title": "Farm home",
-        "explain": "Role-aware farm aggregate. timezone Africa/Lagos. today bucket is scheduled/completed/in_progress/pending/overdue.",
+        "explain": "Role-aware farm aggregate. timezone Africa/Lagos. today.pending is an aggregate of due-today open tasks that are not in_progress (draft, assigned, or accepted). pending is not a task lifecycle status.",
         "auth": "Cookie · farm access",
         "path_params": [("farm_id", "int", "Farm ID")],
         "success": envelope(
@@ -1548,6 +1581,14 @@ ENDPOINTS = [
                     }
                 ],
                 "recent_activity": [EVENT],
+                "formulas": {
+                    "today.scheduled": "open tasks whose due_at date is today",
+                    "today.completed": "tasks with completed_at date = today",
+                    "today.in_progress": "due-today open tasks whose lifecycle status is in_progress",
+                    "today.pending": "due-today open tasks that are not in_progress (draft, assigned, or accepted). pending is an aggregate, not a task lifecycle status",
+                    "today.overdue": "open tasks whose due_at is in the past; each row still returns its real lifecycle status plus is_overdue=true",
+                    "active_animals": "count of animals whose lifecycle_status = active",
+                },
             },
             "Farm dashboard fetched successfully.",
         ),
@@ -1565,7 +1606,7 @@ ENDPOINTS = [
             {
                 "summary": {"open_tasks": 2, "overdue_tasks": 1, "completed_today": 1},
                 "today": [TASK],
-                "overdue": [],
+                "overdue": [OVERDUE_TASK],
                 "upcoming": [],
             },
             "My work dashboard fetched successfully.",
@@ -1745,8 +1786,8 @@ def build_html() -> str:
 <div class="cover">
   <div class="brand">TATI FarmOS · Livestock</div>
   <h1>Building the frontend for <span>African Agriculture</span></h1>
-  <p class="muted">Official Web/Mobile contract v2.2 · Livestock MVP Release Candidate · sandbox <code>http://127.0.0.1:8082/api/v2/</code></p>
-  <p><strong>Release freeze:</strong> v2.2 closes the final Product/QA findings from v2.1. No new MVP functionality after this point without Product change approval.</p>
+  <p class="muted">Official Web/Mobile contract v2.2 · Livestock MVP Final Release Candidate · sandbox <code>http://127.0.0.1:8082/api/v2/</code></p>
+  <p><strong>Release freeze:</strong> v2.2 is the frozen Livestock MVP Web/Mobile API contract. No additional MVP functionality or breaking contract change may be introduced without Product change approval.</p>
 </div>
 """]
 
@@ -1754,14 +1795,24 @@ def build_html() -> str:
     parts.append(f"""
 <div class="note">
 <p><span class="pill">Base</span> Nginx sandbox <code>http://127.0.0.1:8082</code> · direct app <code>http://127.0.0.1:8001</code>. Live stack is unchanged on 8081/8000.</p>
-<p><span class="pill">Prefix</span> Official contract is <code>/api/v2/</code> version <strong>2.1</strong>. Legacy <code>/api/*</code> (240 routes) stays for existing clients. Do not mix envelopes. GET <code>/api/v2/registry/</code> lists v2 vs approved-legacy vs deprecated.</p>
+<p><span class="pill">Prefix</span> Official contract is <code>/api/v2/</code> version <strong>2.2</strong>. Do not change the route prefix to <code>/api/v2.2/</code>. Legacy <code>/api/*</code> (240 routes) stays for existing clients. Do not mix envelopes. GET <code>/api/v2/registry/</code> lists v2 vs approved-legacy vs deprecated.</p>
 <p><span class="pill">Auth</span> <code>POST /api/auth/login</code> sets <code>client_access_token</code> (HTTP-only). Send cookies on v2 requests. Unauthenticated v2 calls return <code>AUTHENTICATION_REQUIRED</code>.</p>
 <p><span class="pill">IDs</span> Use <code>livestock_species_id</code>, <code>livestock_breed_id</code>, <code>housing_unit_id</code>, integer <code>farm_id</code> / <code>animal_id</code>, UUID <code>organization_id</code> / user ids. People screens use <code>display_name</code>. Tasks and timeline include <code>actor</code>, <code>subject</code>, <code>source</code>, <code>result</code>.</p>
 <p><span class="pill">Idempotency</span> On writes send <code>client_request_id</code> in JSON or header <code>X-Client-Request-Id</code>. Same key + same user returns the first JSON body and must not create a second vaccination/feed/sale.</p>
 <p><span class="pill">Timezone</span> Dashboard clocks use <code>Africa/Lagos</code>.</p>
 </div>
-<div class="label">What’s new in 2.1</div>
-<p>v2.2 RC: task timestamps, read-only schedule GET + independent scheduler, Operations capabilities, navigable farm alerts, correct task source/result, birth/offspring integrity, derived flags, <code>lifecycle_status</code>, farm people <code>display_name</code>, search role/farm context, and dashboard formulas. Feed, finance, reports, and movement stay approved legacy <code>/api/*</code>.</p>
+<div class="label">What’s new in 2.2</div>
+<p>v2.2 Final RC: task timestamps, read-only schedule GET + independent scheduler, Operations capabilities, navigable farm alerts, correct task source/result, birth/offspring integrity, derived flags, <code>lifecycle_status</code>, farm people <code>display_name</code>, search role/farm context, and dashboard formulas. Feed, finance, reports, and movement stay approved legacy <code>/api/*</code>.</p>
+<div class="label">Contract rules Web/Mobile must not contradict</div>
+<ul>
+<li><code>status=overdue</code> is a list filter for open tasks whose due time has passed. It is not a persisted lifecycle state. Rows return the real status plus <code>is_overdue=true</code>.</li>
+<li>Automatically generated work keeps its source: schedule tasks use <code>source.type=schedule</code>; vaccination follow-ups use <code>vaccination_follow_up</code>; treatment follow-ups use <code>treatment_follow_up</code>; observation tasks use <code>health_observation</code>. Do not treat these as manual.</li>
+<li>Animal <code>lifecycle_status</code> is authoritative. <code>status</code> is a deprecated alias. Consume <code>lifecycle_status</code>.</li>
+<li>Condition flags are read-only derived. Do not PATCH <code>is_pregnant</code> or <code>is_quarantine</code>.</li>
+<li>Farm dashboard <code>today.pending</code> is an aggregate of due-today open tasks that are not in progress. It is not a task lifecycle status.</li>
+<li>A domain task may be completed without Accept or Start. <code>accepted_at</code> and <code>started_at</code> may be null on a completed task.</li>
+<li>Navigate completed work with <code>result</code>, not <code>result_reference_table</code> / <code>result_reference_id</code>.</li>
+</ul>
 <div class="label">Success envelope (every v2 200)</div>
 <pre>{escape(dumps({
     "success": True,
@@ -1809,8 +1860,8 @@ def build_html() -> str:
 <h3>complete() JSON by task_type</h3>
 <table>
 <tr><th>task_type</th><th>Required JSON fields</th><th>Writes</th></tr>
-<tr><td><code>vaccination</code></td><td><code>vaccine_name</code>, optional <code>date_given</code>, <code>next_due_date</code>, <code>notes</code></td><td>VaccinationRecord + follow-up task</td></tr>
-<tr><td><code>treatment</code></td><td><code>diagnosis</code>, <code>treatment</code>, <code>severity</code>; optional drug_batch + quantity</td><td>TreatmentRecord (deducts drug stock)</td></tr>
+<tr><td><code>vaccination</code></td><td><code>vaccine_name</code>, optional <code>date_given</code>, <code>next_due_date</code>, <code>notes</code></td><td>VaccinationRecord + follow-up task sourced as vaccination_follow_up</td></tr>
+<tr><td><code>treatment</code></td><td><code>diagnosis</code>, <code>treatment</code>, <code>severity</code>; optional drug_batch + quantity</td><td>TreatmentRecord (deducts drug stock) + follow-up task sourced as treatment_follow_up</td></tr>
 <tr><td><code>feed_issuance</code></td><td><code>feed_inventory_id</code>, <code>quantity_issued</code>, <code>target_type</code></td><td>FeedIssuanceRecord (deducts feed)</td></tr>
 <tr><td><code>sale</code></td><td><code>buyer_name</code>, <code>price</code>; <code>override_reason</code> if restricted</td><td>SalesRecord (sale_readiness rules)</td></tr>
 <tr><td><code>movement</code></td><td><code>to_housing_unit_id</code> or <code>to_unit_id</code></td><td>MovementRecord</td></tr>
@@ -1884,9 +1935,9 @@ def build_html() -> str:
         parts.append("</div></div>")
 
     parts.append(
-        f"<p class='muted'>TATI FarmOS Frontend API Contract v2.2 RC · primary {PRIMARY} · "
+        f"<p class='muted'>TATI FarmOS Frontend API Contract v2.2 Final RC · primary {PRIMARY} · "
         "do not parse legacy list keys (<code>current_page</code>, <code>num_pages</code>) on these routes. "
-        "Evidence uploads, bootstrap, retag history, and birth/offspring integrity enforcement are deferred.</p>"
+        "Evidence uploads, bootstrap, and retag history are deferred.</p>"
         "</div></body></html>"
     )
     return "".join(parts)

@@ -73,6 +73,8 @@ def serialize_animal_card(animal):
             "is_lactating": animal.is_lactating,
             "is_quarantine": animal.is_quarantine,
             "needs_attention": animal.health_status in ("sick", "at_risk") or animal.is_quarantine,
+            "is_active": animal.status == "active",
+            "_mutability": "read_only_derived",
         },
         "image_url": animal.image.url if animal.image else None,
     }
@@ -326,6 +328,24 @@ def patch_animal(request, animal_id: int, payload: AnimalPatchIn):
     require_permission(user, org, Permissions.Animal.UPDATE)
     animal = require_animal(org, animal_id)
     require_farm(org, animal.farm_id, user)
+    forbidden = {
+        "is_pregnant": payload.is_pregnant,
+        "is_lactating": payload.is_lactating,
+        "is_quarantine": payload.is_quarantine,
+        "needs_attention": payload.needs_attention,
+        "is_active": payload.is_active,
+        "status": payload.status,
+        "lifecycle_status": payload.lifecycle_status,
+    }
+    sent = {key: value for key, value in forbidden.items() if value is not None}
+    if sent:
+        raise ContractError(
+            422,
+            ErrorCode.VALIDATION_ERROR,
+            "Animal condition flags and lifecycle status are read-only derived state. "
+            "Change them through the domain workflow (pregnancy check, quarantine, mortality, sale).",
+            errors=sent,
+        )
     if animal.status in ("dead", "sold"):
         code = ErrorCode.ANIMAL_ALREADY_DECEASED if animal.status == "dead" else ErrorCode.ANIMAL_ALREADY_SOLD
         raise ContractError(409, code, "Exited animals cannot be updated through generic PATCH.")
@@ -503,6 +523,7 @@ def resolve_tag(request, tag_id: str, farm_id: int = None):
             "id": animal.id,
             "tag_id": animal.tag_id,
             "farm_id": animal.farm_id,
+            "lifecycle_status": animal.status,
             "status": animal.status,
             "health_status": animal.health_status,
         },

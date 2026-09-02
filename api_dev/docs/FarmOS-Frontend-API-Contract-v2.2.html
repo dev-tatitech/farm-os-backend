@@ -77,20 +77,30 @@
 <div class="cover">
   <div class="brand">TATI FarmOS · Livestock</div>
   <h1>Building the frontend for <span>African Agriculture</span></h1>
-  <p class="muted">Official Web/Mobile contract v2.2 · Livestock MVP Release Candidate · sandbox <code>http://127.0.0.1:8082/api/v2/</code></p>
-  <p><strong>Release freeze:</strong> v2.2 closes the final Product/QA findings from v2.1. No new MVP functionality after this point without Product change approval.</p>
+  <p class="muted">Official Web/Mobile contract v2.2 · Livestock MVP Final Release Candidate · sandbox <code>http://127.0.0.1:8082/api/v2/</code></p>
+  <p><strong>Release freeze:</strong> v2.2 is the frozen Livestock MVP Web/Mobile API contract. No additional MVP functionality or breaking contract change may be introduced without Product change approval.</p>
 </div>
 <h2 id='howto'>How frontend should call this API</h2>
 <div class="note">
 <p><span class="pill">Base</span> Nginx sandbox <code>http://127.0.0.1:8082</code> · direct app <code>http://127.0.0.1:8001</code>. Live stack is unchanged on 8081/8000.</p>
-<p><span class="pill">Prefix</span> Official contract is <code>/api/v2/</code> version <strong>2.1</strong>. Legacy <code>/api/*</code> (240 routes) stays for existing clients. Do not mix envelopes. GET <code>/api/v2/registry/</code> lists v2 vs approved-legacy vs deprecated.</p>
+<p><span class="pill">Prefix</span> Official contract is <code>/api/v2/</code> version <strong>2.2</strong>. Do not change the route prefix to <code>/api/v2.2/</code>. Legacy <code>/api/*</code> (240 routes) stays for existing clients. Do not mix envelopes. GET <code>/api/v2/registry/</code> lists v2 vs approved-legacy vs deprecated.</p>
 <p><span class="pill">Auth</span> <code>POST /api/auth/login</code> sets <code>client_access_token</code> (HTTP-only). Send cookies on v2 requests. Unauthenticated v2 calls return <code>AUTHENTICATION_REQUIRED</code>.</p>
 <p><span class="pill">IDs</span> Use <code>livestock_species_id</code>, <code>livestock_breed_id</code>, <code>housing_unit_id</code>, integer <code>farm_id</code> / <code>animal_id</code>, UUID <code>organization_id</code> / user ids. People screens use <code>display_name</code>. Tasks and timeline include <code>actor</code>, <code>subject</code>, <code>source</code>, <code>result</code>.</p>
 <p><span class="pill">Idempotency</span> On writes send <code>client_request_id</code> in JSON or header <code>X-Client-Request-Id</code>. Same key + same user returns the first JSON body and must not create a second vaccination/feed/sale.</p>
 <p><span class="pill">Timezone</span> Dashboard clocks use <code>Africa/Lagos</code>.</p>
 </div>
-<div class="label">What’s new in 2.1</div>
-<p>v2.2 RC: task timestamps, read-only schedule GET + independent scheduler, Operations capabilities, navigable farm alerts, correct task source/result, birth/offspring integrity, derived flags, <code>lifecycle_status</code>, farm people <code>display_name</code>, search role/farm context, and dashboard formulas. Feed, finance, reports, and movement stay approved legacy <code>/api/*</code>.</p>
+<div class="label">What’s new in 2.2</div>
+<p>v2.2 Final RC: task timestamps, read-only schedule GET + independent scheduler, Operations capabilities, navigable farm alerts, correct task source/result, birth/offspring integrity, derived flags, <code>lifecycle_status</code>, farm people <code>display_name</code>, search role/farm context, and dashboard formulas. Feed, finance, reports, and movement stay approved legacy <code>/api/*</code>.</p>
+<div class="label">Contract rules Web/Mobile must not contradict</div>
+<ul>
+<li><code>status=overdue</code> is a list filter for open tasks whose due time has passed. It is not a persisted lifecycle state. Rows return the real status plus <code>is_overdue=true</code>.</li>
+<li>Automatically generated work keeps its source: schedule tasks use <code>source.type=schedule</code>; vaccination follow-ups use <code>vaccination_follow_up</code>; treatment follow-ups use <code>treatment_follow_up</code>; observation tasks use <code>health_observation</code>. Do not treat these as manual.</li>
+<li>Animal <code>lifecycle_status</code> is authoritative. <code>status</code> is a deprecated alias. Consume <code>lifecycle_status</code>.</li>
+<li>Condition flags are read-only derived. Do not PATCH <code>is_pregnant</code> or <code>is_quarantine</code>.</li>
+<li>Farm dashboard <code>today.pending</code> is an aggregate of due-today open tasks that are not in progress. It is not a task lifecycle status.</li>
+<li>A domain task may be completed without Accept or Start. <code>accepted_at</code> and <code>started_at</code> may be null on a completed task.</li>
+<li>Navigate completed work with <code>result</code>, not <code>result_reference_table</code> / <code>result_reference_id</code>.</li>
+</ul>
 <div class="label">Success envelope (every v2 200)</div>
 <pre>{
   &quot;success&quot;: true,
@@ -157,8 +167,8 @@
 <h3>complete() JSON by task_type</h3>
 <table>
 <tr><th>task_type</th><th>Required JSON fields</th><th>Writes</th></tr>
-<tr><td><code>vaccination</code></td><td><code>vaccine_name</code>, optional <code>date_given</code>, <code>next_due_date</code>, <code>notes</code></td><td>VaccinationRecord + follow-up task</td></tr>
-<tr><td><code>treatment</code></td><td><code>diagnosis</code>, <code>treatment</code>, <code>severity</code>; optional drug_batch + quantity</td><td>TreatmentRecord (deducts drug stock)</td></tr>
+<tr><td><code>vaccination</code></td><td><code>vaccine_name</code>, optional <code>date_given</code>, <code>next_due_date</code>, <code>notes</code></td><td>VaccinationRecord + follow-up task sourced as vaccination_follow_up</td></tr>
+<tr><td><code>treatment</code></td><td><code>diagnosis</code>, <code>treatment</code>, <code>severity</code>; optional drug_batch + quantity</td><td>TreatmentRecord (deducts drug stock) + follow-up task sourced as treatment_follow_up</td></tr>
 <tr><td><code>feed_issuance</code></td><td><code>feed_inventory_id</code>, <code>quantity_issued</code>, <code>target_type</code></td><td>FeedIssuanceRecord (deducts feed)</td></tr>
 <tr><td><code>sale</code></td><td><code>buyer_name</code>, <code>price</code>; <code>override_reason</code> if restricted</td><td>SalesRecord (sale_readiness rules)</td></tr>
 <tr><td><code>movement</code></td><td><code>to_housing_unit_id</code> or <code>to_unit_id</code></td><td>MovementRecord</td></tr>
@@ -172,10 +182,10 @@
 <h2 id='toc'>Endpoints</h2><ol class='toc'><li><a href='#contract'>Contract</a> (2)</li><li><a href='#session-legacy-login,-still-required'>Session (legacy login, still required)</a> (1)</li><li><a href='#users'>Users</a> (8)</li><li><a href='#roles'>Roles</a> (2)</li><li><a href='#organizations'>Organizations</a> (5)</li><li><a href='#farms'>Farms</a> (7)</li><li><a href='#animals'>Animals</a> (6)</li><li><a href='#operations'>Operations</a> (19)</li><li><a href='#timeline'>Timeline</a> (1)</li><li><a href='#health'>Health</a> (7)</li><li><a href='#notifications'>Notifications</a> (4)</li><li><a href='#search'>Search</a> (1)</li><li><a href='#dashboard'>Dashboard</a> (4)</li><li><a href='#reproduction'>Reproduction</a> (2)</li></ol><h2 id='contract'>Contract</h2><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/</span><h3 style='margin-top:8px'>Contract health</h3></div><div class='endpoint-bd'><p>Ping the official frontend contract. No cookie required. Use this to confirm the app is talking to /api/v2/ rather than legacy /api/*.</p><p><span class='pill'>Auth</span> Public</p><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
   &quot;success&quot;: true,
   &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
-  &quot;message&quot;: &quot;v2.2 Livestock MVP Release Candidate is available.&quot;,
+  &quot;message&quot;: &quot;v2.2 Livestock MVP Final Release Candidate is available.&quot;,
   &quot;data&quot;: {
     &quot;contract&quot;: &quot;FarmOS Frontend API Contract v2.2&quot;,
-    &quot;release&quot;: &quot;Livestock MVP Release Candidate&quot;,
+    &quot;release&quot;: &quot;Livestock MVP Final Release Candidate&quot;,
     &quot;legacy_prefix&quot;: &quot;/api/&quot;,
     &quot;this_prefix&quot;: &quot;/api/v2/&quot;,
     &quot;identifiers&quot;: [
@@ -201,7 +211,7 @@
   &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
   &quot;message&quot;: &quot;Endpoint registry fetched successfully.&quot;,
   &quot;data&quot;: {
-    &quot;contract&quot;: &quot;2.1&quot;,
+    &quot;contract&quot;: &quot;2.2&quot;,
     &quot;entries&quot;: [
       {
         &quot;domain&quot;: &quot;Auth&quot;,
@@ -288,7 +298,7 @@
   &quot;data&quot;: null,
   &quot;errors&quot;: {},
   &quot;retryable&quot;: false
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/users/me/capabilities/</span><h3 style='margin-top:8px'>Capabilities and navigation map</h3></div><div class='endpoint-bd'><p>Drive UI chrome from capabilities and navigation booleans. Do not infer menus from raw permission strings alone. operations and my_work are true when the user can view health/feed/animal work.</p><p><span class='pill'>Auth</span> Cookie</p><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/users/me/capabilities/</span><h3 style='margin-top:8px'>Capabilities and navigation map</h3></div><div class='endpoint-bd'><p>Drive UI chrome from capabilities and navigation booleans. Do not infer menus from raw permission strings alone. operations and my_work follow view_operation.</p><p><span class='pill'>Auth</span> Cookie</p><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
   &quot;success&quot;: true,
   &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
   &quot;message&quot;: &quot;Capabilities fetched successfully.&quot;,
@@ -1116,7 +1126,7 @@
   &quot;data&quot;: null,
   &quot;errors&quot;: {},
   &quot;retryable&quot;: false
-}</pre></div></div><h2 id='animals'>Animals</h2><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/animals/</span><h3 style='margin-top:8px'>List animals</h3></div><div class='endpoint-bd'><p>Herd cards. Each row is the same card shape as create/profile (id, tag_id, flags, lifecycle_status). Filter; do not infer pregnancy/sold from this list’s flags for writes.</p><p><span class='pill'>Auth</span> Cookie · view_animal_details</p><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>Page</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>Page size</td></tr><tr><td><code>farm_id</code></td><td>int</td><td>no</td><td>Farm</td></tr><tr><td><code>search</code></td><td>string</td><td>no</td><td>Tag, notes, or numeric id</td></tr><tr><td><code>livestock_species_id</code></td><td>int</td><td>no</td><td>Species</td></tr><tr><td><code>livestock_breed_id</code></td><td>int</td><td>no</td><td>Breed</td></tr><tr><td><code>gender</code></td><td>string</td><td>no</td><td>female | male</td></tr><tr><td><code>lifecycle_status</code></td><td>string</td><td>no</td><td>active | sold | dead | transferred_out | culled</td></tr><tr><td><code>health_status</code></td><td>string</td><td>no</td><td>healthy | sick | at_risk | recovering</td></tr><tr><td><code>housing_unit_id</code></td><td>int</td><td>no</td><td>Housing unit</td></tr><tr><td><code>is_pregnant</code></td><td>bool</td><td>no</td><td>Filter pregnant</td></tr><tr><td><code>is_lactating</code></td><td>bool</td><td>no</td><td>Filter lactating</td></tr><tr><td><code>is_quarantine</code></td><td>bool</td><td>no</td><td>Filter quarantine</td></tr><tr><td><code>needs_attention</code></td><td>bool</td><td>no</td><td>sick, at_risk, or quarantine</td></tr><tr><td><code>sort</code></td><td>string</td><td>no</td><td>id | -id | tag_id | -tag_id | status | created_at</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+}</pre></div></div><h2 id='animals'>Animals</h2><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/animals/</span><h3 style='margin-top:8px'>List animals</h3></div><div class='endpoint-bd'><p>Herd cards. Each row is the same card shape as create/profile (id, tag_id, flags, lifecycle_status). status is a deprecated alias of lifecycle_status. Animal condition flags are read-only derived operational state — do not infer pregnancy/sold from this list’s flags for writes.</p><p><span class='pill'>Auth</span> Cookie · view_animal_details</p><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>Page</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>Page size</td></tr><tr><td><code>farm_id</code></td><td>int</td><td>no</td><td>Farm</td></tr><tr><td><code>search</code></td><td>string</td><td>no</td><td>Tag, notes, or numeric id</td></tr><tr><td><code>livestock_species_id</code></td><td>int</td><td>no</td><td>Species</td></tr><tr><td><code>livestock_breed_id</code></td><td>int</td><td>no</td><td>Breed</td></tr><tr><td><code>gender</code></td><td>string</td><td>no</td><td>female | male</td></tr><tr><td><code>lifecycle_status</code></td><td>string</td><td>no</td><td>active | sold | dead | transferred_out | culled</td></tr><tr><td><code>health_status</code></td><td>string</td><td>no</td><td>healthy | sick | at_risk | recovering</td></tr><tr><td><code>housing_unit_id</code></td><td>int</td><td>no</td><td>Housing unit</td></tr><tr><td><code>is_pregnant</code></td><td>bool</td><td>no</td><td>Filter pregnant</td></tr><tr><td><code>is_lactating</code></td><td>bool</td><td>no</td><td>Filter lactating</td></tr><tr><td><code>is_quarantine</code></td><td>bool</td><td>no</td><td>Filter quarantine</td></tr><tr><td><code>needs_attention</code></td><td>bool</td><td>no</td><td>sick, at_risk, or quarantine</td></tr><tr><td><code>sort</code></td><td>string</td><td>no</td><td>id | -id | tag_id | -tag_id | status | created_at</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
   &quot;success&quot;: true,
   &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
   &quot;message&quot;: &quot;Animals fetched successfully.&quot;,
@@ -1139,7 +1149,9 @@
         &quot;is_pregnant&quot;: false,
         &quot;is_lactating&quot;: false,
         &quot;is_quarantine&quot;: false,
-        &quot;needs_attention&quot;: false
+        &quot;needs_attention&quot;: false,
+        &quot;is_active&quot;: true,
+        &quot;_mutability&quot;: &quot;read_only_derived&quot;
       },
       &quot;image_url&quot;: null
     }
@@ -1161,7 +1173,7 @@
   &quot;data&quot;: null,
   &quot;errors&quot;: {},
   &quot;retryable&quot;: false
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/animals/</span><h3 style='margin-top:8px'>Progressive animal create</h3></div><div class='endpoint-bd'><p>status must be active | sold | dead | transferred_out | culled (not pregnant/sick). tag_id is optional; empty/null generates INT-{uuid}. Breed and housing are optional. Born animals still need mother_id and dob. Optional client_request_id for offline retries.</p><p><span class='pill'>Auth</span> Cookie · add_animal_details</p><div class='label'>Example request JSON</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/animals/</span><h3 style='margin-top:8px'>Progressive animal create</h3></div><div class='endpoint-bd'><p>Request field status is the lifecycle write value: active | sold | dead | transferred_out | culled (not pregnant/sick). Response uses lifecycle_status as the authoritative field; status is a deprecated alias. tag_id is optional; empty/null generates INT-{uuid}. Breed and housing are optional. Born animals still need mother_id and dob. Optional client_request_id for offline retries.</p><p><span class='pill'>Auth</span> Cookie · add_animal_details</p><div class='label'>Example request JSON</div><pre>{
   &quot;farm_id&quot;: 1,
   &quot;tag_id&quot;: null,
   &quot;gender&quot;: &quot;female&quot;,
@@ -1180,13 +1192,16 @@
   &quot;data&quot;: {
     &quot;id&quot;: 16,
     &quot;tag_id&quot;: &quot;INT-A1B2C3D4E5F6&quot;,
+    &quot;lifecycle_status&quot;: &quot;active&quot;,
     &quot;status&quot;: &quot;active&quot;,
     &quot;health_status&quot;: &quot;healthy&quot;,
     &quot;flags&quot;: {
       &quot;is_pregnant&quot;: false,
       &quot;is_lactating&quot;: false,
       &quot;is_quarantine&quot;: false,
-      &quot;needs_attention&quot;: false
+      &quot;needs_attention&quot;: false,
+      &quot;is_active&quot;: true,
+      &quot;_mutability&quot;: &quot;read_only_derived&quot;
     },
     &quot;card&quot;: {
       &quot;id&quot;: 16,
@@ -1206,7 +1221,9 @@
         &quot;is_pregnant&quot;: false,
         &quot;is_lactating&quot;: false,
         &quot;is_quarantine&quot;: false,
-        &quot;needs_attention&quot;: false
+        &quot;needs_attention&quot;: false,
+        &quot;is_active&quot;: true,
+        &quot;_mutability&quot;: &quot;read_only_derived&quot;
       },
       &quot;image_url&quot;: null
     }
@@ -1219,7 +1236,7 @@
   &quot;data&quot;: null,
   &quot;errors&quot;: {},
   &quot;retryable&quot;: false
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method PATCH">PATCH</span><span class="path">/api/v2/animals/{animal_id}/</span><h3 style='margin-top:8px'>Partial animal update</h3></div><div class='endpoint-bd'><p>Identity/housing/notes only. Do not send is_pregnant, is_lactating, is_quarantine, or sold/dead via PATCH — those change through operations (pregnancy_check, mortality, sale). Sold/dead via PATCH is rejected.</p><p><span class='pill'>Auth</span> Cookie · update_animal_details</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>animal_id</code></td><td>int</td><td>Animal ID</td></tr></table><div class='label'>Example request JSON</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method PATCH">PATCH</span><span class="path">/api/v2/animals/{animal_id}/</span><h3 style='margin-top:8px'>Partial animal update</h3></div><div class='endpoint-bd'><p>Identity/housing/notes only. Animal condition flags are read-only derived operational state: is_pregnant from an active pregnancy record, is_lactating from reproduction/production state, is_quarantine from an active quarantine record, needs_attention from backend health/ops rules, is_active from lifecycle_status = active. Do not PATCH is_pregnant, is_lactating, is_quarantine, needs_attention, is_active, or lifecycle_status — those change through domain workflows. Sold/dead via PATCH is rejected.</p><p><span class='pill'>Auth</span> Cookie · update_animal_details</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>animal_id</code></td><td>int</td><td>Animal ID</td></tr></table><div class='label'>Example request JSON</div><pre>{
   &quot;notes&quot;: &quot;Moved to Pen A&quot;,
   &quot;housing_unit_id&quot;: 4,
   &quot;tag_id&quot;: &quot;COW-001&quot;
@@ -1244,20 +1261,23 @@
   &quot;data&quot;: null,
   &quot;errors&quot;: {},
   &quot;retryable&quot;: false
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/animals/{animal_id}/profile/</span><h3 style='margin-top:8px'>Animal operational profile</h3></div><div class='endpoint-bd'><p>Single screen payload: card, overview, reproduction, production, health, feeding, movement, sale_readiness, open_tasks. Keep GET /api/animals/animal-profile/v2/{id} working for old clients; new UI should use this path.</p><p><span class='pill'>Auth</span> Cookie · view_animal_details</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>animal_id</code></td><td>int</td><td>Animal ID</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/animals/{animal_id}/profile/</span><h3 style='margin-top:8px'>Animal operational profile</h3></div><div class='endpoint-bd'><p>Single screen payload: card, overview, reproduction, production, health, feeding, movement, sale_readiness, open_tasks. lifecycle_status is authoritative; status is a deprecated alias. Keep GET /api/animals/animal-profile/v2/{id} working for old clients; new UI should use this path.</p><p><span class='pill'>Auth</span> Cookie · view_animal_details</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>animal_id</code></td><td>int</td><td>Animal ID</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
   &quot;success&quot;: true,
   &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
   &quot;message&quot;: &quot;Animal profile fetched successfully.&quot;,
   &quot;data&quot;: {
     &quot;id&quot;: 15,
     &quot;tag_id&quot;: &quot;COW-001&quot;,
+    &quot;lifecycle_status&quot;: &quot;active&quot;,
     &quot;status&quot;: &quot;active&quot;,
     &quot;health_status&quot;: &quot;healthy&quot;,
     &quot;flags&quot;: {
       &quot;is_pregnant&quot;: false,
       &quot;is_lactating&quot;: false,
       &quot;is_quarantine&quot;: false,
-      &quot;needs_attention&quot;: false
+      &quot;needs_attention&quot;: false,
+      &quot;is_active&quot;: true,
+      &quot;_mutability&quot;: &quot;read_only_derived&quot;
     },
     &quot;card&quot;: {
       &quot;id&quot;: 15,
@@ -1277,7 +1297,9 @@
         &quot;is_pregnant&quot;: false,
         &quot;is_lactating&quot;: false,
         &quot;is_quarantine&quot;: false,
-        &quot;needs_attention&quot;: false
+        &quot;needs_attention&quot;: false,
+        &quot;is_active&quot;: true,
+        &quot;_mutability&quot;: &quot;read_only_derived&quot;
       },
       &quot;image_url&quot;: null
     },
@@ -1445,6 +1467,7 @@
     &quot;id&quot;: 15,
     &quot;tag_id&quot;: &quot;COW-001&quot;,
     &quot;farm_id&quot;: 1,
+    &quot;lifecycle_status&quot;: &quot;active&quot;,
     &quot;status&quot;: &quot;active&quot;,
     &quot;health_status&quot;: &quot;healthy&quot;
   },
@@ -1456,7 +1479,7 @@
   &quot;data&quot;: null,
   &quot;errors&quot;: {},
   &quot;retryable&quot;: false
-}</pre></div></div><h2 id='operations'>Operations</h2><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/operations/tasks/</span><h3 style='margin-top:8px'>Create a task</h3></div><div class='endpoint-bd'><p>task_type: vaccination | treatment | feed_issuance | sale | movement | observation | weight | pregnancy_check | mortality | generic. If assignee_id is set, status becomes assigned and the worker is notified.</p><p><span class='pill'>Auth</span> Cookie · create health/feed/animal</p><div class='label'>Example request JSON</div><pre>{
+}</pre></div></div><h2 id='operations'>Operations</h2><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/operations/tasks/</span><h3 style='margin-top:8px'>Create a task</h3></div><div class='endpoint-bd'><p>task_type: vaccination | treatment | feed_issuance | sale | movement | observation | weight | pregnancy_check | mortality | generic. If assignee_id is set, status becomes assigned and the worker is notified.</p><p><span class='pill'>Auth</span> Cookie · create_operation</p><div class='label'>Example request JSON</div><pre>{
   &quot;farm_id&quot;: 1,
   &quot;task_type&quot;: &quot;vaccination&quot;,
   &quot;title&quot;: &quot;Vaccinate COW-001 \u2014 CBPP&quot;,
@@ -1527,7 +1550,7 @@
     &quot;task_type&quot;: &quot;weigh&quot;
   },
   &quot;retryable&quot;: false
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/operations/tasks/</span><h3 style='margin-top:8px'>List tasks</h3></div><div class='endpoint-bd'><p>Manager queue. status=open excludes completed/cancelled. status=overdue is due_at in the past and still open.</p><p><span class='pill'>Auth</span> Cookie · view health/feed/animal</p><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>Page</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>Page size</td></tr><tr><td><code>farm_id</code></td><td>int</td><td>no</td><td>Filter farm</td></tr><tr><td><code>status</code></td><td>string</td><td>no</td><td>open | overdue | assigned | …</td></tr><tr><td><code>task_type</code></td><td>string</td><td>no</td><td>vaccination, treatment, …</td></tr><tr><td><code>assigned_to_me</code></td><td>bool</td><td>no</td><td>true to hide others’ tasks</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/operations/tasks/</span><h3 style='margin-top:8px'>List tasks</h3></div><div class='endpoint-bd'><p>Manager queue. status=open excludes completed/cancelled/unable_to_complete. status=overdue is a filter shortcut for open tasks whose due_at has passed — it is not a persisted lifecycle state. Each matching row returns its real status (assigned, accepted, in_progress, …) plus is_overdue=true.</p><p><span class='pill'>Auth</span> Cookie · view_operation</p><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>Page</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>Page size</td></tr><tr><td><code>farm_id</code></td><td>int</td><td>no</td><td>Filter farm</td></tr><tr><td><code>status</code></td><td>string</td><td>no</td><td>open | overdue | assigned | …</td></tr><tr><td><code>task_type</code></td><td>string</td><td>no</td><td>vaccination, treatment, …</td></tr><tr><td><code>assigned_to_me</code></td><td>bool</td><td>no</td><td>true to hide others’ tasks</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
   &quot;success&quot;: true,
   &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
   &quot;message&quot;: &quot;Tasks fetched successfully.&quot;,
@@ -1597,7 +1620,7 @@
   &quot;data&quot;: null,
   &quot;errors&quot;: {},
   &quot;retryable&quot;: false
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/operations/tasks/{task_id}/</span><h3 style='margin-top:8px'>Task detail</h3></div><div class='endpoint-bd'><p>Single task. status may render as overdue when due_at is past and the task is still open.</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>task_id</code></td><td>int</td><td>Task ID</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/operations/tasks/{task_id}/</span><h3 style='margin-top:8px'>Task detail</h3></div><div class='endpoint-bd'><p>Single task. Persisted lifecycle states: draft, assigned, accepted, in_progress, completed, unable_to_complete, cancelled. Overdue is computed as is_overdue=true; status is never overdue.</p><p><span class='pill'>Auth</span> Cookie · view_operation</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>task_id</code></td><td>int</td><td>Task ID</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
   &quot;success&quot;: true,
   &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
   &quot;message&quot;: &quot;Task fetched successfully.&quot;,
@@ -1835,7 +1858,7 @@
   &quot;data&quot;: null,
   &quot;errors&quot;: {},
   &quot;retryable&quot;: false
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/operations/tasks/{task_id}/complete/</span><h3 style='margin-top:8px'>Complete task (writes the domain record)</h3></div><div class='endpoint-bd'><p>This is the important call. It runs in one DB transaction: validate → write the domain record → mark task completed → emit timeline. Body fields depend on task_type — see the complete() payload appendix. Weight writes AnimalWeight; pregnancy_check writes PregnancyRecord and sets is_pregnant; mortality writes MortalityRecord, marks the animal dead, and cancels open tasks. If stock is short the task stays incomplete. Send client_request_id (or header X-Client-Request-Id) so a retry does not double-write.</p><p><span class='pill'>Auth</span> Cookie · complete_operation + domain write permission</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>task_id</code></td><td>int</td><td>Task ID</td></tr></table><div class='label'>Example request JSON</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/operations/tasks/{task_id}/complete/</span><h3 style='margin-top:8px'>Complete task (writes the domain record)</h3></div><div class='endpoint-bd'><p>This is the important call. It runs in one DB transaction: validate → write the domain record → mark task completed → emit timeline. A simple domain task may be completed directly without Accept or Start, so status=completed with accepted_at=null and started_at=null is valid. Body fields depend on task_type — see the complete() payload appendix. Weight writes AnimalWeight; pregnancy_check writes PregnancyRecord and sets is_pregnant; mortality writes MortalityRecord, marks the animal dead, and cancels incompatible open tasks. If stock is short the task stays incomplete. Send client_request_id (or header X-Client-Request-Id) so a retry does not double-write. New clients should navigate with result, not result_reference_table/result_reference_id.</p><p><span class='pill'>Auth</span> Cookie · complete_operation + domain write permission</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>task_id</code></td><td>int</td><td>Task ID</td></tr></table><div class='label'>Example request JSON</div><pre>{
   &quot;vaccine_name&quot;: &quot;CBPP&quot;,
   &quot;date_given&quot;: &quot;2026-08-27&quot;,
   &quot;next_due_date&quot;: &quot;2026-09-26&quot;,
@@ -2089,7 +2112,7 @@
   &quot;data&quot;: null,
   &quot;errors&quot;: {},
   &quot;retryable&quot;: false
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/operations/my-work/</span><h3 style='margin-top:8px'>My Work inbox</h3></div><div class='endpoint-bd'><p>Open tasks assigned to the current user. Primary field-worker screen.</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>Page</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>Page size</td></tr><tr><td><code>farm_id</code></td><td>int</td><td>no</td><td>Filter farm</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/operations/my-work/</span><h3 style='margin-top:8px'>My Work inbox</h3></div><div class='endpoint-bd'><p>Open tasks assigned to the current user. Primary field-worker screen.</p><p><span class='pill'>Auth</span> Cookie · view_operation</p><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>Page</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>Page size</td></tr><tr><td><code>farm_id</code></td><td>int</td><td>no</td><td>Filter farm</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
   &quot;success&quot;: true,
   &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
   &quot;message&quot;: &quot;My work fetched successfully.&quot;,
@@ -2159,7 +2182,7 @@
   &quot;data&quot;: null,
   &quot;errors&quot;: {},
   &quot;retryable&quot;: false
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/operations/today/</span><h3 style='margin-top:8px'>Due today</h3></div><div class='endpoint-bd'><p>Assigned to me, due_at date = today, not completed/cancelled.</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>Page</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>Page size</td></tr><tr><td><code>farm_id</code></td><td>int</td><td>no</td><td>Farm</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/operations/today/</span><h3 style='margin-top:8px'>Due today</h3></div><div class='endpoint-bd'><p>Assigned to me, due_at date = today, not completed/cancelled.</p><p><span class='pill'>Auth</span> Cookie · view_operation</p><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>Page</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>Page size</td></tr><tr><td><code>farm_id</code></td><td>int</td><td>no</td><td>Farm</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
   &quot;success&quot;: true,
   &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
   &quot;message&quot;: &quot;Today's work fetched successfully.&quot;,
@@ -2229,7 +2252,7 @@
   &quot;data&quot;: null,
   &quot;errors&quot;: {},
   &quot;retryable&quot;: false
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/operations/overdue/</span><h3 style='margin-top:8px'>Overdue work</h3></div><div class='endpoint-bd'><p>Assigned to me, due_at in the past, still open.</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>Page</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>Page size</td></tr><tr><td><code>farm_id</code></td><td>int</td><td>no</td><td>Farm</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/operations/overdue/</span><h3 style='margin-top:8px'>Overdue work</h3></div><div class='endpoint-bd'><p>Assigned to me, due_at in the past, still open. Each row returns its real lifecycle status plus is_overdue=true. status is never overdue.</p><p><span class='pill'>Auth</span> Cookie · view_operation</p><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>Page</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>Page size</td></tr><tr><td><code>farm_id</code></td><td>int</td><td>no</td><td>Farm</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
   &quot;success&quot;: true,
   &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
   &quot;message&quot;: &quot;Overdue work fetched successfully.&quot;,
@@ -2245,10 +2268,10 @@
       &quot;task_type&quot;: &quot;vaccination&quot;,
       &quot;title&quot;: &quot;Vaccinate COW-001 \u2014 CBPP&quot;,
       &quot;description&quot;: &quot;Annual CBPP shot&quot;,
-      &quot;status&quot;: &quot;overdue&quot;,
-      &quot;is_overdue&quot;: false,
+      &quot;status&quot;: &quot;assigned&quot;,
+      &quot;is_overdue&quot;: true,
       &quot;priority&quot;: &quot;high&quot;,
-      &quot;due_at&quot;: &quot;2026-08-28T08:00:00+00:00&quot;,
+      &quot;due_at&quot;: &quot;2026-08-20T08:00:00+00:00&quot;,
       &quot;assigned_to&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
       &quot;assigned_to_email&quot;: &quot;ibrahim@farm.example&quot;,
       &quot;assignee&quot;: {
@@ -2299,7 +2322,7 @@
   &quot;data&quot;: null,
   &quot;errors&quot;: {},
   &quot;retryable&quot;: false
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/operations/schedules/</span><h3 style='margin-top:8px'>List schedules</h3></div><div class='endpoint-bd'><p>Read-only. GET never creates tasks. Due occurrences are generated by the farmos_dev_scheduler loop (`run_due_schedules` every 60s) or POST …/run/.</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>Page</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>Page size</td></tr><tr><td><code>farm_id</code></td><td>int</td><td>no</td><td>Farm</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/operations/schedules/</span><h3 style='margin-top:8px'>List schedules</h3></div><div class='endpoint-bd'><p>Read-only. GET never creates tasks. Due occurrences are generated by the farmos_dev_scheduler loop (`run_due_schedules` every 60s) or POST …/run/. Two workers processing the same due occurrence still produce exactly one task.</p><p><span class='pill'>Auth</span> Cookie · view_operation</p><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>Page</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>Page size</td></tr><tr><td><code>farm_id</code></td><td>int</td><td>no</td><td>Farm</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
   &quot;success&quot;: true,
   &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
   &quot;message&quot;: &quot;Schedules fetched successfully.&quot;,
@@ -2336,7 +2359,7 @@
   &quot;data&quot;: null,
   &quot;errors&quot;: {},
   &quot;retryable&quot;: false
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/operations/schedules/</span><h3 style='margin-top:8px'>Create schedule</h3></div><div class='endpoint-bd'><p>recurrence: once | daily | weekly | monthly. run_now true immediately creates a task.</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>Example request JSON</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/operations/schedules/</span><h3 style='margin-top:8px'>Create schedule</h3></div><div class='endpoint-bd'><p>recurrence: once | daily | weekly | monthly. run_now true immediately creates a task with source.type=schedule.</p><p><span class='pill'>Auth</span> Cookie · create_operation</p><div class='label'>Example request JSON</div><pre>{
   &quot;farm_id&quot;: 1,
   &quot;task_type&quot;: &quot;vaccination&quot;,
   &quot;title&quot;: &quot;Monthly CBPP round&quot;,
@@ -2362,12 +2385,12 @@
   &quot;data&quot;: null,
   &quot;errors&quot;: {},
   &quot;retryable&quot;: false
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/operations/schedules/{schedule_id}/run/</span><h3 style='margin-top:8px'>Run schedule</h3></div><div class='endpoint-bd'><p>Creates one task from the template and bumps next_run_at (or deactivates once schedules).</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>schedule_id</code></td><td>int</td><td>Schedule ID</td></tr></table><div class='label'>Example request JSON</div><pre>{}</pre><div class='label'>Example success JSON</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/operations/schedules/{schedule_id}/run/</span><h3 style='margin-top:8px'>Run schedule</h3></div><div class='endpoint-bd'><p>Creates one task from the template and bumps next_run_at (or deactivates once schedules). The generated task source is always {type: schedule, id: schedule_id} even when a manager pressed Run Now. Actor records who triggered the run.</p><p><span class='pill'>Auth</span> Cookie · create_operation</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>schedule_id</code></td><td>int</td><td>Schedule ID</td></tr></table><div class='label'>Example request JSON</div><pre>{}</pre><div class='label'>Example success JSON</div><pre>{
   &quot;success&quot;: true,
   &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
   &quot;message&quot;: &quot;Schedule run successfully.&quot;,
   &quot;data&quot;: {
-    &quot;id&quot;: 12,
+    &quot;id&quot;: 302,
     &quot;farm_id&quot;: 1,
     &quot;organization_id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
     &quot;animal_id&quot;: 15,
@@ -2375,7 +2398,7 @@
     &quot;group_id&quot;: null,
     &quot;parent_id&quot;: null,
     &quot;task_type&quot;: &quot;vaccination&quot;,
-    &quot;title&quot;: &quot;Vaccinate COW-001 \u2014 CBPP&quot;,
+    &quot;title&quot;: &quot;Monthly CBPP round&quot;,
     &quot;description&quot;: &quot;Annual CBPP shot&quot;,
     &quot;status&quot;: &quot;assigned&quot;,
     &quot;is_overdue&quot;: false,
@@ -2400,8 +2423,8 @@
     &quot;unable_to_complete_at&quot;: null,
     &quot;unable_reason_code&quot;: null,
     &quot;source&quot;: {
-      &quot;type&quot;: &quot;manual&quot;,
-      &quot;id&quot;: null
+      &quot;type&quot;: &quot;schedule&quot;,
+      &quot;id&quot;: 14
     },
     &quot;result&quot;: null,
     &quot;subject&quot;: {
@@ -2840,7 +2863,7 @@
   &quot;data&quot;: null,
   &quot;errors&quot;: {},
   &quot;retryable&quot;: false
-}</pre></div></div><h2 id='search'>Search</h2><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/search/</span><h3 style='margin-top:8px'>Search</h3></div><div class='endpoint-bd'><p>q is required. Returns animals (tag + farm + species), people (display_name), and tasks (subject + assignee). Each bucket is omitted unless the caller has that capability. limit default 10, max 25.</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>q</code></td><td>string</td><td>yes</td><td>Search text</td></tr><tr><td><code>farm_id</code></td><td>int</td><td>no</td><td>Scope to farm</td></tr><tr><td><code>limit</code></td><td>int</td><td>no</td><td>Max hits per bucket</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+}</pre></div></div><h2 id='search'>Search</h2><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/search/</span><h3 style='margin-top:8px'>Search</h3></div><div class='endpoint-bd'><p>q is required. Returns animals (tag + farm + species + lifecycle_status), people (display_name plus role/farm context when assignment data exists), and tasks (subject + assignee). Each bucket is omitted unless the caller has that capability. limit default 10, max 25.</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>q</code></td><td>string</td><td>yes</td><td>Search text</td></tr><tr><td><code>farm_id</code></td><td>int</td><td>no</td><td>Scope to farm</td></tr><tr><td><code>limit</code></td><td>int</td><td>no</td><td>Max hits per bucket</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
   &quot;success&quot;: true,
   &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
   &quot;message&quot;: &quot;Search completed.&quot;,
@@ -2854,6 +2877,7 @@
         &quot;breed&quot;: &quot;White Fulani&quot;,
         &quot;farm&quot;: &quot;North Paddock&quot;,
         &quot;farm_id&quot;: 1,
+        &quot;lifecycle_status&quot;: &quot;active&quot;,
         &quot;status&quot;: &quot;active&quot;
       }
     ],
@@ -2862,8 +2886,9 @@
         &quot;id&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
         &quot;display_name&quot;: &quot;Ibrahim Musa&quot;,
         &quot;email&quot;: &quot;ibrahim@farm.example&quot;,
-        &quot;role&quot;: null,
-        &quot;farm&quot;: null
+        &quot;role&quot;: &quot;Veterinarian&quot;,
+        &quot;farm&quot;: &quot;Minna Farm&quot;,
+        &quot;farm_id&quot;: 1
       }
     ],
     &quot;tasks&quot;: [
@@ -2888,7 +2913,7 @@
   &quot;data&quot;: null,
   &quot;errors&quot;: {},
   &quot;retryable&quot;: false
-}</pre></div></div><h2 id='dashboard'>Dashboard</h2><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/dashboard/organization/</span><h3 style='margin-top:8px'>Organization home</h3></div><div class='endpoint-bd'><p>One call for org home. Timezone Africa/Lagos. livestock / operations / attention / upcoming / farm_breakdown / recent_activity. Do not fan out the 29 legacy dashboard routes for this screen.</p><p><span class='pill'>Auth</span> Cookie</p><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+}</pre></div></div><h2 id='dashboard'>Dashboard</h2><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/dashboard/organization/</span><h3 style='margin-top:8px'>Organization home</h3></div><div class='endpoint-bd'><p>One call for org home. Timezone Africa/Lagos. livestock / operations / attention / upcoming / farm_breakdown / recent_activity / formulas. Do not fan out the 29 legacy dashboard routes for this screen. Do not reproduce these KPIs in the client.</p><p><span class='pill'>Auth</span> Cookie</p><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
   &quot;success&quot;: true,
   &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
   &quot;message&quot;: &quot;Organization dashboard fetched successfully.&quot;,
@@ -2962,7 +2987,14 @@
         },
         &quot;created_at&quot;: &quot;2026-08-27T09:15:00+00:00&quot;
       }
-    ]
+    ],
+    &quot;formulas&quot;: {
+      &quot;work_completion_percent&quot;: &quot;completed eligible work today / scheduled eligible work today x 100; 100 when the denominator is 0&quot;,
+      &quot;active_animals&quot;: &quot;count of animals whose lifecycle_status = active&quot;,
+      &quot;critical_health&quot;: &quot;count of animals with health_status = sick&quot;,
+      &quot;feed_risk&quot;: &quot;count of open HealthAlert rows whose alert_type contains 'feed'&quot;,
+      &quot;expected_births&quot;: &quot;count of PregnancyRecord with result=pregnant and expected_delivery_date in the next 14 days&quot;
+    }
   },
   &quot;meta&quot;: null
 }</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
@@ -2972,7 +3004,7 @@
   &quot;data&quot;: null,
   &quot;errors&quot;: {},
   &quot;retryable&quot;: false
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/dashboard/farm/{farm_id}/</span><h3 style='margin-top:8px'>Farm home</h3></div><div class='endpoint-bd'><p>Role-aware farm aggregate. timezone Africa/Lagos. today bucket is scheduled/completed/in_progress/pending/overdue.</p><p><span class='pill'>Auth</span> Cookie · farm access</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>int</td><td>Farm ID</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/dashboard/farm/{farm_id}/</span><h3 style='margin-top:8px'>Farm home</h3></div><div class='endpoint-bd'><p>Role-aware farm aggregate. timezone Africa/Lagos. today.pending is an aggregate of due-today open tasks that are not in_progress (draft, assigned, or accepted). pending is not a task lifecycle status.</p><p><span class='pill'>Auth</span> Cookie · farm access</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>int</td><td>Farm ID</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
   &quot;success&quot;: true,
   &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
   &quot;message&quot;: &quot;Farm dashboard fetched successfully.&quot;,
@@ -3093,7 +3125,15 @@
         },
         &quot;created_at&quot;: &quot;2026-08-27T09:15:00+00:00&quot;
       }
-    ]
+    ],
+    &quot;formulas&quot;: {
+      &quot;today.scheduled&quot;: &quot;open tasks whose due_at date is today&quot;,
+      &quot;today.completed&quot;: &quot;tasks with completed_at date = today&quot;,
+      &quot;today.in_progress&quot;: &quot;due-today open tasks whose lifecycle status is in_progress&quot;,
+      &quot;today.pending&quot;: &quot;due-today open tasks that are not in_progress (draft, assigned, or accepted). pending is an aggregate, not a task lifecycle status&quot;,
+      &quot;today.overdue&quot;: &quot;open tasks whose due_at is in the past; each row still returns its real lifecycle status plus is_overdue=true&quot;,
+      &quot;active_animals&quot;: &quot;count of animals whose lifecycle_status = active&quot;
+    }
   },
   &quot;meta&quot;: null
 }</pre><div class='label'>Example error JSON · HTTP 404</div><pre>{
@@ -3162,7 +3202,55 @@
         &quot;created_at&quot;: &quot;2026-08-27T07:00:00+00:00&quot;
       }
     ],
-    &quot;overdue&quot;: [],
+    &quot;overdue&quot;: [
+      {
+        &quot;id&quot;: 12,
+        &quot;farm_id&quot;: 1,
+        &quot;organization_id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
+        &quot;animal_id&quot;: 15,
+        &quot;animal_tag&quot;: &quot;COW-001&quot;,
+        &quot;group_id&quot;: null,
+        &quot;parent_id&quot;: null,
+        &quot;task_type&quot;: &quot;vaccination&quot;,
+        &quot;title&quot;: &quot;Vaccinate COW-001 \u2014 CBPP&quot;,
+        &quot;description&quot;: &quot;Annual CBPP shot&quot;,
+        &quot;status&quot;: &quot;assigned&quot;,
+        &quot;is_overdue&quot;: true,
+        &quot;priority&quot;: &quot;high&quot;,
+        &quot;due_at&quot;: &quot;2026-08-20T08:00:00+00:00&quot;,
+        &quot;assigned_to&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+        &quot;assigned_to_email&quot;: &quot;ibrahim@farm.example&quot;,
+        &quot;assignee&quot;: {
+          &quot;id&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+          &quot;display_name&quot;: &quot;Ibrahim Musa&quot;
+        },
+        &quot;created_by&quot;: &quot;7c9e6679-7425-40de-944b-e07fc1f90ae7&quot;,
+        &quot;actor&quot;: {
+          &quot;id&quot;: &quot;7c9e6679-7425-40de-944b-e07fc1f90ae7&quot;,
+          &quot;display_name&quot;: &quot;Amina Owner&quot;,
+          &quot;role_name&quot;: &quot;Farm Manager&quot;
+        },
+        &quot;accepted_at&quot;: null,
+        &quot;started_at&quot;: null,
+        &quot;completed_at&quot;: null,
+        &quot;cancelled_at&quot;: null,
+        &quot;unable_to_complete_at&quot;: null,
+        &quot;unable_reason_code&quot;: null,
+        &quot;source&quot;: {
+          &quot;type&quot;: &quot;manual&quot;,
+          &quot;id&quot;: null
+        },
+        &quot;result&quot;: null,
+        &quot;subject&quot;: {
+          &quot;type&quot;: &quot;animal&quot;,
+          &quot;id&quot;: 15,
+          &quot;label&quot;: &quot;COW-001&quot;
+        },
+        &quot;result_reference_table&quot;: null,
+        &quot;result_reference_id&quot;: null,
+        &quot;created_at&quot;: &quot;2026-08-27T07:00:00+00:00&quot;
+      }
+    ],
     &quot;upcoming&quot;: []
   },
   &quot;meta&quot;: null
@@ -3309,4 +3397,4 @@
   &quot;data&quot;: null,
   &quot;errors&quot;: {},
   &quot;retryable&quot;: false
-}</pre></div></div><p class='muted'>TATI FarmOS Frontend API Contract v2.2 RC · primary #209850 · do not parse legacy list keys (<code>current_page</code>, <code>num_pages</code>) on these routes. Evidence uploads, bootstrap, retag history, and birth/offspring integrity enforcement are deferred.</p></div></body></html>
+}</pre></div></div><p class='muted'>TATI FarmOS Frontend API Contract v2.2 Final RC · primary #209850 · do not parse legacy list keys (<code>current_page</code>, <code>num_pages</code>) on these routes. Evidence uploads, bootstrap, and retag history are deferred.</p></div></body></html>

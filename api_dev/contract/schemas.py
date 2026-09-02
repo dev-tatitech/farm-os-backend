@@ -46,6 +46,13 @@ class AnimalPatchIn(Schema):
     dob: Optional[date] = None
     estimated_age_months: Optional[int] = None
     client_request_id: Optional[str] = None
+    is_pregnant: Optional[bool] = None
+    is_lactating: Optional[bool] = None
+    is_quarantine: Optional[bool] = None
+    needs_attention: Optional[bool] = None
+    is_active: Optional[bool] = None
+    status: Optional[str] = None
+    lifecycle_status: Optional[str] = None
 
 
 class TaskCreateIn(Schema):

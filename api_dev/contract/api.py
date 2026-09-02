@@ -18,12 +18,12 @@ from .search import search_router
 from .timeline import timeline_router
 
 v2_api = NinjaAPI(
-    title="FarmOS Frontend API Contract v2.2 — Livestock MVP Release Candidate",
+    title="FarmOS Frontend API Contract v2.2 — Livestock MVP Final Release Candidate",
     version="2.2",
     description=(
-        "v2.2 is the Livestock MVP Release Candidate. It closes the final "
-        "Product/QA findings from v2.1. No new MVP functionality should be "
-        "added after this point without Product change approval."
+        "v2.2 is the frozen Livestock MVP Web/Mobile API contract. No additional "
+        "MVP functionality or breaking contract change may be introduced without "
+        "Product change approval."
     ),
     docs_url="/docs",
     openapi_url="/openapi.json",
@@ -90,8 +90,8 @@ def on_django_validation(request, exc: DjangoValidationError):
 def contract_root(request):
     return 200, success_body(
         data={
-            "contract": "FarmOS Frontend API Contract v2.2",
-            "release": "Livestock MVP Release Candidate",
+                "contract": "FarmOS Frontend API Contract v2.2",
+                "release": "Livestock MVP Final Release Candidate",
             "legacy_prefix": "/api/",
             "this_prefix": "/api/v2/",
             "identifiers": [
@@ -104,7 +104,7 @@ def contract_root(request):
                 "group_id",
             ],
         },
-        message="v2.2 Livestock MVP Release Candidate is available.",
+        message="v2.2 Livestock MVP Final Release Candidate is available.",
     )
 
 

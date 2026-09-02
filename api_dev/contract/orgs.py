@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from django.db.models import Count, Q
+from django.utils import timezone
 from ninja import Router
 
 from account.models import User
@@ -130,7 +131,13 @@ def users_me_tasks(request, page: int = 1, page_size: int = 20, status: str = No
         "animal", "assigned_to", "created_by", "farm"
     )
     if status == "open":
-        qs = qs.exclude(status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED])
+        qs = qs.exclude(
+            status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED, Task.Status.UNABLE_TO_COMPLETE]
+        )
+    elif status == "overdue":
+        qs = qs.exclude(
+            status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED, Task.Status.UNABLE_TO_COMPLETE]
+        ).filter(due_at__lt=timezone.now())
     elif status:
         qs = qs.filter(status=status)
     return 200, paginated(qs, page, page_size, serialize_task, "Tasks fetched successfully.")
@@ -237,7 +244,13 @@ def user_tasks(request, user_id: UUID, page: int = 1, page_size: int = 20, statu
         "animal", "assigned_to", "created_by", "farm"
     )
     if status == "open":
-        qs = qs.exclude(status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED, Task.Status.UNABLE_TO_COMPLETE])
+        qs = qs.exclude(
+            status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED, Task.Status.UNABLE_TO_COMPLETE]
+        )
+    elif status == "overdue":
+        qs = qs.exclude(
+            status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED, Task.Status.UNABLE_TO_COMPLETE]
+        ).filter(due_at__lt=timezone.now())
     elif status:
         qs = qs.filter(status=status)
     return 200, paginated(qs, page, page_size, serialize_task, "Tasks fetched successfully.")

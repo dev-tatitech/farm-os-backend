@@ -142,11 +142,13 @@ def list_tasks(
     if task_type:
         qs = qs.filter(task_type=task_type)
     if status == "open":
-        qs = qs.exclude(status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED])
-    elif status == "overdue":
-        qs = qs.exclude(status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED]).filter(
-            due_at__lt=timezone.now()
+        qs = qs.exclude(
+            status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED, Task.Status.UNABLE_TO_COMPLETE]
         )
+    elif status == "overdue":
+        qs = qs.exclude(
+            status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED, Task.Status.UNABLE_TO_COMPLETE]
+        ).filter(due_at__lt=timezone.now())
     elif status:
         qs = qs.filter(status=status)
     return 200, paginated(qs.order_by("due_at", "-id"), page, page_size, serialize_task, "Tasks fetched successfully.")

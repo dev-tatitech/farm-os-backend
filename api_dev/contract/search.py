@@ -16,20 +16,39 @@ search_router = Router(tags=["Search"])
 def _search_person(user, org):
     from role.models import UserRole
 
-    assignment = (
+    from .authz import is_organization_owner
+
+    assignments = list(
         UserRole.objects.filter(user=user)
         .select_related("role", "farm")
         .filter(Q(farm__organization=org) | Q(farm__isnull=True))
-        .first()
+        .order_by("id")
     )
-    return {
+    farm_assignments = [row for row in assignments if row.farm_id]
+    primary = farm_assignments[0] if farm_assignments else (assignments[0] if assignments else None)
+    role = primary.role.name if primary else None
+    farm_name = primary.farm.name if primary and primary.farm_id else None
+    farm_id = primary.farm_id if primary else None
+    if role is None and is_organization_owner(user, org):
+        role = "Organization Owner"
+        first_farm = org.farms.order_by("id").first()
+        if first_farm:
+            farm_name = first_farm.name
+            farm_id = first_farm.id
+    payload = {
         "id": str(user.id),
         "display_name": display_name(user),
         "email": user.email,
-        "role": assignment.role.name if assignment else None,
-        "farm": assignment.farm.name if assignment and assignment.farm_id else None,
-        "farm_id": assignment.farm_id if assignment else None,
+        "role": role,
+        "farm": farm_name,
+        "farm_id": farm_id,
     }
+    if len(farm_assignments) > 1:
+        payload["assignments"] = [
+            {"role": row.role.name, "farm": row.farm.name, "farm_id": row.farm_id}
+            for row in farm_assignments
+        ]
+    return payload
 
 
 @search_router.get(

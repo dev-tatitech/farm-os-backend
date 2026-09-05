@@ -22,6 +22,7 @@ from finance.api import router as finance
 from pharmacy.api import router as pharmacy
 from reports.api import router as reports
 from contract.api import v2_api
+from contract.openapi_merge import patch_v2_openapi
 from django.conf import settings
 from django.conf.urls.static import static
 
@@ -49,6 +50,8 @@ api.add_router("/dashboard/", dashboard)
 api.add_router("/finance/", finance)
 api.add_router("/pharmacy/", pharmacy)
 api.add_router("/reports/", reports)
+
+patch_v2_openapi(v2_api, api)
 
 urlpatterns = [
     path("admin/", admin.site.urls),

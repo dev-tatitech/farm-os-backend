@@ -150,6 +150,7 @@ check("legacy_has_login", "/api/auth/login" in legacy_paths)
 st, body = http("GET", "/api/v2/openapi.json")
 v2_paths = sorted((body or {}).get("paths", {}))
 check("v2_openapi", st == 200 and len(v2_paths) >= 40, http=st, count=len(v2_paths))
+check("v2_has_login", "/api/auth/login" in v2_paths)
 check("legacy_omits_v2_users_me", not any("users/me" in p for p in legacy_paths))
 
 st, body = http("GET", "/api/v2/users/me/")

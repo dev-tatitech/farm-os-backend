@@ -30,7 +30,7 @@ from django.conf.urls.static import static
 api = NinjaAPI(
     title="FarmOS API — Dev",
     version="2.2",
-    description="Unified FarmOS development API documentation.",
+    description="Read each endpoint carefully. If there is any issue, contact the backend team.",
     docs_url="/docs",
     openapi_url="/openapi.json",
     urls_namespace="api",

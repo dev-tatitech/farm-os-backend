@@ -67,11 +67,7 @@ def merge_dev_openapi(dev_schema: dict[str, Any], v2_schema: dict[str, Any]) -> 
     info = merged.setdefault("info", {})
     info["title"] = "FarmOS API — Dev"
     info["version"] = "2.2"
-    info["description"] = (
-        "Unified development API reference for FarmOS. Includes all `/api/*` routes "
-        "and `/api/v2/*` contract routes. Authenticate with `POST /api/auth/login` "
-        "(sets session cookies), then call any documented route."
-    )
+    info["description"] = "Read each endpoint carefully. If there is any issue, contact the backend team."
     return merged
 
 

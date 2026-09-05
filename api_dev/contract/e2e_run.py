@@ -144,14 +144,15 @@ ibrahim_token = create_access_token({"sub": str(ibrahim.id)})
 
 # --- isolation / auth ---
 st, body = http("GET", "/api/openapi.json")
-legacy_paths = sorted((body or {}).get("paths", {}))
-check("legacy_openapi_240", st == 200 and len(legacy_paths) == 240, http=st, count=len(legacy_paths))
-check("legacy_has_login", "/api/auth/login" in legacy_paths)
+dev_paths = sorted((body or {}).get("paths", {}))
+check("dev_openapi_unified", st == 200 and len(dev_paths) >= 290, http=st, count=len(dev_paths))
+check("dev_has_login", "/api/auth/login" in dev_paths)
+check("dev_has_v2_users_me", "/api/v2/users/me/" in dev_paths)
+check("dev_omits_deprecated_profile", not any("animal-profile/v2/" in p for p in dev_paths))
 st, body = http("GET", "/api/v2/openapi.json")
 v2_paths = sorted((body or {}).get("paths", {}))
 check("v2_openapi", st == 200 and len(v2_paths) >= 40, http=st, count=len(v2_paths))
-check("v2_has_login", "/api/auth/login" in v2_paths)
-check("legacy_omits_v2_users_me", not any("users/me" in p for p in legacy_paths))
+check("v2_openapi_v2_only", "/api/auth/login" not in v2_paths and "/api/v2/users/me/" in v2_paths)
 
 st, body = http("GET", "/api/v2/users/me/")
 check("v2_unauth_me", st == 401 and body.get("code") == "AUTHENTICATION_REQUIRED", http=st, code=body.get("code"))
@@ -456,7 +457,7 @@ check("v2_get_no_500s", len(v2_get_failures) == 0, failures=v2_get_failures)
 st, legacy_after = http("GET", "/api/animals/animal-profile/v2/%s" % animal.id, token=owner_token)
 check("legacy_profile_after_writes", ok_success(st, legacy_after), http=st)
 st, body = http("GET", "/api/openapi.json")
-check("legacy_path_count_unchanged", st == 200 and len((body or {}).get("paths", {})) == 240, count=len((body or {}).get("paths", {})))
+check("dev_openapi_still_unified", st == 200 and len((body or {}).get("paths", {})) >= 290, count=len((body or {}).get("paths", {})))
 
 failed = [r for r in results if not r["ok"]]
 print(json.dumps({

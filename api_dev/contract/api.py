@@ -25,7 +25,7 @@ v2_api = NinjaAPI(
         "MVP functionality or breaking contract change may be introduced without "
         "Product change approval."
     ),
-    docs_url="/docs",
+    docs_url=None,
     openapi_url="/openapi.json",
     urls_namespace="api_v2",
 )

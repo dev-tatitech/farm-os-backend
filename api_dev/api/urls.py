@@ -1,5 +1,6 @@
 from django.contrib import admin
 from django.urls import path
+from django.views.generic import RedirectView
 
 admin.site.site_header = "Tati FarmOS"
 admin.site.site_title = "Tati FarmOS Admin"
@@ -22,14 +23,14 @@ from finance.api import router as finance
 from pharmacy.api import router as pharmacy
 from reports.api import router as reports
 from contract.api import v2_api
-from contract.openapi_merge import patch_v2_openapi
+from contract.openapi_merge import patch_dev_openapi
 from django.conf import settings
 from django.conf.urls.static import static
 
 api = NinjaAPI(
     title="FarmOS API — Dev",
-    version="1.0",
-    description="API documentation",
+    version="2.2",
+    description="Unified FarmOS development API documentation.",
     docs_url="/docs",
     openapi_url="/openapi.json",
     urls_namespace="api",
@@ -51,10 +52,11 @@ api.add_router("/finance/", finance)
 api.add_router("/pharmacy/", pharmacy)
 api.add_router("/reports/", reports)
 
-patch_v2_openapi(v2_api, api)
+patch_dev_openapi(api, v2_api)
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path("api/v2/docs", RedirectView.as_view(url="/api/docs", permanent=False)),
     path("api/v2/", v2_api.urls),
     path("api/", api.urls),
 ]

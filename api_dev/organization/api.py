@@ -38,7 +38,8 @@ from django.db.models import Value
 from django.http import HttpResponse
 from account.models import (
     Country,
-    AdminLevel1
+    AdminLevel1,
+    AdminLevel2,
 )
 import uuid
 from .models import (
@@ -159,6 +160,21 @@ def get_state(request, country_id: int):
     return 200, APIResponse(
         success=True, message="stateregion successfully", data=data
     )
+
+@router.get(
+    "/get-lga/{state_region_id}",
+    response={200: APIResponse, 403: APIResponse},
+)
+def get_lga(request, state_region_id: int):
+    user_id = get_current_user(request)
+    try:
+        user = users.objects.get(Q(id=user_id))
+    except users.DoesNotExist:
+        raise HttpError(400, "Permission denied")
+    state = get_object_or_404(AdminLevel1, id=state_region_id)
+    rows = AdminLevel2.objects.filter(admin_level1=state).order_by("name")
+    data = [{"id": row.id, "name": row.name} for row in rows]
+    return 200, APIResponse(success=True, message="lga fetched successfully", data=data)
 
 @router.post(
     "/organization/",

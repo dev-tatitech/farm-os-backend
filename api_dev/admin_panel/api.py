@@ -41,6 +41,7 @@ from account.models import (
     Country,
     AdminLevel1
 )
+from account.nigeria_geo import seed_nigeria_geography
 import uuid
 from .models import (
     Species,
@@ -381,6 +382,24 @@ def seed_permissions(request):
         success=True,
         message=f"{len(new_permissions)} permission(s) seeded, {skipped} skipped (already exist)",
         data={"seeded": len(new_permissions), "skipped": skipped, "total": len(to_create)},
+    )
+
+
+@router.post("/seed-nigeria-geo/", auth=None, response={200: APIResponse})
+def seed_nigeria_geo(request):
+    stats = seed_nigeria_geography()
+    country = stats["country"]
+    states = stats["states"]
+    lgas = stats["lgas"]
+    return 200, APIResponse(
+        success=True,
+        message=(
+            f"Nigeria geography ready: country "
+            f"{'created' if country['created'] else 'exists'}, "
+            f"{states['seeded']} state(s) added ({states['skipped']} skipped), "
+            f"{lgas['seeded']} LGA(s) added ({lgas['skipped']} skipped)."
+        ),
+        data=stats,
     )
 
 

@@ -312,7 +312,7 @@ def get_app_type(request):
     """
     host = request.get_host().split(":")[0].lower()
 
-    if host.startswith("adminapi."):
+    if host.startswith("admin-dev-api."):
         return "admin"
 
     return "client"
@@ -445,7 +445,7 @@ def send_sub_account_otp_email(user, email):
         expires_at=expires_at
     )
 
-    activation_url = "https://www.tatifarmos.com/auth/activate?" + urlencode({
+    activation_url = "https://dev.tatifarmos.com/auth/activate?" + urlencode({
         "email": email,
         "otp": otp_code,
     })

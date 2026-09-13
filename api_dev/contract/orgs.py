@@ -386,15 +386,18 @@ permissions_router = Router(tags=["Users"])
     response={200: V2Success, 401: V2Error, 403: V2Error},
     summary="List organization roles",
 )
-def list_roles(request):
+def list_roles(request, page: int = 1, page_size: int = 20):
     user = require_user(request)
     org = resolve_organization(user)
     if not can_view_people(user, org):
         raise ContractError(403, ErrorCode.PERMISSION_DENIED, "Roles are not available.")
     rows = Role.objects.filter(Q(organization=org) | Q(organization__isnull=True)).order_by("name")
-    return 200, success_body(
-        data=[{"id": r.id, "name": r.name, "code": r.code} for r in rows],
-        message="Roles fetched successfully.",
+    return 200, paginated(
+        rows,
+        page,
+        page_size,
+        lambda r: {"id": r.id, "name": r.name, "code": r.code},
+        "Roles fetched successfully.",
     )
 
 
@@ -403,23 +406,23 @@ def list_roles(request):
     response={200: V2Success, 401: V2Error, 403: V2Error},
     summary="List permission catalog",
 )
-def list_permissions(request):
+def list_permissions(request, page: int = 1, page_size: int = 20):
     user = require_user(request)
     org = resolve_organization(user)
     if not can_view_people(user, org):
         raise ContractError(403, ErrorCode.PERMISSION_DENIED, "Permissions are not available.")
     rows = Permission.objects.all().order_by("code")
-    return 200, success_body(
-        data=[
-            {
-                "id": p.id,
-                "code": p.code,
-                "name": getattr(p, "name", p.code),
-                "module": p.module,
-            }
-            for p in rows
-        ],
-        message="Permissions fetched successfully.",
+    return 200, paginated(
+        rows,
+        page,
+        page_size,
+        lambda p: {
+            "id": p.id,
+            "code": p.code,
+            "name": getattr(p, "name", p.code),
+            "module": p.module,
+        },
+        "Permissions fetched successfully.",
     )
 
 

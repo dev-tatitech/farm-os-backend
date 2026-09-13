@@ -19,10 +19,10 @@ from .authz import (
     require_user,
     resolve_organization,
 )
-from .envelope import V2Error, V2Success, success_body
+from .envelope import V2Error, V2Success, pagination_meta, success_body
 from .codes import ErrorCode
 from .exceptions import ContractError
-from .helpers import paginated
+from .helpers import page_args, paginated
 from .identity import display_name, reference_payload, subject_payload
 from .schemas import FarmPatchIn
 
@@ -171,7 +171,7 @@ def farm_timeline(request, farm_id: int, page: int = 1, page_size: int = 20, eve
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error},
     summary="People assigned to the farm",
 )
-def farm_people(request, farm_id: int):
+def farm_people(request, farm_id: int, page: int = 1, page_size: int = 20):
     user = require_user(request)
     org = resolve_organization(user)
     farm = require_farm(org, farm_id, user)
@@ -215,7 +215,14 @@ def farm_people(request, farm_id: int):
                 "farm_id": row.farm_id,
             }
         )
-    return 200, success_body(data=list(people.values()), message="People fetched successfully.")
+    page, page_size = page_args(page, page_size)
+    rows = sorted(people.values(), key=lambda row: row["email"])
+    start = (page - 1) * page_size
+    return 200, success_body(
+        data=rows[start : start + page_size],
+        message="People fetched successfully.",
+        meta=pagination_meta(page, page_size, len(rows)),
+    )
 
 
 @farms_router.get(
@@ -223,7 +230,7 @@ def farm_people(request, farm_id: int):
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error},
     summary="Farm housing units",
 )
-def farm_units(request, farm_id: int):
+def farm_units(request, farm_id: int, page: int = 1, page_size: int = 20):
     user = require_user(request)
     org = resolve_organization(user)
     farm = require_farm(org, farm_id, user)
@@ -251,9 +258,13 @@ def farm_units(request, farm_id: int):
         }
         for unit in FarmUnit.objects.filter(farm=farm).select_related("unit_type")
     ]
+    combined = housing + units
+    page, page_size = page_args(page, page_size)
+    start = (page - 1) * page_size
     return 200, success_body(
-        data={"housing_units": housing, "farm_units": units},
+        data=combined[start : start + page_size],
         message="Units fetched successfully.",
+        meta=pagination_meta(page, page_size, len(combined)),
     )
 
 

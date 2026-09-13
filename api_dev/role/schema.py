@@ -19,6 +19,7 @@ class APIResponse(Schema):
     success: bool
     message: str
     data: Any
+    meta: Optional[Any] = None
     
 class RoleIn(Schema):
     name: str

@@ -61,11 +61,34 @@ from .schema import (
    FarmInSchema
 )
 router = Router(tags=["Oganization module"])
+
+
+def _paged_legacy(queryset, page, page_size, serializer, message):
+    page = max(int(page or 1), 1)
+    page_size = min(max(int(page_size or 20), 1), 100)
+    paginator = Paginator(queryset, page_size)
+    page_obj = paginator.get_page(page)
+    total_pages = paginator.num_pages
+    return APIResponse(
+        success=True,
+        message=message,
+        data=[serializer(row) for row in page_obj.object_list],
+        meta={
+            "pagination": {
+                "page": page_obj.number,
+                "page_size": page_size,
+                "total_items": paginator.count,
+                "total_pages": total_pages,
+                "has_next": page_obj.has_next(),
+                "has_previous": page_obj.has_previous(),
+            }
+        },
+    )
 @router.get(
     "/get-plan/",
     response={200: APIResponse, 403: APIResponse},
 )
-def get_plan(request):
+def get_plan(request, page: int = 1, page_size: int = 20):
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -73,8 +96,7 @@ def get_plan(request):
         return 403, APIResponse(success=False, message="Permission denied", data=None)
     
     plans = SubscriptionPlan.objects.all()
-    data = [
-        {
+    return 200, _paged_legacy(plans, page, page_size, lambda plan: {
          "id": plan.id,
          "name": plan.name  ,
          "monthly_price": plan.monthly_price  ,
@@ -83,18 +105,13 @@ def get_plan(request):
          "max_farms": plan.max_farms  ,
          "max_batches": plan.max_batches  
           
-        }
-        for plan in plans
-    ]
-    return 200, APIResponse(
-        success=True, message="subcription plans successfully", data=data
-    )
+        }, "subcription plans successfully")
 
 @router.get(
     "/get-industry/",
     response={200: APIResponse, 403: APIResponse},
 )
-def get_industry(request):
+def get_industry(request, page: int = 1, page_size: int = 20):
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -102,23 +119,17 @@ def get_industry(request):
         return 403, APIResponse(success=False, message="Permission denied", data=None)
     
     plans = Industry.objects.all()
-    data = [
-        {
+    return 200, _paged_legacy(plans, page, page_size, lambda plan: {
          "id": plan.id,
          "code": plan.short_nme  ,
          "name": plan.name  ,   
-        }
-        for plan in plans
-    ]
-    return 200, APIResponse(
-        success=True, message="industries successfully", data=data
-    )
+        }, "industries successfully")
 
 @router.get(
     "/get-countries/",
     response={200: APIResponse, 403: APIResponse},
 )
-def get_counttries(request):
+def get_counttries(request, page: int = 1, page_size: int = 20):
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -126,22 +137,16 @@ def get_counttries(request):
         return 403, APIResponse(success=False, message="Permission denied", data=None)
     
     plans = Country.objects.all()
-    data = [
-        {
+    return 200, _paged_legacy(plans, page, page_size, lambda plan: {
          "id": plan.id,
          "name": plan.name  ,   
-        }
-        for plan in plans
-    ]
-    return 200, APIResponse(
-        success=True, message="countries successfully", data=data
-    )
+        }, "countries successfully")
 
 @router.get(
     "/get-stateregion/{country_id}",
     response={200: APIResponse, 403: APIResponse},
 )
-def get_state(request, country_id: int):
+def get_state(request, country_id: int, page: int = 1, page_size: int = 20):
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -149,23 +154,17 @@ def get_state(request, country_id: int):
         raise HttpError(400, "Permission denied")
     country = get_object_or_404(Country, id =country_id)
     plans = AdminLevel1.objects.filter(country =country)
-    data = [
-        {
+    return 200, _paged_legacy(plans, page, page_size, lambda plan: {
          "id": plan.id,
          "name": plan.name,
          "timezone": plan.timezone   
-        }
-        for plan in plans
-    ]
-    return 200, APIResponse(
-        success=True, message="stateregion successfully", data=data
-    )
+        }, "stateregion successfully")
 
 @router.get(
     "/get-lga/{state_region_id}",
     response={200: APIResponse, 403: APIResponse},
 )
-def get_lga(request, state_region_id: int):
+def get_lga(request, state_region_id: int, page: int = 1, page_size: int = 20):
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -173,8 +172,10 @@ def get_lga(request, state_region_id: int):
         raise HttpError(400, "Permission denied")
     state = get_object_or_404(AdminLevel1, id=state_region_id)
     rows = AdminLevel2.objects.filter(admin_level1=state).order_by("name")
-    data = [{"id": row.id, "name": row.name} for row in rows]
-    return 200, APIResponse(success=True, message="lga fetched successfully", data=data)
+    return 200, _paged_legacy(
+        rows, page, page_size, lambda row: {"id": row.id, "name": row.name},
+        "lga fetched successfully",
+    )
 
 @router.post(
     "/organization/",
@@ -297,7 +298,7 @@ def update_organization_logo(
     "/farm-type/",
     response={200: APIResponse, 403: APIResponse},
 )
-def farm_type(request):
+def farm_type(request, page: int = 1, page_size: int = 20):
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -305,17 +306,11 @@ def farm_type(request):
         return 403, APIResponse(success=False, message="Permission denied", data=None)
     
     farm_type = FarmType.objects.all()
-    data = [
-        {
+    return 200, _paged_legacy(farm_type, page, page_size, lambda f_type: {
          "id": f_type.id,
          "name": f_type.name  ,   
          "code": f_type.code  ,   
-        }
-        for f_type in farm_type
-    ]
-    return 200, APIResponse(
-        success=True, message="farm type successfully", data=data
-    )
+        }, "farm type successfully")
     
 @router.post(
     "/farm/",
@@ -361,7 +356,7 @@ def farm(request, payload: FarmInSchema):
     "/farm/",
     response={200: APIResponse, 403: APIResponse},
 )
-def get_farm(request):
+def get_farm(request, page: int = 1, page_size: int = 20):
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -377,8 +372,7 @@ def get_farm(request):
     if not org:
         raise HttpError(404, f"Permission denied")
     
-    data = [
-        {
+    return 200, _paged_legacy(farms, page, page_size, lambda farm: {
             "id": farm.id,
             "name": farm.name,
             "farm_code": farm.farm_code,
@@ -392,12 +386,7 @@ def get_farm(request):
             "is_primary": farm.is_primary,
             "status": farm.status,
             
-        }
-        for farm in farms
-    ]
-    return 200, APIResponse(
-        success=True, message="farm fetch successfully", data=data
-    )
+        }, "farm fetch successfully")
 
 
 @router.get(

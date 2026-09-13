@@ -18,6 +18,7 @@ class APIResponse(Schema):
     success: bool
     message: str
     data: Any
+    meta: Optional[Any] = None
     
 class SpeciesSchemaIn(Schema):
     name: str

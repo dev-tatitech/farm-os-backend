@@ -87,6 +87,27 @@ from .schema import (
 )
 from organization.models import Farm
 router = Router(tags=["Admin panel"])
+
+
+def _paged_data(rows, page, page_size, message):
+    page = max(int(page or 1), 1)
+    page_size = min(max(int(page_size or 20), 1), 100)
+    total = len(rows)
+    start = (page - 1) * page_size
+    total_pages = (total + page_size - 1) // page_size
+    return APIResponse(
+        success=True,
+        message=message,
+        data=rows[start : start + page_size],
+        meta={"pagination": {
+            "page": page,
+            "page_size": page_size,
+            "total_items": total,
+            "total_pages": total_pages,
+            "has_next": page < total_pages,
+            "has_previous": page > 1,
+        }},
+    )
 @router.post(
     "/species/",
     response={200: APIResponse, 403: APIResponse},
@@ -527,7 +548,7 @@ def seed_livestock_master(request):
 # ── Read endpoints ────────────────────────────────────────────────────────────
 
 @router.get("/livestock/species/", response={200: APIResponse, 403: APIResponse})
-def get_livestock_species(request):
+def get_livestock_species(request, page: int = 1, page_size: int = 20):
     user_id = get_current_user(request)
     try:
         users.objects.get(Q(id=user_id))
@@ -538,11 +559,11 @@ def get_livestock_species(request):
         LivestockSpecies.objects.filter(is_active=True)
         .values("id", "name", "category", "is_system")
     )
-    return 200, APIResponse(success=True, message="Livestock species", data=data)
+    return 200, _paged_data(data, page, page_size, "Livestock species")
 
 
 @router.get("/livestock/breeds/{species_id}/", response={200: APIResponse, 403: APIResponse})
-def get_livestock_breeds(request, species_id: int, farm_id: Optional[int] = None):
+def get_livestock_breeds(request, species_id: int, farm_id: Optional[int] = None, page: int = 1, page_size: int = 20):
     user_id = get_current_user(request)
     try:
         users.objects.get(Q(id=user_id))
@@ -558,11 +579,11 @@ def get_livestock_breeds(request, species_id: int, farm_id: Optional[int] = None
         qs = qs.filter(farm=None)
 
     data = list(qs.values("id", "name", "description", "origin", "is_system", "farm_id"))
-    return 200, APIResponse(success=True, message="Livestock breeds", data=data)
+    return 200, _paged_data(data, page, page_size, "Livestock breeds")
 
 
 @router.get("/livestock/housing-unit-types/{species_id}/", response={200: APIResponse, 403: APIResponse})
-def get_housing_unit_types(request, species_id: int):
+def get_housing_unit_types(request, species_id: int, page: int = 1, page_size: int = 20):
     user_id = get_current_user(request)
     try:
         users.objects.get(Q(id=user_id))
@@ -574,11 +595,11 @@ def get_housing_unit_types(request, species_id: int):
         HousingUnitType.objects.filter(species=species, is_active=True)
         .values("id", "name", "is_system")
     )
-    return 200, APIResponse(success=True, message="Housing unit types", data=data)
+    return 200, _paged_data(data, page, page_size, "Housing unit types")
 
 
 @router.get("/livestock/housing-units/{farm_id}/", response={200: APIResponse, 403: APIResponse})
-def get_farm_housing_units(request, farm_id: int, species_id: Optional[int] = None):
+def get_farm_housing_units(request, farm_id: int, species_id: Optional[int] = None, page: int = 1, page_size: int = 20):
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -603,11 +624,11 @@ def get_farm_housing_units(request, farm_id: int, species_id: Optional[int] = No
             "status": u.status,
             "allowed_species": list(u.allowed_species.values_list("name", flat=True)),
         })
-    return 200, APIResponse(success=True, message="Farm housing units", data=data)
+    return 200, _paged_data(data, page, page_size, "Farm housing units")
 
 
 @router.get("/livestock/classifications/{species_id}/", response={200: APIResponse, 403: APIResponse})
-def get_animal_classifications(request, species_id: int, sex: Optional[str] = None):
+def get_animal_classifications(request, species_id: int, sex: Optional[str] = None, page: int = 1, page_size: int = 20):
     user_id = get_current_user(request)
     try:
         users.objects.get(Q(id=user_id))
@@ -619,7 +640,7 @@ def get_animal_classifications(request, species_id: int, sex: Optional[str] = No
     if sex:
         qs = qs.filter(sex=sex)
     data = list(qs.values("id", "name", "sex", "is_system"))
-    return 200, APIResponse(success=True, message="Animal classifications", data=data)
+    return 200, _paged_data(data, page, page_size, "Animal classifications")
 
 
 # ── Write endpoints ───────────────────────────────────────────────────────────

@@ -18,6 +18,7 @@ class APIResponse(Schema):
     success: bool
     message: str
     data: Any
+    meta: Optional[Any] = None
     
 class OranizationSchemaIn(Schema):
     name: str

@@ -69,11 +69,33 @@ from .schema import (
     RolePermissionIn
 )
 router = Router(tags=["User and Role management"])
+
+
+def _paged_rows(queryset, page, page_size, serializer, message):
+    page = max(int(page or 1), 1)
+    page_size = min(max(int(page_size or 20), 1), 100)
+    paginator = Paginator(queryset, page_size)
+    page_obj = paginator.get_page(page)
+    return APIResponse(
+        success=True,
+        message=message,
+        data=[serializer(row) for row in page_obj.object_list],
+        meta={
+            "pagination": {
+                "page": page_obj.number,
+                "page_size": page_size,
+                "total_items": paginator.count,
+                "total_pages": paginator.num_pages,
+                "has_next": page_obj.has_next(),
+                "has_previous": page_obj.has_previous(),
+            }
+        },
+    )
 @router.get(
     "/permission/",
     response={200: APIResponse, 403: APIResponse},
 )
-def get_permission(request):
+def get_permission(request, page: int = 1, page_size: int = 20):
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -81,19 +103,13 @@ def get_permission(request):
         return 403, APIResponse(success=False, message="Permission denied", data=None)
     
     plans = Permission.objects.all()
-    data = [
-        {
+    return 200, _paged_rows(plans, page, page_size, lambda plan: {
          "id": plan.id,
          "code": plan.code  ,
          "name": plan.name  ,   
          "module": plan.module  ,
           "description": plan.description  ,   
-        }
-        for plan in plans
-    ]
-    return 200, APIResponse(
-        success=True, message="permission fetch successfully", data=data
-    )
+        }, "permission fetch successfully")
 
 @router.post(
     "/role/",
@@ -130,7 +146,7 @@ def role(request, payload: RoleIn):
     "/role/",
     response={200: APIResponse, 403: APIResponse},
 )
-def get_role(request):
+def get_role(request, page: int = 1, page_size: int = 20):
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -138,18 +154,12 @@ def get_role(request):
         return 403, APIResponse(success=False, message="Permission denied", data=None)
     org = get_object_or_404(Organization, user = user)
     plans = Role.objects.filter(organization = org)
-    data = [
-        {
+    return 200, _paged_rows(plans, page, page_size, lambda plan: {
          "id": plan.id,
          "code": plan.code  ,
          "name": plan.name  ,   
           "description": plan.description  ,   
-        }
-        for plan in plans
-    ]
-    return 200, APIResponse(
-        success=True, message="Role fetch successfully", data=data
-    )
+        }, "Role fetch successfully")
 
 @router.patch(
     "/role/",
@@ -289,7 +299,7 @@ def resent_otp_new_user(request, email: EmailStr):
     "/user/",
     response={200: APIResponse, 403: APIResponse},
 )
-def get_user(request):
+def get_user(request, page: int = 1, page_size: int = 20):
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -297,18 +307,10 @@ def get_user(request):
         raise HttpError(400, "Permission denied")
     org = get_object_or_404(Organization, user = user)
     all_user = User.objects.filter(organization =org)
-    data = [
-        {
+    return 200, _paged_rows(all_user, page, page_size, lambda user: {
         "id": user.id,
         "email": user.email
-    }
-        for user in all_user
-    ]
-    return 200,APIResponse(
-        success=True,
-        message="user fetch successfully",
-        data=data
-    )
+    }, "user fetch successfully")
     
 @router.post(
     "/user-role/",
@@ -411,7 +413,7 @@ def revoke_user_role(request, assignment_id: int):
     )
     
 @router.get("/user-role/", response={200: APIResponse, 403: APIResponse})
-def get_user_role(request):
+def get_user_role(request, page: int = 1, page_size: int = 20):
     user_id = get_current_user(request)
 
     try:
@@ -458,10 +460,8 @@ def get_user_role(request):
             "roles": list(role_map.values())
         })
 
-    return 200, APIResponse(
-        success=True,
-        message="User roles fetched successfully",
-        data=data
+    return 200, _paged_rows(
+        data, page, page_size, lambda row: row, "User roles fetched successfully"
     )
 @router.post(
     "/role-permission/",
@@ -503,7 +503,7 @@ def assign_role_permission(request, payload: RolePermissionIn):
     "/role-permission/",
     response={200: APIResponse, 403: APIResponse},
 )
-def get_role_permission(request):
+def get_role_permission(request, page: int = 1, page_size: int = 20):
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -529,8 +529,6 @@ def get_role_permission(request):
             }
         )
         
-    return 200,APIResponse(
-        success=True,
-        message="role permission fetch successfully",
-        data=data
+    return 200, _paged_rows(
+        data, page, page_size, lambda row: row, "role permission fetch successfully"
     )

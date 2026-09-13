@@ -3,7 +3,7 @@ from django.db.models import Q
 
 def user_has_permission(user, permission_code, farm=None):
     from role.models import RolePermission
-    filters = Q(role__userrole__user=user)
+    filters = Q(role__userrole__user=user, role__userrole__status="active")
 
     if farm:
         filters &= Q(role__userrole__farm=farm)

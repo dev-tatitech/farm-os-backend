@@ -25,5 +25,3 @@ class FarmUnit(TimeStampedModel):
     unit_type = models.ForeignKey("admin_panel.UnitType", null=True, blank=True, on_delete=models.SET_NULL, related_name="farm_unit")
     capacity = models.IntegerField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="active")
-
-

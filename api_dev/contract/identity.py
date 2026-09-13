@@ -19,6 +19,18 @@ def display_name(user) -> str:
     return user.email or str(user.id)
 
 
+def identity_payload(user) -> dict:
+    label = display_name(user)
+    return {
+        "id": str(user.id),
+        "display_name": label,
+        "display_label": label,
+        "email": user.email,
+        "phone": getattr(user, "phone", "") or None,
+        "avatar_url": user.avatar.url if getattr(user, "avatar", None) else None,
+    }
+
+
 def can_manage_people(user, org) -> bool:
     if is_organization_owner(user, org):
         return True

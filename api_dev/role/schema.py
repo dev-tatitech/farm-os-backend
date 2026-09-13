@@ -44,6 +44,10 @@ class NewUserRoleIn(Schema):
     role_id: int
     farm_id:int
     user_id: UUID
+
+class UserRolePatchIn(Schema):
+    farm_id: Optional[int] = None
+    role_id: Optional[int] = None
     
 class RolePermissionIn(Schema):
     role_id: int

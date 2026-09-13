@@ -526,7 +526,7 @@ def organization_dashboard(request):
             "total_farms": len(farms_data),
             "active_farms": sum(1 for f in farms_data if f["status"] == "active"),
             "total_users": len(users_data),
-            "active_users": sum(1 for u in users_data if u["account_status"] not in ("inactive", "Deleted")),
+            "active_users": sum(1 for u in users_data if u["account_status"] == "active"),
             "total_roles": len(roles_data),
         },
         "farms": farms_data,

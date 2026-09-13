@@ -32,11 +32,13 @@ def require_user(request) -> User:
             ErrorCode.AUTHENTICATION_REQUIRED,
             "Authentication is required.",
         )
-    if user.account_status in ("Suspended", "Deleted"):
+    if user.account_status in ("invited", "deactivated", "Suspended", "Deleted", "inactive"):
         raise ContractError(
             403,
-            ErrorCode.PERMISSION_DENIED,
-            "This account is not allowed to access the API.",
+            ErrorCode.ACCOUNT_DEACTIVATED if user.account_status in ("deactivated", "Suspended", "Deleted") else ErrorCode.PERMISSION_DENIED,
+            "Your account is currently deactivated."
+            if user.account_status in ("deactivated", "Suspended", "Deleted")
+            else "This account is not active.",
         )
     return user
 
@@ -128,8 +130,8 @@ def require_farm(org: Organization, farm_id, user: User = None) -> Farm:
     if user and not is_organization_owner(user, org):
         from role.models import UserRole
 
-        allowed = UserRole.objects.filter(user=user, farm=farm).exists()
-        org_wide = UserRole.objects.filter(user=user, farm__isnull=True).exists()
+        allowed = UserRole.objects.filter(user=user, farm=farm, status="active").exists()
+        org_wide = UserRole.objects.filter(user=user, farm__isnull=True, status="active").exists()
         if not allowed and not org_wide:
             raise ContractError(
                 403,

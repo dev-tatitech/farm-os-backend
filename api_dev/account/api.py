@@ -151,8 +151,10 @@ def login(request, data: LoginSchema):
     except users.DoesNotExist:
         return 401, Error_out(status="Error", message="Invalid credentials")
 
-    if user.account_status=="inactive":
+    if user.account_status == "invited":
         raise HttpError(400, "Please activate your account")
+    if user.account_status == "deactivated":
+        raise HttpError(403, "Your account is currently deactivated.")
     
     is_admin = user.is_superuser
     if not check_password(data.password, user.password):

@@ -68,3 +68,4 @@ class Farm(TimeStampedModel):
     farm_type = models.ForeignKey(FarmType, on_delete=models.CASCADE)
     is_primary = models.BooleanField(default=False)
     status = models.CharField(max_length=20, default="active")
+    image = models.ImageField(upload_to="farms/images/", null=True, blank=True)

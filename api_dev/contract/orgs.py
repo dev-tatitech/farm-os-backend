@@ -3,6 +3,9 @@ from uuid import UUID
 from django.db.models import Count, Q
 from django.utils import timezone
 from ninja import Router
+from ninja import File
+from ninja.files import UploadedFile
+from django.db import transaction
 
 from account.models import User
 from animals.models import Animal, AnimalEvent
@@ -18,13 +21,13 @@ from .authz import (
     require_user,
     resolve_organization,
 )
-from .capabilities import build_capabilities, permission_codes_for_user, user_assignments
+from .capabilities import access_payload, build_capabilities, permission_codes_for_user, user_assignments
 from .codes import ErrorCode
 from .envelope import V2Error, V2Success, success_body
 from .exceptions import ContractError
 from .helpers import paginated
-from .identity import can_view_people, display_name
-from .schemas import OrgPatchIn
+from .identity import can_view_people, display_name, identity_payload
+from .schemas import AssignmentPatchIn, OrgPatchIn, UserDeactivateIn, UserProfilePatchIn
 
 orgs_router = Router(tags=["Organizations"])
 users_router = Router(tags=["Users"])
@@ -68,11 +71,8 @@ def users_me(request):
     org = resolve_organization(user)
     codes = permission_codes_for_user(user, org)
     data = {
-        "id": str(user.id),
-        "display_name": display_name(user),
-        "email": user.email,
+        **identity_payload(user),
         "username": user.username,
-        "phone": getattr(user, "phone", None) or getattr(user, "phone_number", None),
         "account_status": user.account_status,
         "is_admin": user.is_superuser,
         "organization": {
@@ -82,10 +82,130 @@ def users_me(request):
             "status": org.status,
         },
         "assignments": user_assignments(user, org),
+        "access": access_payload(user, org),
         "permissions": sorted(codes),
         "work_summary": work_summary_for(user, org),
     }
     return 200, success_body(data=data, message="User profile fetched successfully.")
+
+
+@users_router.patch(
+    "/me/",
+    response={200: V2Success, 400: V2Error, 401: V2Error, 403: V2Error},
+    summary="Update current user profile",
+)
+def patch_users_me(request, payload: UserProfilePatchIn):
+    user = require_user(request)
+    allowed = {"display_name", "phone"}
+    submitted = set((request.body or b"{}").decode("utf-8").strip() and __import__("json").loads(request.body) or {})
+    forbidden = submitted - allowed
+    if forbidden:
+        raise ContractError(
+            422,
+            ErrorCode.INVALID_PROFILE_FIELD,
+            "Only display_name and phone may be updated.",
+            errors={"fields": sorted(forbidden)},
+        )
+    if payload.display_name is not None:
+        parts = payload.display_name.strip().split(None, 1)
+        user.first_name = parts[0] if parts else ""
+        user.last_name = parts[1] if len(parts) > 1 else ""
+    if payload.phone is not None:
+        user.phone = payload.phone.strip()
+    user.save(update_fields=["first_name", "last_name", "phone", "updated_at"])
+    return 200, success_body(
+        data={"user": identity_payload(user)},
+        code="PROFILE_UPDATED",
+        message="Profile updated successfully.",
+    )
+
+
+@users_router.post(
+    "/{user_id}/deactivate/",
+    response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error},
+    summary="Deactivate a user account",
+)
+def deactivate_user(request, user_id: UUID, payload: UserDeactivateIn):
+    actor = require_user(request)
+    org = resolve_organization(actor)
+    if not can_view_people(actor, org):
+        raise ContractError(403, ErrorCode.PERMISSION_DENIED, "You cannot manage user accounts.")
+    target = _require_org_user(org, user_id)
+    if is_organization_owner(target, org):
+        raise ContractError(403, ErrorCode.PERMISSION_DENIED, "The organization owner cannot be deactivated.")
+    target.account_status = "deactivated"
+    target.deactivated_at = timezone.now()
+    target.deactivation_reason = payload.reason
+    target.save(update_fields=["account_status", "deactivated_at", "deactivation_reason", "updated_at"])
+    return 200, success_body(
+        data={
+            "user_id": str(target.id),
+            "account_status": target.account_status,
+            "deactivated_at": target.deactivated_at,
+        },
+        code="USER_DEACTIVATED",
+        message="User access has been deactivated.",
+    )
+
+
+@users_router.post(
+    "/{user_id}/reactivate/",
+    response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error},
+    summary="Reactivate a user account",
+)
+def reactivate_user(request, user_id: UUID):
+    actor = require_user(request)
+    org = resolve_organization(actor)
+    if not can_view_people(actor, org):
+        raise ContractError(403, ErrorCode.PERMISSION_DENIED, "You cannot manage user accounts.")
+    target = _require_org_user(org, user_id)
+    target.account_status = "active"
+    target.deactivated_at = None
+    target.deactivation_reason = ""
+    target.save(update_fields=["account_status", "deactivated_at", "deactivation_reason", "updated_at"])
+    return 200, success_body(
+        data={"user_id": str(target.id), "account_status": target.account_status},
+        code="USER_REACTIVATED",
+        message="User account reactivated successfully.",
+    )
+
+
+@users_router.post(
+    "/me/avatar/",
+    response={200: V2Success, 400: V2Error, 401: V2Error, 413: V2Error},
+    summary="Upload or replace current user avatar",
+)
+def upload_user_avatar(request, avatar: UploadedFile = File(...)):
+    user = require_user(request)
+    if avatar.content_type not in {"image/jpeg", "image/png"}:
+        raise ContractError(422, ErrorCode.INVALID_FILE_TYPE, "Avatar must be JPG or PNG.")
+    if avatar.size > 5 * 1024 * 1024:
+        raise ContractError(413, ErrorCode.FILE_TOO_LARGE, "Avatar must be 5 MB or smaller.")
+    user.avatar = avatar
+    user.save(update_fields=["avatar", "updated_at"])
+    return 200, success_body(
+        data={"avatar_url": user.avatar.url if user.avatar else None},
+        code="PROFILE_IMAGE_UPDATED",
+        message="Profile picture updated successfully.",
+    )
+
+
+@users_router.delete(
+    "/me/avatar/",
+    response={200: V2Success, 401: V2Error},
+    summary="Remove current user avatar",
+)
+def delete_user_avatar(request):
+    user = require_user(request)
+    if user.avatar:
+        user.avatar.delete(save=False)
+    user.avatar = None
+    user.save(update_fields=["avatar", "updated_at"])
+    return 200, success_body(
+        data={"avatar_url": None},
+        code="PROFILE_IMAGE_REMOVED",
+        message="Profile picture removed successfully.",
+    )
 
 
 @users_router.get(
@@ -205,9 +325,10 @@ def user_profile(request, user_id: UUID):
     if str(user.id) != str(user_id) and not can_view_people(user, org):
         raise ContractError(403, ErrorCode.PERMISSION_DENIED, "You cannot view this user profile.")
     target = _require_org_user(org, user_id)
-    return 200, success_body(
-        data=_user_operational(target, org, user), message="User profile fetched successfully."
-    )
+    payload = _user_operational(target, org, user)
+    payload["identity"] = identity_payload(target)
+    payload["access"] = access_payload(target, org)
+    return 200, success_body(data=payload, message="User profile fetched successfully.")
 
 
 @users_router.get(
@@ -289,7 +410,15 @@ def list_permissions(request):
         raise ContractError(403, ErrorCode.PERMISSION_DENIED, "Permissions are not available.")
     rows = Permission.objects.all().order_by("code")
     return 200, success_body(
-        data=[{"id": p.id, "code": p.code, "name": getattr(p, "name", p.code)} for p in rows],
+        data=[
+            {
+                "id": p.id,
+                "code": p.code,
+                "name": getattr(p, "name", p.code),
+                "module": p.module,
+            }
+            for p in rows
+        ],
         message="Permissions fetched successfully.",
     )
 

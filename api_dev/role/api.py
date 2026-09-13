@@ -65,6 +65,7 @@ from .schema import (
     NewUserIn,
     NewUserActivateAccountIn,
     NewUserRoleIn,
+    UserRolePatchIn,
     RolePermissionIn
 )
 router = Router(tags=["User and Role management"])
@@ -106,12 +107,14 @@ def role(request, payload: RoleIn):
         raise HttpError(400, "Permission denied")
  
     org = get_object_or_404(Organization, user = user)
-    if Role.objects.filter(name__iexact=payload.name,organization = org ).exists():
-        raise HttpError(409, "Role already exists") 
+    normalized = " ".join(payload.name.split()).casefold()
+    if Role.objects.filter(normalized_name=normalized, organization=org).exists():
+        raise HttpError(409, "Role name must be unique within this organization.")
     code = f"RL-{generate_ref()}"
     role = Role.objects.create(
         organization = org,
-        name = payload.name,
+        name = " ".join(payload.name.split()),
+        normalized_name = normalized,
         code = code,
         description =  payload.description
     )
@@ -160,7 +163,14 @@ def update_role(request, payload:RoleUpdateSchema):
         return 403, APIResponse(success=False, message="Permission denied", data=None)
     role = get_object_or_404(Role, id = payload.role_id)
     if payload.name:
-        role.name = payload.name
+        normalized = " ".join(payload.name.split()).casefold()
+        if Role.objects.filter(
+            organization=role.organization,
+            normalized_name=normalized,
+        ).exclude(id=role.id).exists():
+            raise HttpError(409, "Role name must be unique within this organization.")
+        role.name = " ".join(payload.name.split())
+        role.normalized_name = normalized
     if payload.description:
         role.description = payload.description
     role.save()
@@ -214,7 +224,7 @@ def add_user(request, payload: NewUserIn):
         password=make_password(password), 
         email=payload.email,
         organization = org,
-        account_status = "inactive"
+        account_status = "invited"
     )
     send_sub_account_otp_email(client,client.email)
     return 200, APIResponse(
@@ -232,7 +242,7 @@ def acitate_user(request, payload: NewUserActivateAccountIn):
     if payload.password != payload.confirm_password:
         raise HttpError(400, "Passwords do not match")
     user = get_object_or_404(User, email = payload.email)
-    if user.account_status != "inactive":
+    if user.account_status != "invited":
         raise HttpError(400, "account already active")
     try:
         otp=payload.otp.strip()  
@@ -248,7 +258,7 @@ def acitate_user(request, payload: NewUserActivateAccountIn):
         otp_record.is_used = True
         otp_record.save()
         user.password = make_password(payload.password)
-        user.account_status = "Active"
+        user.account_status = "active"
         user. save()
     return 200,APIResponse(
         success=True,
@@ -265,7 +275,7 @@ def resent_otp_new_user(request, email: EmailStr):
     new otp request for new user added by admin only
     """
     user = get_object_or_404(User, email = email)
-    if user.account_status != "inactive":
+    if user.account_status != "invited":
         raise HttpError(400, "account already active")
     send_sub_account_otp_email(user,user.email)
 
@@ -314,10 +324,13 @@ def assign_user_role(request, payload: NewUserRoleIn):
     my_user = get_object_or_404(User, organization= org, id = payload.user_id)
     role = get_object_or_404(Role, organization = org, id =payload.role_id)
     farm = get_object_or_404(Farm, organization = org, id = payload.farm_id)
+    if my_user.id == org.user_id:
+        raise HttpError(403, "Organization ownership cannot be replaced by a role assignment.")
     if UserRole.objects.filter(
         user = my_user,
         role = role,
-        farm = farm
+        farm = farm,
+        status="active",
         ).exists():
        raise HttpError(400, "Role already exists.")
     user_role = UserRole.objects.create(
@@ -326,17 +339,75 @@ def assign_user_role(request, payload: NewUserRoleIn):
         farm = farm,
         assigned_by = user
     )
-    data = {
-        "id":user_role.id,
-        "user": user_role.user.email,
-        "farm": user_role.farm.name,
-        "role":user_role.role.name,
-        
-    }
+    data = {"assignment": {
+        "id": user_role.id,
+        "user_id": str(user_role.user_id),
+        "farm_id": user_role.farm_id,
+        "role_id": user_role.role_id,
+        "status": user_role.status,
+    }}
     return 200,APIResponse(
         success=True,
         message="role assign added successfully",
         data=data
+    )
+
+
+@router.patch("/user-role/{assignment_id}/", response={200: APIResponse, 403: APIResponse})
+def update_user_role(request, assignment_id: int, payload: UserRolePatchIn):
+    actor_id = get_current_user(request)
+    actor = get_object_or_404(User, id=actor_id)
+    org = get_object_or_404(Organization, user=actor)
+    assignment = get_object_or_404(
+        UserRole.objects.select_related("user", "role", "farm"),
+        id=assignment_id,
+        farm__organization=org,
+        status="active",
+    )
+    if assignment.user_id == org.user_id:
+        raise HttpError(403, "Organization owner assignments cannot be changed.")
+    if payload.farm_id is not None:
+        assignment.farm = get_object_or_404(Farm, id=payload.farm_id, organization=org)
+    if payload.role_id is not None:
+        assignment.role = get_object_or_404(Role, id=payload.role_id, organization=org)
+    if payload.farm_id is None and payload.role_id is None:
+        raise HttpError(422, "farm_id or role_id is required.")
+    assignment.save(update_fields=["farm", "role"])
+    return 200, APIResponse(
+        success=True,
+        message="User assignment updated successfully.",
+        data={"assignment": {
+            "id": assignment.id,
+            "user_id": str(assignment.user_id),
+            "farm_id": assignment.farm_id,
+            "role_id": assignment.role_id,
+            "status": assignment.status,
+        }},
+    )
+
+
+@router.delete("/user-role/{assignment_id}/", response={200: APIResponse, 403: APIResponse})
+def revoke_user_role(request, assignment_id: int):
+    actor_id = get_current_user(request)
+    actor = get_object_or_404(User, id=actor_id)
+    org = get_object_or_404(Organization, user=actor)
+    assignment = get_object_or_404(
+        UserRole.objects.select_related("user", "farm"),
+        id=assignment_id,
+        farm__organization=org,
+    )
+    if assignment.status == "revoked":
+        raise HttpError(409, "Assignment already revoked.")
+    if assignment.user_id == org.user_id:
+        raise HttpError(403, "Organization owner access cannot be revoked.")
+    assignment.status = "revoked"
+    assignment.revoked_at = timezone.now()
+    assignment.revoked_by = actor
+    assignment.save(update_fields=["status", "revoked_at", "revoked_by"])
+    return 200, APIResponse(
+        success=True,
+        message="Farm assignment removed successfully.",
+        data={"assignment_id": assignment.id, "status": assignment.status},
     )
     
 @router.get("/user-role/", response={200: APIResponse, 403: APIResponse})
@@ -368,7 +439,7 @@ def get_user_role(request):
     for usa in all_users:
         role_map = {}
 
-        for ur in usa.user_roles.all():
+        for ur in usa.user_roles.filter(status="active"):
             role_id = ur.role.id
 
             if role_id not in role_map:
@@ -411,26 +482,20 @@ def assign_role_permission(request, payload: RolePermissionIn):
     if missing:
         raise HttpError(404, f"Permission(s) not found: {sorted(missing)}")
 
-    existing_ids = set(
-        RolePermission.objects.filter(role=role, permission__in=permissions)
+    with db_transaction.atomic():
+        RolePermission.objects.filter(role=role).delete()
+        RolePermission.objects.bulk_create(
+            [RolePermission(role=role, permission=p) for p in permissions]
+        )
+    authoritative_ids = list(
+        RolePermission.objects.filter(role=role)
+        .order_by("permission_id")
         .values_list("permission_id", flat=True)
     )
-    new_permissions = [p for p in permissions if p.id not in existing_ids]
-
-    RolePermission.objects.bulk_create(
-        [RolePermission(role=role, permission=p) for p in new_permissions]
-    )
-
-    data = {
-        "role": role.name,
-        "assigned": [p.name for p in new_permissions],
-        "already_assigned": [
-            p.name for p in permissions if p.id in existing_ids
-        ],
-    }
+    data = {"role_id": role.id, "permission_ids": authoritative_ids}
     return 200, APIResponse(
         success=True,
-        message=f"{len(new_permissions)} permission(s) assigned to role '{role.name}'",
+        message=f"Role permissions updated successfully.",
         data=data,
     )
     
@@ -455,7 +520,9 @@ def get_role_permission(request):
                 "permission":[
                     {
                         "id":perm.permission.id,
-                        "name":perm.permission.name
+                        "code": perm.permission.code,
+                        "name":perm.permission.name,
+                        "module": perm.permission.module,
                     }
                     for perm in role.roles_permission.all()
                 ]

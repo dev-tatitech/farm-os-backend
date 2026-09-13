@@ -1,5 +1,6 @@
 from django.db.models import Count, Q
-from ninja import Router
+from ninja import File, Router
+from ninja.files import UploadedFile
 
 from account.models import User
 from admin_panel.models import FarmHousingUnit
@@ -19,6 +20,8 @@ from .authz import (
     resolve_organization,
 )
 from .envelope import V2Error, V2Success, success_body
+from .codes import ErrorCode
+from .exceptions import ContractError
 from .helpers import paginated
 from .identity import display_name, reference_payload, subject_payload
 from .schemas import FarmPatchIn
@@ -42,6 +45,7 @@ def _farm_payload(farm, org):
         "longitude": farm.longitude,
         "country": farm.country.name if farm.country_id else None,
         "state_region": farm.state_region.name if farm.state_region_id else None,
+        "image_url": farm.image.url if getattr(farm, "image", None) else None,
         "counts": {
             "animals": animals.count(),
             "active_animals": animals.filter(status="active").count(),
@@ -101,6 +105,29 @@ def patch_farm(request, farm_id: int, payload: FarmPatchIn):
     return 200, success_body(data=_farm_payload(farm, org), message="Farm updated successfully.")
 
 
+@farms_router.post(
+    "/{farm_id}/image/",
+    response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error},
+    summary="Upload or replace a farm profile image",
+)
+def upload_farm_image(request, farm_id: int, image: UploadedFile = File(...)):
+    user = require_user(request)
+    org = resolve_organization(user)
+    require_permission(user, org, Permissions.Farm.UPDATE)
+    farm = require_farm(org, farm_id, user)
+    if image.content_type not in {"image/jpeg", "image/png"}:
+        raise ContractError(422, ErrorCode.INVALID_FILE_TYPE, "Farm image must be JPG or PNG.")
+    if image.size > 10 * 1024 * 1024:
+        raise ContractError(413, ErrorCode.FILE_TOO_LARGE, "Farm image must be 10 MB or smaller.")
+    farm.image = image
+    farm.save(update_fields=["image", "updated_at"])
+    return 200, success_body(
+        data={"farm_id": farm.id, "image_url": farm.image.url if farm.image else None},
+        code="FARM_IMAGE_UPDATED",
+        message="Farm image updated successfully.",
+    )
+
+
 @farms_router.get(
     "/{farm_id}/overview/",
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error},
@@ -115,7 +142,7 @@ def farm_overview(request, farm_id: int):
     data = {
         **_farm_payload(farm, org),
         "health_breakdown": {row["health_status"]: row["count"] for row in health},
-        "people_count": UserRole.objects.filter(farm=farm).values("user").distinct().count(),
+        "people_count": UserRole.objects.filter(farm=farm, status="active").values("user").distinct().count(),
     }
     return 200, success_body(data=data, message="Farm overview fetched successfully.")
 
@@ -148,7 +175,10 @@ def farm_people(request, farm_id: int):
     user = require_user(request)
     org = resolve_organization(user)
     farm = require_farm(org, farm_id, user)
-    rows = UserRole.objects.filter(Q(farm=farm) | Q(farm__isnull=True, user__organization=org)).select_related(
+    rows = UserRole.objects.filter(
+        Q(farm=farm) | Q(farm__isnull=True, user__organization=org),
+        status="active",
+    ).select_related(
         "user", "role"
     )
     people = {}

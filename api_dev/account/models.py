@@ -33,17 +33,16 @@ class AdminLevel2(models.Model):
         return self.name
 class User(AbstractUser):
     ACCOUNT_STATUS_CHOICES = [
-        ("Active", "Active"),
-        ("Suspended", "Suspended"),
-        ("Deleted", "Deleted"),
-        ("inactive", "Inactive"),
+        ("invited", "Invited"),
+        ("active", "Active"),
+        ("deactivated", "Deactivated"),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     email = models.EmailField(unique=True)
     csrf_token = models.CharField(max_length=100, blank=True, null=True)
     account_status = models.CharField(
-        max_length=50, choices=ACCOUNT_STATUS_CHOICES, default="Active"
+        max_length=50, choices=ACCOUNT_STATUS_CHOICES, default="active"
     )
     organization = models.ForeignKey(
         "organization.Organization",
@@ -54,6 +53,10 @@ class User(AbstractUser):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    phone = models.CharField(max_length=32, blank=True)
+    avatar = models.ImageField(upload_to="users/avatars/", null=True, blank=True)
+    deactivated_at = models.DateTimeField(null=True, blank=True)
+    deactivation_reason = models.TextField(blank=True)
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = ["username"]
 

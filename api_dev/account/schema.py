@@ -81,7 +81,7 @@ class ListResponseSchema(Schema):
 class AccountUpdateSchema(Schema):
     account_id: UUID
     role: Optional[List[UUID]]= None
-    account_status:Optional[Literal["Active", "Suspended","Deleted"]]=None
+    account_status:Optional[Literal["invited", "active", "deactivated"]]=None
     
 TransactionPin = Annotated[str, Field(min_length=6, max_length=6)]
 

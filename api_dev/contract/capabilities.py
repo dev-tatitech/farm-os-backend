@@ -13,7 +13,7 @@ def permission_codes_for_user(user, org) -> set[str]:
         return set(Permission.objects.values_list("code", flat=True))
     return set(
         RolePermission.objects.filter(
-            Q(role__userrole__user=user),
+            Q(role__userrole__user=user, role__userrole__status="active"),
             Q(role__organization=org) | Q(role__organization__isnull=True),
         ).values_list("permission__code", flat=True)
     )
@@ -21,7 +21,7 @@ def permission_codes_for_user(user, org) -> set[str]:
 
 def user_assignments(user, org) -> list[dict]:
     rows = (
-        UserRole.objects.filter(user=user)
+        UserRole.objects.filter(user=user, status="active")
         .select_related("role", "farm")
         .filter(Q(farm__organization=org) | Q(farm__isnull=True))
     )
@@ -29,14 +29,46 @@ def user_assignments(user, org) -> list[dict]:
     for row in rows:
         assignments.append(
             {
+                "id": row.id,
                 "role_id": row.role_id,
                 "role_name": row.role.name,
                 "role_code": row.role.code,
                 "farm_id": row.farm_id,
                 "farm_name": row.farm.name if row.farm else None,
+                "status": row.status,
             }
         )
     return assignments
+
+
+def access_payload(user, org) -> dict:
+    owner = is_organization_owner(user, org)
+    assignments = user_assignments(user, org)
+    if owner:
+        return {
+            "account_type": "organization_owner",
+            "access_source": "ownership",
+            "scope": "organization",
+            "is_organization_owner": True,
+            "all_farms": True,
+            "assignments": [],
+        }
+    return {
+        "account_type": "staff",
+        "access_source": "role_assignment" if assignments else "none",
+        "scope": "assigned_farms" if assignments else "none",
+        "is_organization_owner": False,
+        "all_farms": False,
+        "assignments": [
+            {
+                "id": row["id"],
+                "farm": {"id": row["farm_id"], "name": row["farm_name"]},
+                "role": {"id": row["role_id"], "name": row["role_name"]},
+                "status": row["status"],
+            }
+            for row in assignments
+        ],
+    }
 
 
 def _has(codes: set[str], *needed: str) -> bool:

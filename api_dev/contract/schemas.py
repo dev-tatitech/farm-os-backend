@@ -11,6 +11,20 @@ class OrgPatchIn(Schema):
     client_request_id: Optional[str] = None
 
 
+class UserProfilePatchIn(Schema):
+    display_name: Optional[str] = None
+    phone: Optional[str] = None
+
+
+class UserDeactivateIn(Schema):
+    reason: str = ""
+
+
+class AssignmentPatchIn(Schema):
+    farm_id: Optional[int] = None
+    role_id: Optional[int] = None
+
+
 class FarmPatchIn(Schema):
     name: Optional[str] = None
     city: Optional[str] = None

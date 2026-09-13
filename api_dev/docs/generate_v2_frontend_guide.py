@@ -11,6 +11,8 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import tempfile
+from datetime import date
 from pathlib import Path
 
 OUTPUT_DIR = Path(__file__).resolve().parent
@@ -26,6 +28,7 @@ MUTED = "#6B7280"
 MINT = "#E8F6EE"
 LINE = "#E5E7EB"
 PAGE_BG = "#F7FBF8"
+GUIDE_UPDATE_DATE = date.today().isoformat()
 
 ORG_ID = "3fa85f64-5717-4562-b3fc-2c963f66afa6"
 USER_ID = "7c9e6679-7425-40de-944b-e07fc1f90ae7"
@@ -938,7 +941,7 @@ ENDPOINTS = [
         "tag": "Operations",
         "method": "GET",
         "path": "/api/v2/operations/tasks/{task_id}/",
-        "title": "Task detail",
+        "title": "Get task by ID",
         "explain": "Single task. Persisted lifecycle states: draft, assigned, accepted, in_progress, completed, unable_to_complete, cancelled. Overdue is computed as is_overdue=true; status is never overdue.",
         "auth": "Cookie · view_operation",
         "path_params": [("task_id", "int", "Task ID")],
@@ -1686,6 +1689,201 @@ ENDPOINTS = [
     },
 ]
 
+# Governance/profile and pagination additions from the final Access Governance
+# specification. These are kept here as explicit frontend contracts so the PDF
+# explains method, payload, response shape, and expected authorization behavior.
+ENDPOINTS.extend(
+    [
+        {
+            "tag": "Users",
+            "method": "PATCH",
+            "path": "/api/v2/users/me/",
+            "title": "Update your own profile",
+            "explain": "Updates profile-owned fields only. Do not send role, farm, permissions, account_status, organization_id, or owner fields; authority changes use assignment/account-management endpoints.",
+            "auth": "Cookie",
+            "request": {"display_name": "Musa Bello", "phone": "+2348012345678"},
+            "success": envelope(
+                {"user": {"id": USER_ID, "display_name": "Musa Bello", "display_label": "Musa Bello", "phone": "+2348012345678", "avatar_url": None}},
+                "Profile updated successfully.",
+            ),
+            "error": err("INVALID_PROFILE_FIELD", "Only display_name and phone may be updated.", "422"),
+        },
+        {
+            "tag": "Users",
+            "method": "POST",
+            "path": "/api/v2/users/{user_id}/deactivate/",
+            "title": "Deactivate a user account",
+            "explain": "Managers deactivate an account without deleting the user, assignments, tasks, or historical activity. Existing cookies and fresh login attempts are denied immediately.",
+            "auth": "Cookie · people management",
+            "path_params": [("user_id", "uuid", "Target user ID")],
+            "request": {"reason": "Staff no longer works at the farm"},
+            "success": envelope(
+                {"user_id": WORKER_ID, "account_status": "deactivated", "deactivated_at": "2026-09-13T00:10:00+01:00"},
+                "User access has been deactivated.",
+            ),
+            "error": err("ACCOUNT_DEACTIVATED", "Your account is currently deactivated.", "403"),
+        },
+        {
+            "tag": "Users",
+            "method": "POST",
+            "path": "/api/v2/users/{user_id}/reactivate/",
+            "title": "Reactivate a user account",
+            "explain": "Restores account access. Previously revoked farm assignments are not recreated automatically.",
+            "auth": "Cookie · people management",
+            "path_params": [("user_id", "uuid", "Target user ID")],
+            "success": envelope({"user_id": WORKER_ID, "account_status": "active"}, "User account reactivated successfully."),
+            "error": err("PERMISSION_DENIED", "You cannot manage user accounts.", "403"),
+        },
+        {
+            "tag": "Users",
+            "method": "POST",
+            "path": "/api/v2/users/me/avatar/",
+            "title": "Upload or replace your avatar",
+            "explain": "Send multipart/form-data with field avatar. JPG and PNG are accepted up to 5 MB. Uploading again replaces the active avatar.",
+            "auth": "Cookie",
+            "request": {"content_type": "multipart/form-data", "field": "avatar", "file": "profile.jpg"},
+            "success": envelope({"avatar_url": "https://dev-api.tatifarmos.com/media/users/avatars/profile.jpg"}, "Profile picture updated successfully."),
+            "error": err("INVALID_FILE_TYPE", "Avatar must be JPG or PNG.", "422"),
+        },
+        {
+            "tag": "Users",
+            "method": "DELETE",
+            "path": "/api/v2/users/me/avatar/",
+            "title": "Remove your avatar",
+            "explain": "Removes the active profile image and returns avatar_url as null.",
+            "auth": "Cookie",
+            "success": envelope({"avatar_url": None}, "Profile picture removed successfully."),
+            "error": AUTH_401,
+        },
+        {
+            "tag": "Farms",
+            "method": "POST",
+            "path": "/api/v2/farms/{farm_id}/image/",
+            "title": "Upload or replace a farm image",
+            "explain": "Send multipart/form-data with field image. The caller must have access to this farm and update_farm capability. Cross-farm uploads are denied.",
+            "auth": "Cookie · update_farm + farm access",
+            "path_params": [("farm_id", "int", "Farm ID")],
+            "request": {"content_type": "multipart/form-data", "field": "image", "file": "minna-farm.png"},
+            "success": envelope({"farm_id": 12, "image_url": "https://dev-api.tatifarmos.com/media/farms/images/minna-farm.png"}, "Farm image updated successfully."),
+            "error": err("FARM_ACCESS_DENIED", "You do not have access to this farm.", "403"),
+        },
+        {
+            "tag": "Assignments",
+            "method": "POST",
+            "path": "/api/role/user-role/",
+            "title": "Assign a user to a farm and role",
+            "explain": "Creates a durable active assignment. The response contains the authoritative assignment ID used for later change/revocation.",
+            "auth": "Cookie · organization management",
+            "request": {"user_id": WORKER_ID, "farm_id": 12, "role_id": 6},
+            "success": envelope(
+                {"assignment": {"id": 91, "user_id": WORKER_ID, "farm_id": 12, "role_id": 6, "status": "active"}},
+                "User assigned successfully.",
+            ),
+            "error": err("CONFLICT", "Role already exists.", "409"),
+        },
+        {
+            "tag": "Assignments",
+            "method": "PATCH",
+            "path": "/api/role/user-role/{assignment_id}/",
+            "title": "Change a user assignment",
+            "explain": "Changes the selected assignment's farm and/or role. It does not create a second assignment and cannot replace organization ownership.",
+            "auth": "Cookie · organization management",
+            "path_params": [("assignment_id", "int", "Assignment ID")],
+            "request": {"farm_id": 14, "role_id": 8},
+            "success": envelope(
+                {"assignment": {"id": 91, "user_id": WORKER_ID, "farm_id": 14, "role_id": 8, "status": "active"}},
+                "User assignment updated successfully.",
+            ),
+            "error": err("ASSIGNMENT_NOT_FOUND", "Assignment could not be found.", "404"),
+        },
+        {
+            "tag": "Assignments",
+            "method": "DELETE",
+            "path": "/api/role/user-role/{assignment_id}/",
+            "title": "Revoke a farm assignment",
+            "explain": "Revokes access without deleting the assignment or historical attribution. Revoked assignments stop contributing farm access, capabilities, and operations authority.",
+            "auth": "Cookie · organization management",
+            "path_params": [("assignment_id", "int", "Assignment ID")],
+            "success": envelope({"assignment_id": 91, "status": "revoked"}, "Farm assignment removed successfully."),
+            "error": err("ASSIGNMENT_ALREADY_REVOKED", "Assignment already revoked.", "409"),
+        },
+        {
+            "tag": "Pagination",
+            "method": "GET",
+            "path": "/api/v2/roles/",
+            "title": "List roles with pagination",
+            "explain": "All list endpoints accept page and page_size. page is 1-based; page_size defaults to 20 and is capped at 100. Read meta.pagination instead of assuming a fixed page size.",
+            "auth": "Cookie · people management",
+            "query": [("page", "int", "no", "1-based page; default 1"), ("page_size", "int", "no", "1-100; default 20")],
+            "success": envelope(
+                [{"id": 6, "name": "Field Worker", "code": "RL-FIELD"}],
+                "Roles fetched successfully.",
+                meta=page_meta(1, 20, 1),
+            ),
+            "error": AUTH_401,
+        },
+        {
+            "tag": "Pagination",
+            "method": "GET",
+            "path": "/api/v2/permissions/",
+            "title": "List permissions with pagination",
+            "explain": "Returns structured permission records. Use code and module directly; do not derive modules from human-readable labels.",
+            "auth": "Cookie · people management",
+            "query": [("page", "int", "no", "1-based page; default 1"), ("page_size", "int", "no", "1-100; default 20")],
+            "success": envelope(
+                [{"id": 1, "code": "view_animal_details", "name": "View animal details", "module": "animals"}],
+                "Permissions fetched successfully.",
+                meta=page_meta(1, 20, 1),
+            ),
+            "error": AUTH_401,
+        },
+        {
+            "tag": "Pagination",
+            "method": "GET",
+            "path": "/api/v2/farms/{farm_id}/people/",
+            "title": "List farm people with pagination",
+            "explain": "Returns active owner/staff access for one farm. Revoked assignments are excluded. Use page and page_size for large farms.",
+            "auth": "Cookie · farm access",
+            "path_params": [("farm_id", "int", "Farm ID")],
+            "query": [("page", "int", "no", "1-based page; default 1"), ("page_size", "int", "no", "1-100; default 20")],
+            "success": envelope(
+                [{"id": WORKER_ID, "display_name": "Ibrahim Musa", "roles": [{"role": "Field Worker", "farm_id": 12}]}],
+                "People fetched successfully.",
+                meta=page_meta(1, 20, 1),
+            ),
+            "error": err("FARM_ACCESS_DENIED", "You do not have access to this farm.", "403"),
+        },
+        {
+            "tag": "Pagination",
+            "method": "GET",
+            "path": "/api/v2/farms/{farm_id}/units/",
+            "title": "List farm units with pagination",
+            "explain": "Returns typed unit rows. Each row has kind housing_unit or farm_unit. Use pagination metadata for navigation.",
+            "auth": "Cookie · farm access",
+            "path_params": [("farm_id", "int", "Farm ID")],
+            "query": [("page", "int", "no", "1-based page; default 1"), ("page_size", "int", "no", "1-100; default 20")],
+            "success": envelope(
+                [{"id": 4, "kind": "housing_unit", "name": "Pen A", "status": "active", "capacity": 40}],
+                "Units fetched successfully.",
+                meta=page_meta(1, 20, 1),
+            ),
+            "error": AUTH_401,
+        },
+        {
+            "tag": "Pagination",
+            "method": "GET",
+            "path": "/api/organization/get-lga/{state_region_id}",
+            "title": "List LGAs with pagination",
+            "explain": "Returns Local Government Areas under one state. This legacy response now includes meta.pagination while keeping the existing success/message/data envelope.",
+            "auth": "Cookie",
+            "path_params": [("state_region_id", "int", "AdminLevel1/state ID")],
+            "query": [("page", "int", "no", "1-based page; default 1"), ("page_size", "int", "no", "1-100; default 20")],
+            "success": {"success": True, "message": "lga fetched successfully", "data": [{"id": 1, "name": "Aba North"}], "meta": page_meta(1, 20, 1)},
+            "error": {"success": False, "message": "Permission denied", "data": None},
+        },
+    ]
+)
+
 
 def escape(text) -> str:
     return (
@@ -1833,6 +2031,15 @@ def build_html() -> str:
     "retryable": False,
 }))}</pre>
 <p class="muted">Login errors are the old shape <code>{{"status":"Error","message":"Invalid credentials"}}</code> — only on <code>/api/auth/login</code>.</p>
+<h3>Today's implementation update · {GUIDE_UPDATE_DATE}</h3>
+<p>Use this section to identify the endpoints added or changed in today's backend update. The detailed endpoint cards below contain the method, URL, authentication requirement, request payload or query parameters, success response, and stable error response.</p>
+<ul>
+<li><strong>Access governance:</strong> profile PATCH, user deactivate/reactivate, durable assignment create/update/revoke, owner protection, and active-account enforcement.</li>
+<li><strong>Profile media:</strong> user avatar upload/remove and farm image upload. Uploads use <code>multipart/form-data</code>.</li>
+<li><strong>Pagination:</strong> roles, permissions, farm people/units, organization reference lists, legacy role/user lists, and livestock master-data lists now accept <code>page</code> and <code>page_size</code> and return <code>meta.pagination</code>.</li>
+<li><strong>Response rule:</strong> use <code>data</code> and <code>meta.pagination</code>; do not infer authorization from role labels or parse exception text.</li>
+</ul>
+<p class="muted">For the exact cards, use the table of contents entries <strong>Assignments</strong>, <strong>Pagination</strong>, <strong>Users</strong>, and <strong>Farms</strong>.</p>
 <h3>Frontend screen map</h3>
 <table>
 <tr><th>Screen</th><th>Call these</th></tr>
@@ -1954,18 +2161,24 @@ def html_to_pdf(html_path: Path, pdf_path: Path) -> None:
     ]
     chrome = next((c for c in chrome_candidates if c and Path(c).exists()), None)
     if chrome:
-        subprocess.run(
-            [
-                chrome,
-                "--headless=new",
-                "--disable-gpu",
-                f"--print-to-pdf={pdf_path}",
-                "--no-pdf-header-footer",
-                html_path.as_uri(),
-            ],
-            check=True,
-        )
-        return
+        with tempfile.TemporaryDirectory(prefix="farmos-pdf-") as profile:
+            try:
+                subprocess.run(
+                    [
+                        chrome,
+                        "--headless=new",
+                        "--no-sandbox",
+                        "--disable-gpu",
+                        f"--user-data-dir={profile}",
+                        f"--print-to-pdf={pdf_path}",
+                        "--no-pdf-header-footer",
+                        html_path.as_uri(),
+                    ],
+                    check=True,
+                )
+                return
+            except (OSError, subprocess.CalledProcessError):
+                pass
     try:
         from weasyprint import HTML
 

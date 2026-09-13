@@ -140,6 +140,15 @@
   &quot;retryable&quot;: false
 }</pre>
 <p class="muted">Login errors are the old shape <code>{"status":"Error","message":"Invalid credentials"}</code> — only on <code>/api/auth/login</code>.</p>
+<h3>Today's implementation update · 2026-09-13</h3>
+<p>Use this section to identify the endpoints added or changed in today's backend update. The detailed endpoint cards below contain the method, URL, authentication requirement, request payload or query parameters, success response, and stable error response.</p>
+<ul>
+<li><strong>Access governance:</strong> profile PATCH, user deactivate/reactivate, durable assignment create/update/revoke, owner protection, and active-account enforcement.</li>
+<li><strong>Profile media:</strong> user avatar upload/remove and farm image upload. Uploads use <code>multipart/form-data</code>.</li>
+<li><strong>Pagination:</strong> roles, permissions, farm people/units, organization reference lists, legacy role/user lists, and livestock master-data lists now accept <code>page</code> and <code>page_size</code> and return <code>meta.pagination</code>.</li>
+<li><strong>Response rule:</strong> use <code>data</code> and <code>meta.pagination</code>; do not infer authorization from role labels or parse exception text.</li>
+</ul>
+<p class="muted">For the exact cards, use the table of contents entries <strong>Assignments</strong>, <strong>Pagination</strong>, <strong>Users</strong>, and <strong>Farms</strong>.</p>
 <h3>Frontend screen map</h3>
 <table>
 <tr><th>Screen</th><th>Call these</th></tr>
@@ -179,7 +188,7 @@
 <tr><td><code>generic</code></td><td>none</td><td>Task only + timeline</td></tr>
 </table>
 <p class="muted">Useful error codes: <code>TASK_ASSIGNMENT_REQUIRED</code>, <code>TASK_ALREADY_COMPLETED</code>, <code>INSUFFICIENT_FEED_STOCK</code>, <code>INSUFFICIENT_DRUG_STOCK</code>, <code>INVALID_ANIMAL_STATE</code> (sale blocked), <code>SESSION_EXPIRED</code>.</p>
-<h2 id='toc'>Endpoints</h2><ol class='toc'><li><a href='#contract'>Contract</a> (2)</li><li><a href='#session-legacy-login,-still-required'>Session (legacy login, still required)</a> (1)</li><li><a href='#users'>Users</a> (8)</li><li><a href='#roles'>Roles</a> (2)</li><li><a href='#organizations'>Organizations</a> (5)</li><li><a href='#farms'>Farms</a> (7)</li><li><a href='#animals'>Animals</a> (6)</li><li><a href='#operations'>Operations</a> (19)</li><li><a href='#timeline'>Timeline</a> (1)</li><li><a href='#health'>Health</a> (7)</li><li><a href='#notifications'>Notifications</a> (4)</li><li><a href='#search'>Search</a> (1)</li><li><a href='#dashboard'>Dashboard</a> (4)</li><li><a href='#reproduction'>Reproduction</a> (2)</li></ol><h2 id='contract'>Contract</h2><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/</span><h3 style='margin-top:8px'>Contract health</h3></div><div class='endpoint-bd'><p>Ping the official frontend contract. No cookie required. Use this to confirm the app is talking to /api/v2/ rather than legacy /api/*.</p><p><span class='pill'>Auth</span> Public</p><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+<h2 id='toc'>Endpoints</h2><ol class='toc'><li><a href='#contract'>Contract</a> (2)</li><li><a href='#session-legacy-login,-still-required'>Session (legacy login, still required)</a> (1)</li><li><a href='#users'>Users</a> (13)</li><li><a href='#roles'>Roles</a> (2)</li><li><a href='#organizations'>Organizations</a> (5)</li><li><a href='#farms'>Farms</a> (8)</li><li><a href='#animals'>Animals</a> (6)</li><li><a href='#operations'>Operations</a> (19)</li><li><a href='#timeline'>Timeline</a> (1)</li><li><a href='#health'>Health</a> (7)</li><li><a href='#notifications'>Notifications</a> (4)</li><li><a href='#search'>Search</a> (1)</li><li><a href='#dashboard'>Dashboard</a> (4)</li><li><a href='#reproduction'>Reproduction</a> (2)</li><li><a href='#assignments'>Assignments</a> (3)</li><li><a href='#pagination'>Pagination</a> (5)</li></ol><h2 id='contract'>Contract</h2><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/</span><h3 style='margin-top:8px'>Contract health</h3></div><div class='endpoint-bd'><p>Ping the official frontend contract. No cookie required. Use this to confirm the app is talking to /api/v2/ rather than legacy /api/*.</p><p><span class='pill'>Auth</span> Public</p><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
   &quot;success&quot;: true,
   &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
   &quot;message&quot;: &quot;v2.2 Livestock MVP Final Release Candidate is available.&quot;,
@@ -1620,7 +1629,7 @@
   &quot;data&quot;: null,
   &quot;errors&quot;: {},
   &quot;retryable&quot;: false
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/operations/tasks/{task_id}/</span><h3 style='margin-top:8px'>Task detail</h3></div><div class='endpoint-bd'><p>Single task. Persisted lifecycle states: draft, assigned, accepted, in_progress, completed, unable_to_complete, cancelled. Overdue is computed as is_overdue=true; status is never overdue.</p><p><span class='pill'>Auth</span> Cookie · view_operation</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>task_id</code></td><td>int</td><td>Task ID</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/operations/tasks/{task_id}/</span><h3 style='margin-top:8px'>Get task by ID</h3></div><div class='endpoint-bd'><p>Single task. Persisted lifecycle states: draft, assigned, accepted, in_progress, completed, unable_to_complete, cancelled. Overdue is computed as is_overdue=true; status is never overdue.</p><p><span class='pill'>Auth</span> Cookie · view_operation</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>task_id</code></td><td>int</td><td>Task ID</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
   &quot;success&quot;: true,
   &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
   &quot;message&quot;: &quot;Task fetched successfully.&quot;,
@@ -3397,4 +3406,325 @@
   &quot;data&quot;: null,
   &quot;errors&quot;: {},
   &quot;retryable&quot;: false
+}</pre></div></div><h2 id='users'>Users</h2><div class="endpoint"><div class="endpoint-hd"><span class="method PATCH">PATCH</span><span class="path">/api/v2/users/me/</span><h3 style='margin-top:8px'>Update your own profile</h3></div><div class='endpoint-bd'><p>Updates profile-owned fields only. Do not send role, farm, permissions, account_status, organization_id, or owner fields; authority changes use assignment/account-management endpoints.</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>Example request JSON</div><pre>{
+  &quot;display_name&quot;: &quot;Musa Bello&quot;,
+  &quot;phone&quot;: &quot;+2348012345678&quot;
+}</pre><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Profile updated successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;user&quot;: {
+      &quot;id&quot;: &quot;7c9e6679-7425-40de-944b-e07fc1f90ae7&quot;,
+      &quot;display_name&quot;: &quot;Musa Bello&quot;,
+      &quot;display_label&quot;: &quot;Musa Bello&quot;,
+      &quot;phone&quot;: &quot;+2348012345678&quot;,
+      &quot;avatar_url&quot;: null
+    }
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 422</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;INVALID_PROFILE_FIELD&quot;,
+  &quot;message&quot;: &quot;Only display_name and phone may be updated.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/users/{user_id}/deactivate/</span><h3 style='margin-top:8px'>Deactivate a user account</h3></div><div class='endpoint-bd'><p>Managers deactivate an account without deleting the user, assignments, tasks, or historical activity. Existing cookies and fresh login attempts are denied immediately.</p><p><span class='pill'>Auth</span> Cookie · people management</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>user_id</code></td><td>uuid</td><td>Target user ID</td></tr></table><div class='label'>Example request JSON</div><pre>{
+  &quot;reason&quot;: &quot;Staff no longer works at the farm&quot;
+}</pre><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;User access has been deactivated.&quot;,
+  &quot;data&quot;: {
+    &quot;user_id&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+    &quot;account_status&quot;: &quot;deactivated&quot;,
+    &quot;deactivated_at&quot;: &quot;2026-09-13T00:10:00+01:00&quot;
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 403</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;ACCOUNT_DEACTIVATED&quot;,
+  &quot;message&quot;: &quot;Your account is currently deactivated.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/users/{user_id}/reactivate/</span><h3 style='margin-top:8px'>Reactivate a user account</h3></div><div class='endpoint-bd'><p>Restores account access. Previously revoked farm assignments are not recreated automatically.</p><p><span class='pill'>Auth</span> Cookie · people management</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>user_id</code></td><td>uuid</td><td>Target user ID</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;User account reactivated successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;user_id&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+    &quot;account_status&quot;: &quot;active&quot;
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 403</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;PERMISSION_DENIED&quot;,
+  &quot;message&quot;: &quot;You cannot manage user accounts.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/users/me/avatar/</span><h3 style='margin-top:8px'>Upload or replace your avatar</h3></div><div class='endpoint-bd'><p>Send multipart/form-data with field avatar. JPG and PNG are accepted up to 5 MB. Uploading again replaces the active avatar.</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>Example request JSON</div><pre>{
+  &quot;content_type&quot;: &quot;multipart/form-data&quot;,
+  &quot;field&quot;: &quot;avatar&quot;,
+  &quot;file&quot;: &quot;profile.jpg&quot;
+}</pre><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Profile picture updated successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;avatar_url&quot;: &quot;https://dev-api.tatifarmos.com/media/users/avatars/profile.jpg&quot;
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 422</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;INVALID_FILE_TYPE&quot;,
+  &quot;message&quot;: &quot;Avatar must be JPG or PNG.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method DELETE">DELETE</span><span class="path">/api/v2/users/me/avatar/</span><h3 style='margin-top:8px'>Remove your avatar</h3></div><div class='endpoint-bd'><p>Removes the active profile image and returns avatar_url as null.</p><p><span class='pill'>Auth</span> Cookie</p><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Profile picture removed successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;avatar_url&quot;: null
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><h2 id='farms'>Farms</h2><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/farms/{farm_id}/image/</span><h3 style='margin-top:8px'>Upload or replace a farm image</h3></div><div class='endpoint-bd'><p>Send multipart/form-data with field image. The caller must have access to this farm and update_farm capability. Cross-farm uploads are denied.</p><p><span class='pill'>Auth</span> Cookie · update_farm + farm access</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>int</td><td>Farm ID</td></tr></table><div class='label'>Example request JSON</div><pre>{
+  &quot;content_type&quot;: &quot;multipart/form-data&quot;,
+  &quot;field&quot;: &quot;image&quot;,
+  &quot;file&quot;: &quot;minna-farm.png&quot;
+}</pre><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Farm image updated successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;farm_id&quot;: 12,
+    &quot;image_url&quot;: &quot;https://dev-api.tatifarmos.com/media/farms/images/minna-farm.png&quot;
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 403</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;FARM_ACCESS_DENIED&quot;,
+  &quot;message&quot;: &quot;You do not have access to this farm.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><h2 id='assignments'>Assignments</h2><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/role/user-role/</span><h3 style='margin-top:8px'>Assign a user to a farm and role</h3></div><div class='endpoint-bd'><p>Creates a durable active assignment. The response contains the authoritative assignment ID used for later change/revocation.</p><p><span class='pill'>Auth</span> Cookie · organization management</p><div class='label'>Example request JSON</div><pre>{
+  &quot;user_id&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+  &quot;farm_id&quot;: 12,
+  &quot;role_id&quot;: 6
+}</pre><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;User assigned successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;assignment&quot;: {
+      &quot;id&quot;: 91,
+      &quot;user_id&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+      &quot;farm_id&quot;: 12,
+      &quot;role_id&quot;: 6,
+      &quot;status&quot;: &quot;active&quot;
+    }
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 409</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;CONFLICT&quot;,
+  &quot;message&quot;: &quot;Role already exists.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method PATCH">PATCH</span><span class="path">/api/role/user-role/{assignment_id}/</span><h3 style='margin-top:8px'>Change a user assignment</h3></div><div class='endpoint-bd'><p>Changes the selected assignment's farm and/or role. It does not create a second assignment and cannot replace organization ownership.</p><p><span class='pill'>Auth</span> Cookie · organization management</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>assignment_id</code></td><td>int</td><td>Assignment ID</td></tr></table><div class='label'>Example request JSON</div><pre>{
+  &quot;farm_id&quot;: 14,
+  &quot;role_id&quot;: 8
+}</pre><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;User assignment updated successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;assignment&quot;: {
+      &quot;id&quot;: 91,
+      &quot;user_id&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+      &quot;farm_id&quot;: 14,
+      &quot;role_id&quot;: 8,
+      &quot;status&quot;: &quot;active&quot;
+    }
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 404</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;ASSIGNMENT_NOT_FOUND&quot;,
+  &quot;message&quot;: &quot;Assignment could not be found.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method DELETE">DELETE</span><span class="path">/api/role/user-role/{assignment_id}/</span><h3 style='margin-top:8px'>Revoke a farm assignment</h3></div><div class='endpoint-bd'><p>Revokes access without deleting the assignment or historical attribution. Revoked assignments stop contributing farm access, capabilities, and operations authority.</p><p><span class='pill'>Auth</span> Cookie · organization management</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>assignment_id</code></td><td>int</td><td>Assignment ID</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Farm assignment removed successfully.&quot;,
+  &quot;data&quot;: {
+    &quot;assignment_id&quot;: 91,
+    &quot;status&quot;: &quot;revoked&quot;
+  },
+  &quot;meta&quot;: null
+}</pre><div class='label'>Example error JSON · HTTP 409</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;ASSIGNMENT_ALREADY_REVOKED&quot;,
+  &quot;message&quot;: &quot;Assignment already revoked.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><h2 id='pagination'>Pagination</h2><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/roles/</span><h3 style='margin-top:8px'>List roles with pagination</h3></div><div class='endpoint-bd'><p>All list endpoints accept page and page_size. page is 1-based; page_size defaults to 20 and is capped at 100. Read meta.pagination instead of assuming a fixed page size.</p><p><span class='pill'>Auth</span> Cookie · people management</p><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>1-based page; default 1</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>1-100; default 20</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Roles fetched successfully.&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 6,
+      &quot;name&quot;: &quot;Field Worker&quot;,
+      &quot;code&quot;: &quot;RL-FIELD&quot;
+    }
+  ],
+  &quot;meta&quot;: {
+    &quot;pagination&quot;: {
+      &quot;page&quot;: 1,
+      &quot;page_size&quot;: 20,
+      &quot;total_items&quot;: 1,
+      &quot;total_pages&quot;: 1,
+      &quot;has_next&quot;: false,
+      &quot;has_previous&quot;: false
+    }
+  }
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/permissions/</span><h3 style='margin-top:8px'>List permissions with pagination</h3></div><div class='endpoint-bd'><p>Returns structured permission records. Use code and module directly; do not derive modules from human-readable labels.</p><p><span class='pill'>Auth</span> Cookie · people management</p><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>1-based page; default 1</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>1-100; default 20</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Permissions fetched successfully.&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 1,
+      &quot;code&quot;: &quot;view_animal_details&quot;,
+      &quot;name&quot;: &quot;View animal details&quot;,
+      &quot;module&quot;: &quot;animals&quot;
+    }
+  ],
+  &quot;meta&quot;: {
+    &quot;pagination&quot;: {
+      &quot;page&quot;: 1,
+      &quot;page_size&quot;: 20,
+      &quot;total_items&quot;: 1,
+      &quot;total_pages&quot;: 1,
+      &quot;has_next&quot;: false,
+      &quot;has_previous&quot;: false
+    }
+  }
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/farms/{farm_id}/people/</span><h3 style='margin-top:8px'>List farm people with pagination</h3></div><div class='endpoint-bd'><p>Returns active owner/staff access for one farm. Revoked assignments are excluded. Use page and page_size for large farms.</p><p><span class='pill'>Auth</span> Cookie · farm access</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>int</td><td>Farm ID</td></tr></table><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>1-based page; default 1</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>1-100; default 20</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;People fetched successfully.&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: &quot;0c1194a3-1e2b-4c5d-9f11-2a3b4c5d6e7f&quot;,
+      &quot;display_name&quot;: &quot;Ibrahim Musa&quot;,
+      &quot;roles&quot;: [
+        {
+          &quot;role&quot;: &quot;Field Worker&quot;,
+          &quot;farm_id&quot;: 12
+        }
+      ]
+    }
+  ],
+  &quot;meta&quot;: {
+    &quot;pagination&quot;: {
+      &quot;page&quot;: 1,
+      &quot;page_size&quot;: 20,
+      &quot;total_items&quot;: 1,
+      &quot;total_pages&quot;: 1,
+      &quot;has_next&quot;: false,
+      &quot;has_previous&quot;: false
+    }
+  }
+}</pre><div class='label'>Example error JSON · HTTP 403</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;FARM_ACCESS_DENIED&quot;,
+  &quot;message&quot;: &quot;You do not have access to this farm.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/farms/{farm_id}/units/</span><h3 style='margin-top:8px'>List farm units with pagination</h3></div><div class='endpoint-bd'><p>Returns typed unit rows. Each row has kind housing_unit or farm_unit. Use pagination metadata for navigation.</p><p><span class='pill'>Auth</span> Cookie · farm access</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>int</td><td>Farm ID</td></tr></table><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>1-based page; default 1</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>1-100; default 20</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;code&quot;: &quot;REQUEST_SUCCESSFUL&quot;,
+  &quot;message&quot;: &quot;Units fetched successfully.&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 4,
+      &quot;kind&quot;: &quot;housing_unit&quot;,
+      &quot;name&quot;: &quot;Pen A&quot;,
+      &quot;status&quot;: &quot;active&quot;,
+      &quot;capacity&quot;: 40
+    }
+  ],
+  &quot;meta&quot;: {
+    &quot;pagination&quot;: {
+      &quot;page&quot;: 1,
+      &quot;page_size&quot;: 20,
+      &quot;total_items&quot;: 1,
+      &quot;total_pages&quot;: 1,
+      &quot;has_next&quot;: false,
+      &quot;has_previous&quot;: false
+    }
+  }
+}</pre><div class='label'>Example error JSON · HTTP 401</div><pre>{
+  &quot;success&quot;: false,
+  &quot;code&quot;: &quot;AUTHENTICATION_REQUIRED&quot;,
+  &quot;message&quot;: &quot;Authentication is required.&quot;,
+  &quot;data&quot;: null,
+  &quot;errors&quot;: {},
+  &quot;retryable&quot;: false
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/organization/get-lga/{state_region_id}</span><h3 style='margin-top:8px'>List LGAs with pagination</h3></div><div class='endpoint-bd'><p>Returns Local Government Areas under one state. This legacy response now includes meta.pagination while keeping the existing success/message/data envelope.</p><p><span class='pill'>Auth</span> Cookie</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>state_region_id</code></td><td>int</td><td>AdminLevel1/state ID</td></tr></table><div class='label'>Query parameters</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>int</td><td>no</td><td>1-based page; default 1</td></tr><tr><td><code>page_size</code></td><td>int</td><td>no</td><td>1-100; default 20</td></tr></table><p class='muted'>No JSON body. Input is the URL and query string.</p><div class='label'>Example success JSON</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;lga fetched successfully&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 1,
+      &quot;name&quot;: &quot;Aba North&quot;
+    }
+  ],
+  &quot;meta&quot;: {
+    &quot;pagination&quot;: {
+      &quot;page&quot;: 1,
+      &quot;page_size&quot;: 20,
+      &quot;total_items&quot;: 1,
+      &quot;total_pages&quot;: 1,
+      &quot;has_next&quot;: false,
+      &quot;has_previous&quot;: false
+    }
+  }
+}</pre><div class='label'>Example error JSON</div><pre>{
+  &quot;success&quot;: false,
+  &quot;message&quot;: &quot;Permission denied&quot;,
+  &quot;data&quot;: null
 }</pre></div></div><p class='muted'>TATI FarmOS Frontend API Contract v2.2 Final RC · primary #209850 · do not parse legacy list keys (<code>current_page</code>, <code>num_pages</code>) on these routes. Evidence uploads, bootstrap, and retag history are deferred.</p></div></body></html>

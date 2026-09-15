@@ -525,9 +525,9 @@ def build_html(spec: dict) -> str:
 <body>
 <div class="page">
 <div class="cover">
-<h1>FarmOS API documentation</h1>
-<p class="muted">Tati FarmOS backend · Django Ninja · version 1.0</p>
-<p>This guide is for product and engineering. Every endpoint lists what you send (URL pieces, query string, JSON body) and a sample JSON response. Field names match the live OpenAPI schema generated from the code.</p>
+<h1>FarmOS Frontend API Guide</h1>
+<p class="muted">Tati FarmOS development backend · Django Ninja</p>
+<p>This guide is for frontend engineers. Every endpoint lists what you send (URL pieces, query string, JSON body) and an example JSON response. Field names match the live OpenAPI schema generated from the code.</p>
 </div>
 """
     ]
@@ -535,7 +535,7 @@ def build_html(spec: dict) -> str:
     parts.append("<h2 id='overview'>How to call the API</h2>")
     parts.append(
         """
-<p><span class="pill">Base URL</span> Local Docker: <code>http://127.0.0.1:8000</code> or Nginx <code>http://127.0.0.1:8081</code>. All routes below are prefixed with <code>/api</code>.</p>
+<p><span class="pill">Base URL</span> Local development Docker: <code>http://127.0.0.1:8002</code>. All routes below are prefixed with <code>/api</code>.</p>
 <p><span class="pill">Docs</span> Interactive Swagger UI: <code>/api/docs</code>. Raw OpenAPI: <code>/api/openapi.json</code>.</p>
 <p><span class="pill">Auth</span> After <code>POST /api/auth/login</code> the server sets cookies named <code>{app}_access_token</code>, <code>{app}_refresh_token</code>, and <code>{app}_csrf_token</code>. <code>app</code> is <code>client</code> or <code>admin</code> depending on the request host. Send cookies on later requests. For unsafe methods, send header <code>X-CSRFToken</code> matching the CSRF cookie.</p>
 <p><span class="pill">JSON</span> Most bodies are <code>application/json</code>. A few animal-create routes use <code>multipart/form-data</code> so you can attach an image. Dates are <code>YYYY-MM-DD</code>. Datetimes are ISO-8601. Money examples use <code>NGN</code>.</p>
@@ -565,6 +565,15 @@ def build_html(spec: dict) -> str:
 }</pre>
 <p class="muted">Login failure uses a smaller shape: <code>{"status": "Error", "message": "Invalid credentials"}</code>. Some OTP failures return <code>{"detail": "..."}</code>.</p>
 <p class="muted">v1 vs v2: older animal/farm/dashboard routes use <code>species_id</code>, <code>breed_id</code>, and <code>unit_id</code>. v2/v3 routes use livestock master data: <code>livestock_species_id</code>, <code>livestock_breed_id</code>, <code>housing_unit_id</code>. Prefer v2/v3 for new clients.</p>
+<h3>Frontend integration sequence</h3>
+<ol>
+  <li>Create an account with <code>POST /api/auth/new-account</code>, then verify the emailed OTP with <code>POST /api/auth/email-validate</code>.</li>
+  <li>Log in with <code>POST /api/auth/login</code> and retain the HTTP-only auth cookies. Include credentials on every later authenticated request.</li>
+  <li>Create an organization with <code>POST /api/organization/register/</code>. Keep the returned organization UUID for organization-scoped requests.</li>
+  <li>Create a farm with <code>POST /api/organization/farm/</code>. A new <code>is_primary: true</code> farm automatically becomes the only primary farm in that organization.</li>
+  <li>Load scoped data with GET endpoints, passing the farm ID or organization ID requested by the endpoint.</li>
+  <li>For POST, PATCH, PUT, and DELETE calls, send <code>X-CSRFToken</code> using the CSRF cookie value. When the access cookie expires, call <code>POST /api/auth/refresh-token</code>; use <code>POST /api/auth/signout</code> to end the session.</li>
+</ol>
 """
     )
 

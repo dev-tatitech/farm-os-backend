@@ -13,24 +13,8 @@ User = get_user_model()
 SECRET_KEY = settings.SECRET_KEY
 
 def get_current_user(request):
-    app_type = get_app_type(request)
-    ACCESS_COOKIE = f"{app_type}_access_token"
-    REFRESH_COOKIE = f"{app_type}_refresh_token"
-    CSRF_COOKIE = f"{app_type}_csrf_token"
-    access_token = request.COOKIES.get(ACCESS_COOKIE)
-    csrf_cookie = request.COOKIES.get(CSRF_COOKIE)
-    csrf_header = request.headers.get("X-CSRFToken")
-
-    if not access_token:
-        raise HttpError(401, "No access token")
-
-    try:
-        payload = decode_token(access_token)
-    except Exception:
-        raise HttpError(401, "Invalid or expired access token")
-
-    return payload["sub"]
-
+    from .sessions import authenticate_request
+    return str(authenticate_request(request).id)
 
 def validate_crftoken(request, csrf_header):
     csrf_cookie = request.COOKIES.get("csrf_token")

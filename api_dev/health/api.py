@@ -1,3 +1,4 @@
+from common.scoping import scoped_lookup
 from ninja import Router, Query
 from django.conf import settings
 from ninja import File
@@ -82,6 +83,7 @@ def treatment(
     request,
     payload:TreatmentRecordSchema
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Health.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -201,6 +203,7 @@ def get_treatment(
     page_size: int,
     farm_id: int
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Health.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -263,6 +266,7 @@ def vaccination(
     request,
     payload:VaccinationRecordSchema
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Health.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -353,6 +357,7 @@ def get_vaccination(
     page_size: int,
     farm_id: int
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Health.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -414,6 +419,7 @@ def quarantine(
     request,
     payload:QuarantineRecordSchema
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Health.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -495,6 +501,7 @@ def get_quarantine(
     page_size: int,
     farm_id: int
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Health.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -555,6 +562,7 @@ def mortality(
     request,
     payload:MortalityRecordSchema
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Health.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -636,6 +644,7 @@ def get_mortality(
     page_size: int,
     farm_id: int
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Health.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -702,6 +711,7 @@ def get_treatment_v2(
     page_size: int,
     farm_id: int
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Health.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -770,6 +780,7 @@ def get_vaccination_v2(
     page_size: int,
     farm_id: int
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Health.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -836,6 +847,7 @@ def get_quarantine_v2(
     page_size: int,
     farm_id: int
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Health.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -900,6 +912,7 @@ def get_mortality_v2(
     page_size: int,
     farm_id: int
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Health.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -956,6 +969,7 @@ def get_mortality_v2(
 
 @router.post("/health-alert/scan/{animal_id}/", response={200: APIResponse, 403: APIResponse})
 def scan_animal_health_alerts(request, animal_id: int):
+    get_object_or_404 = scoped_lookup(request, Permissions.Health.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -982,6 +996,7 @@ def scan_animal_health_alerts(request, animal_id: int):
     response={200: ListResponseSchema, 403: APIResponse},
 )
 def get_health_alerts(request, page: int, page_size: int, farm_id: int, status: str = None, severity: str = None):
+    get_object_or_404 = scoped_lookup(request, Permissions.Health.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -1033,6 +1048,7 @@ def get_health_alerts(request, page: int, page_size: int, farm_id: int, status: 
 
 @router.post("/health-alert/{alert_id}/resolve/", response={200: APIResponse, 403: APIResponse})
 def resolve_health_alert(request, alert_id: int, resolution_notes: str = ""):
+    get_object_or_404 = scoped_lookup(request, Permissions.Health.UPDATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -1060,6 +1076,7 @@ def resolve_health_alert(request, alert_id: int, resolution_notes: str = ""):
 
 @router.post("/treatment/external/", response={200: APIResponse, 403: APIResponse})
 def record_external_medication(request, payload: ExternalMedicationSchemaIn):
+    get_object_or_404 = scoped_lookup(request, Permissions.Pharmacy.EXTERNAL_OVERRIDE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -1122,6 +1139,7 @@ def record_external_medication(request, payload: ExternalMedicationSchemaIn):
 
 @router.post("/treatment/{treatment_id}/reconcile-to-inventory/", response={200: APIResponse, 403: APIResponse})
 def reconcile_external_medication(request, treatment_id: int, batch_number: str, minimum_stock_level: float = None):
+    get_object_or_404 = scoped_lookup(request, Permissions.Pharmacy.EXTERNAL_OVERRIDE)
     """
     Formally adds a previously-external/emergency administration to the
     pharmacy batch ledger after the fact — the batch is created already

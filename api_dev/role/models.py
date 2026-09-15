@@ -12,6 +12,10 @@ class Role(TimeStampedModel):
     normalized_name = models.CharField(max_length=100, blank=True)
     code = models.CharField(max_length=50)
     description = models.TextField(blank=True)
+    system_template_type = models.CharField(max_length=32, null=True, blank=True)
+    active = models.BooleanField(default=True)
+    web_access = models.BooleanField(default=False)
+    mobile_access = models.BooleanField(default=False)
 
     class Meta:
         constraints = [
@@ -38,6 +42,7 @@ class UserRole(models.Model):
     role = models.ForeignKey(Role, on_delete=models.CASCADE)
     farm = models.ForeignKey("organization.Farm", null=True, blank=True, on_delete=models.SET_NULL)
     assigned_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
     assigned_by = models.ForeignKey(
     "account.User",
     null=True,

@@ -193,30 +193,18 @@ def _get_group(farm: Farm, group_id: Optional[int]):
         raise ContractError(404, ErrorCode.VALIDATION_ERROR, "Group could not be found.")
 
 
-def _get_assignee(org: Organization, assignee_id):
+def _get_assignee(org: Organization, assignee_id, farm=None):
     if not assignee_id:
         return None
     from account.models import User
-
-    try:
-        user = User.objects.get(id=assignee_id)
-    except (User.DoesNotExist, ValidationError, ValueError):
+    from common.access import authorized_farms
+    user = User.objects.filter(Q(organization=org) | Q(id=org.user_id), id=assignee_id,
+                               account_status="active", is_active=True).first()
+    if user is None:
         raise ContractError(404, ErrorCode.USER_NOT_FOUND, "User could not be found.")
-    if user.organization_id == org.id or org.user_id == user.id:
-        return user
-    if user.organizations.filter(id=org.id).exists():
-        return user
-    from role.models import UserRole
-
-    if UserRole.objects.filter(user=user).filter(
-        Q(farm__organization=org) | Q(farm__isnull=True, user__organization=org)
-    ).exists():
-        return user
-    raise ContractError(
-        403,
-        ErrorCode.PERMISSION_DENIED,
-        "User does not belong to this organization.",
-    )
+    if farm is not None and not authorized_farms(user, org).filter(pk=farm.pk).exists():
+        raise ContractError(403, ErrorCode.FARM_ACCESS_DENIED, "Assignee does not have access to this farm.")
+    return user
 
 
 def create_task(
@@ -247,7 +235,7 @@ def create_task(
         )
     animal = _get_animal(org, farm, animal_id)
     group = _get_group(farm, group_id)
-    assignee = _get_assignee(org, assignee_id)
+    assignee = _get_assignee(org, assignee_id, farm)
     task = Task.objects.create(
         organization=org,
         farm=farm,
@@ -311,7 +299,7 @@ def assign_task(task: Task, actor, assignee_id) -> Task:
         raise ContractError(
             409, ErrorCode.TASK_INVALID_STATE, "Completed or cancelled tasks cannot be assigned."
         )
-    assignee = _get_assignee(task.organization, assignee_id)
+    assignee = _get_assignee(task.organization, assignee_id, task.farm)
     if not assignee:
         raise ContractError(422, ErrorCode.VALIDATION_ERROR, "assignee_id is required.")
     TaskAssignment.objects.filter(
@@ -1027,7 +1015,6 @@ def reopen_task(task: Task, actor, payload: Optional[dict] = None) -> Task:
 
 def complete_task(task: Task, actor, payload: Optional[dict] = None, evidence: str = "") -> Task:
     payload = payload or {}
-    _ensure_completable(task, actor)
     handlers = {
         Task.Type.VACCINATION: _complete_vaccination,
         Task.Type.TREATMENT: _complete_treatment,
@@ -1042,6 +1029,8 @@ def complete_task(task: Task, actor, payload: Optional[dict] = None, evidence: s
     }
     handler = handlers.get(task.task_type)
     with transaction.atomic():
+        task = Task.objects.select_for_update().get(pk=task.pk)
+        _ensure_completable(task, actor)
         table, ref_id = "", None
         if handler:
             table, ref_id = handler(task, actor, payload)

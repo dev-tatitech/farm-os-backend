@@ -3,6 +3,7 @@ from typing import Any, Optional
 from uuid import UUID
 
 from ninja import Schema
+from pydantic import Field
 
 
 class OrgPatchIn(Schema):
@@ -12,8 +13,8 @@ class OrgPatchIn(Schema):
 
 
 class UserProfilePatchIn(Schema):
-    display_name: Optional[str] = None
-    phone: Optional[str] = None
+    display_name: Optional[str] = Field(default=None, max_length=301)
+    phone: Optional[str] = Field(default=None, max_length=32)
 
 
 class UserDeactivateIn(Schema):

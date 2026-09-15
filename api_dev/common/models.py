@@ -20,6 +20,7 @@ class AuditLog(models.Model):
     new_value = models.TextField(null=True, blank=True)
     reason = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    context = models.JSONField(default=dict, blank=True)
 
     class Meta:
         ordering = ["-created_at"]

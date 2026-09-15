@@ -50,12 +50,12 @@
 <body>
 <div class="page">
 <div class="cover">
-<h1>FarmOS API documentation</h1>
-<p class="muted">Tati FarmOS backend · Django Ninja · version 1.0</p>
-<p>This guide is for product and engineering. Every endpoint lists what you send (URL pieces, query string, JSON body) and a sample JSON response. Field names match the live OpenAPI schema generated from the code.</p>
+<h1>FarmOS Frontend API Guide</h1>
+<p class="muted">Tati FarmOS development backend · Django Ninja</p>
+<p>This guide is for frontend engineers. Every endpoint lists what you send (URL pieces, query string, JSON body) and an example JSON response. Field names match the live OpenAPI schema generated from the code.</p>
 </div>
 <h2 id='overview'>How to call the API</h2>
-<p><span class="pill">Base URL</span> Local Docker: <code>http://127.0.0.1:8000</code> or Nginx <code>http://127.0.0.1:8081</code>. All routes below are prefixed with <code>/api</code>.</p>
+<p><span class="pill">Base URL</span> Local development Docker: <code>http://127.0.0.1:8002</code>. All routes below are prefixed with <code>/api</code>.</p>
 <p><span class="pill">Docs</span> Interactive Swagger UI: <code>/api/docs</code>. Raw OpenAPI: <code>/api/openapi.json</code>.</p>
 <p><span class="pill">Auth</span> After <code>POST /api/auth/login</code> the server sets cookies named <code>{app}_access_token</code>, <code>{app}_refresh_token</code>, and <code>{app}_csrf_token</code>. <code>app</code> is <code>client</code> or <code>admin</code> depending on the request host. Send cookies on later requests. For unsafe methods, send header <code>X-CSRFToken</code> matching the CSRF cookie.</p>
 <p><span class="pill">JSON</span> Most bodies are <code>application/json</code>. A few animal-create routes use <code>multipart/form-data</code> so you can attach an image. Dates are <code>YYYY-MM-DD</code>. Datetimes are ISO-8601. Money examples use <code>NGN</code>.</p>
@@ -85,7 +85,16 @@
 }</pre>
 <p class="muted">Login failure uses a smaller shape: <code>{"status": "Error", "message": "Invalid credentials"}</code>. Some OTP failures return <code>{"detail": "..."}</code>.</p>
 <p class="muted">v1 vs v2: older animal/farm/dashboard routes use <code>species_id</code>, <code>breed_id</code>, and <code>unit_id</code>. v2/v3 routes use livestock master data: <code>livestock_species_id</code>, <code>livestock_breed_id</code>, <code>housing_unit_id</code>. Prefer v2/v3 for new clients.</p>
-<h2 id='toc'>Contents</h2><ol class='toc'><li><a href='#authentication'> Authentication</a> (11 endpoints)</li><li><a href='#admin-panel'>Admin panel</a> (29 endpoints)</li><li><a href='#contact'>Contact</a> (5 endpoints)</li><li><a href='#global'>Global</a> (5 endpoints)</li><li><a href='#oganization-module'>Oganization module</a> (11 endpoints)</li><li><a href='#user-and-role-management'>User and Role management</a> (13 endpoints)</li><li><a href='#farm'>Farm</a> (8 endpoints)</li><li><a href='#animals'>Animals</a> (28 endpoints)</li><li><a href='#production'>Production</a> (3 endpoints)</li><li><a href='#reproduction'>Reproduction</a> (17 endpoints)</li><li><a href='#health'>Health</a> (17 endpoints)</li><li><a href='#feed'>Feed</a> (23 endpoints)</li><li><a href='#movementrecords'>MovementRecords</a> (15 endpoints)</li><li><a href='#alerts'>Alerts</a> (4 endpoints)</li><li><a href='#dashboard'>Dashboard</a> (29 endpoints)</li><li><a href='#finance'>Finance</a> (6 endpoints)</li><li><a href='#pharmacy'>Pharmacy</a> (9 endpoints)</li><li><a href='#reports'>Reports</a> (14 endpoints)</li></ol><h2 id='authentication'> Authentication</h2><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/auth/new-account</span><h3 style='margin-top:8px'>Create Account</h3></div><div class='endpoint-bd'><p>Registers a user with email + password. Sends a 6-digit OTP and sets an email cookie used by /email-validate.</p><p><span class='pill'>Auth</span> Public (no login cookie)</p><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>email</code></td><td>string (email)</td><td>yes</td><td>Account email. Used as the login username.</td></tr><tr><td><code>password</code></td><td>string</td><td>yes</td><td>Account password. Must pass Django password validators.</td></tr><tr><td><code>confirm_password</code></td><td>string</td><td>yes</td><td>Must match password.</td></tr></table><div class='label'>Example request body</div><pre>{
+<h3>Frontend integration sequence</h3>
+<ol>
+  <li>Create an account with <code>POST /api/auth/new-account</code>, then verify the emailed OTP with <code>POST /api/auth/email-validate</code>.</li>
+  <li>Log in with <code>POST /api/auth/login</code> and retain the HTTP-only auth cookies. Include credentials on every later authenticated request.</li>
+  <li>Create an organization with <code>POST /api/organization/register/</code>. Keep the returned organization UUID for organization-scoped requests.</li>
+  <li>Create a farm with <code>POST /api/organization/farm/</code>. A new <code>is_primary: true</code> farm automatically becomes the only primary farm in that organization.</li>
+  <li>Load scoped data with GET endpoints, passing the farm ID or organization ID requested by the endpoint.</li>
+  <li>For POST, PATCH, PUT, and DELETE calls, send <code>X-CSRFToken</code> using the CSRF cookie value. When the access cookie expires, call <code>POST /api/auth/refresh-token</code>; use <code>POST /api/auth/signout</code> to end the session.</li>
+</ol>
+<h2 id='toc'>Contents</h2><ol class='toc'><li><a href='#authentication'> Authentication</a> (11 endpoints)</li><li><a href='#admin-panel'>Admin panel</a> (30 endpoints)</li><li><a href='#contact'>Contact</a> (5 endpoints)</li><li><a href='#global'>Global</a> (5 endpoints)</li><li><a href='#oganization-module'>Oganization module</a> (12 endpoints)</li><li><a href='#user-and-role-management'>User and Role management</a> (15 endpoints)</li><li><a href='#farm'>Farm</a> (8 endpoints)</li><li><a href='#animals'>Animals</a> (32 endpoints)</li><li><a href='#production'>Production</a> (3 endpoints)</li><li><a href='#reproduction'>Reproduction</a> (20 endpoints)</li><li><a href='#health'>Health</a> (24 endpoints)</li><li><a href='#feed'>Feed</a> (23 endpoints)</li><li><a href='#movementrecords'>MovementRecords</a> (15 endpoints)</li><li><a href='#alerts'>Alerts</a> (4 endpoints)</li><li><a href='#dashboard'>Dashboard</a> (33 endpoints)</li><li><a href='#finance'>Finance</a> (6 endpoints)</li><li><a href='#pharmacy'>Pharmacy</a> (9 endpoints)</li><li><a href='#reports'>Reports</a> (14 endpoints)</li><li><a href='#contract'>Contract</a> (2 endpoints)</li><li><a href='#users'>Users</a> (15 endpoints)</li><li><a href='#organizations'>Organizations</a> (5 endpoints)</li><li><a href='#farms'>Farms</a> (8 endpoints)</li><li><a href='#operations'>Operations</a> (19 endpoints)</li><li><a href='#timeline'>Timeline</a> (1 endpoints)</li><li><a href='#notifications'>Notifications</a> (4 endpoints)</li><li><a href='#search'>Search</a> (1 endpoints)</li></ol><h2 id='authentication'> Authentication</h2><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/auth/new-account</span><h3 style='margin-top:8px'>Create Account</h3></div><div class='endpoint-bd'><p>Registers a user with email + password. Sends a 6-digit OTP and sets an email cookie used by /email-validate.</p><p><span class='pill'>Auth</span> Public (no login cookie)</p><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>email</code></td><td>string (email)</td><td>yes</td><td>Account email. Used as the login username.</td></tr><tr><td><code>password</code></td><td>string</td><td>yes</td><td>Account password. Must pass Django password validators.</td></tr><tr><td><code>confirm_password</code></td><td>string</td><td>yes</td><td>Must match password.</td></tr></table><div class='label'>Example request body</div><pre>{
   &quot;email&quot;: &quot;farmer@example.com&quot;,
   &quot;password&quot;: &quot;Str0ngPass!word&quot;,
   &quot;confirm_password&quot;: &quot;Str0ngPass!word&quot;
@@ -257,19 +266,25 @@
   &quot;data&quot;: {
     &quot;id&quot;: 15
   }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/admin/seed-nigeria-geo/</span><h3 style='margin-top:8px'>Seed Nigeria Geo</h3></div><div class='endpoint-bd'><p>Setup helper: inserts default catalogue rows (rules, species, permissions, etc.). Body is often empty.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><p class='muted'>No JSON body. Path (and optional query) parameters are the input.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15
+  }
 }</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/admin/seed-livestock-master/</span><h3 style='margin-top:8px'>Seed Livestock Master</h3></div><div class='endpoint-bd'><p>Setup helper: inserts default catalogue rows (rules, species, permissions, etc.). Body is often empty.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><p class='muted'>No JSON body. Path (and optional query) parameters are the input.</p><div class='label'>Example JSON response (output)</div><pre>{
   &quot;success&quot;: true,
   &quot;message&quot;: &quot;Request completed&quot;,
   &quot;data&quot;: {
     &quot;id&quot;: 15
   }
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/admin/livestock/species/</span><h3 style='margin-top:8px'>Get Livestock Species</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/admin/livestock/species/</span><h3 style='margin-top:8px'>Get Livestock Species</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
   &quot;success&quot;: true,
   &quot;message&quot;: &quot;Request completed&quot;,
   &quot;data&quot;: {
     &quot;id&quot;: 1
   }
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/admin/livestock/breeds/{species_id}/</span><h3 style='margin-top:8px'>Get Livestock Breeds</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>species_id</code></td><td>integer</td><td>Legacy species ID (v1 endpoints).</td></tr></table><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the farm this request applies to.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/admin/livestock/breeds/{species_id}/</span><h3 style='margin-top:8px'>Get Livestock Breeds</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>species_id</code></td><td>integer</td><td>Legacy species ID (v1 endpoints).</td></tr></table><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the farm this request applies to.</td></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
   &quot;success&quot;: true,
   &quot;message&quot;: &quot;Request completed&quot;,
   &quot;data&quot;: [
@@ -278,7 +293,7 @@
       &quot;name&quot;: &quot;Example&quot;
     }
   ]
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/admin/livestock/housing-unit-types/{species_id}/</span><h3 style='margin-top:8px'>Get Housing Unit Types</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>species_id</code></td><td>integer</td><td>Legacy species ID (v1 endpoints).</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/admin/livestock/housing-unit-types/{species_id}/</span><h3 style='margin-top:8px'>Get Housing Unit Types</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>species_id</code></td><td>integer</td><td>Legacy species ID (v1 endpoints).</td></tr></table><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
   &quot;success&quot;: true,
   &quot;message&quot;: &quot;Request completed&quot;,
   &quot;data&quot;: [
@@ -287,7 +302,7 @@
       &quot;name&quot;: &quot;Example&quot;
     }
   ]
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/admin/livestock/housing-units/{farm_id}/</span><h3 style='margin-top:8px'>Get Farm Housing Units</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>integer</td><td>Numeric ID of the farm this request applies to.</td></tr></table><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>species_id</code></td><td>integer</td><td>no</td><td>Legacy species ID (v1 endpoints).</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/admin/livestock/housing-units/{farm_id}/</span><h3 style='margin-top:8px'>Get Farm Housing Units</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>integer</td><td>Numeric ID of the farm this request applies to.</td></tr></table><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>species_id</code></td><td>integer</td><td>no</td><td>Legacy species ID (v1 endpoints).</td></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
   &quot;success&quot;: true,
   &quot;message&quot;: &quot;Request completed&quot;,
   &quot;data&quot;: [
@@ -297,7 +312,7 @@
       &quot;farm_code&quot;: &quot;NP-01&quot;
     }
   ]
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/admin/livestock/classifications/{species_id}/</span><h3 style='margin-top:8px'>Get Animal Classifications</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>species_id</code></td><td>integer</td><td>Legacy species ID (v1 endpoints).</td></tr></table><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>sex</code></td><td>string</td><td>no</td><td>Sex.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/admin/livestock/classifications/{species_id}/</span><h3 style='margin-top:8px'>Get Animal Classifications</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>species_id</code></td><td>integer</td><td>Legacy species ID (v1 endpoints).</td></tr></table><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>sex</code></td><td>string</td><td>no</td><td>Sex.</td></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
   &quot;success&quot;: true,
   &quot;message&quot;: &quot;Request completed&quot;,
   &quot;data&quot;: [
@@ -542,25 +557,25 @@
   &quot;total_items&quot;: 42,
   &quot;has_next&quot;: true,
   &quot;has_previous&quot;: false
-}</pre></div></div><h2 id='oganization-module'>Oganization module</h2><p>Organizations and farms. A user belongs to an organization; farms belong to that organization.</p><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/organization/get-plan/</span><h3 style='margin-top:8px'>Get Plan</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+}</pre></div></div><h2 id='oganization-module'>Oganization module</h2><p>Organizations and farms. A user belongs to an organization; farms belong to that organization.</p><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/organization/get-plan/</span><h3 style='margin-top:8px'>Get Plan</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
   &quot;success&quot;: true,
   &quot;message&quot;: &quot;Request completed&quot;,
   &quot;data&quot;: {
     &quot;id&quot;: 1
   }
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/organization/get-industry/</span><h3 style='margin-top:8px'>Get Industry</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/organization/get-industry/</span><h3 style='margin-top:8px'>Get Industry</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
   &quot;success&quot;: true,
   &quot;message&quot;: &quot;Request completed&quot;,
   &quot;data&quot;: {
     &quot;id&quot;: 1
   }
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/organization/get-countries/</span><h3 style='margin-top:8px'>Get Counttries</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/organization/get-countries/</span><h3 style='margin-top:8px'>Get Counttries</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
   &quot;success&quot;: true,
   &quot;message&quot;: &quot;Request completed&quot;,
   &quot;data&quot;: {
     &quot;id&quot;: 1
   }
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/organization/get-stateregion/{country_id}</span><h3 style='margin-top:8px'>Get State</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>country_id</code></td><td>integer</td><td>ID of the related country.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/organization/get-stateregion/{country_id}</span><h3 style='margin-top:8px'>Get State</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>country_id</code></td><td>integer</td><td>ID of the related country.</td></tr></table><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
   &quot;success&quot;: true,
   &quot;message&quot;: &quot;Request completed&quot;,
   &quot;data&quot;: [
@@ -569,11 +584,24 @@
       &quot;name&quot;: &quot;Example&quot;
     }
   ]
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/organization/organization/</span><h3 style='margin-top:8px'>Organiation</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>name</code></td><td>string</td><td>yes</td><td>Name.</td></tr><tr><td><code>industry_id</code></td><td>integer</td><td>yes</td><td>ID of the related industry.</td></tr><tr><td><code>country_id</code></td><td>integer</td><td>yes</td><td>ID of the related country.</td></tr><tr><td><code>state_region_id</code></td><td>integer</td><td>yes</td><td>ID of the related state region.</td></tr></table><div class='label'>Example request body</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/organization/get-lga/{state_region_id}</span><h3 style='margin-top:8px'>Get Lga</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>state_region_id</code></td><td>integer</td><td>ID of the related state region.</td></tr></table><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 1,
+      &quot;name&quot;: &quot;Example&quot;
+    }
+  ]
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/organization/organization/</span><h3 style='margin-top:8px'>Organiation</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>name</code></td><td>string</td><td>yes</td><td>Name.</td></tr><tr><td><code>industry_id</code></td><td>integer</td><td>no</td><td>ID of the related industry.</td></tr><tr><td><code>country_id</code></td><td>integer</td><td>yes</td><td>ID of the related country.</td></tr><tr><td><code>state_region_id</code></td><td>integer</td><td>yes</td><td>ID of the related state region.</td></tr><tr><td><code>phone</code></td><td>string</td><td>no</td><td>Phone.</td></tr><tr><td><code>email</code></td><td>string (email)</td><td>no</td><td>Account email. Used as the login username.</td></tr><tr><td><code>address</code></td><td>string</td><td>no</td><td>Address.</td></tr><tr><td><code>client_request_id</code></td><td>string</td><td>no</td><td>ID of the related client request.</td></tr></table><div class='label'>Example request body</div><pre>{
   &quot;name&quot;: &quot;Example name&quot;,
   &quot;industry_id&quot;: 1,
   &quot;country_id&quot;: 1,
-  &quot;state_region_id&quot;: 1
+  &quot;state_region_id&quot;: 1,
+  &quot;phone&quot;: &quot;08012345678&quot;,
+  &quot;email&quot;: &quot;farmer@example.com&quot;,
+  &quot;address&quot;: &quot;string&quot;,
+  &quot;client_request_id&quot;: &quot;string&quot;
 }</pre><div class='label'>Example JSON response (output)</div><pre>{
   &quot;success&quot;: true,
   &quot;message&quot;: &quot;Request completed&quot;,
@@ -594,13 +622,14 @@
   &quot;data&quot;: {
     &quot;id&quot;: 15
   }
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/organization/farm-type/</span><h3 style='margin-top:8px'>Farm Type</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/organization/farm-type/</span><h3 style='margin-top:8px'>Farm Type</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
   &quot;success&quot;: true,
   &quot;message&quot;: &quot;Request completed&quot;,
   &quot;data&quot;: {
     &quot;id&quot;: 1
   }
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/organization/farm/</span><h3 style='margin-top:8px'>Farm</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>organization_id</code></td><td>string (uuid)</td><td>yes</td><td>UUID of the organization.</td></tr><tr><td><code>name</code></td><td>string</td><td>yes</td><td>Name.</td></tr><tr><td><code>country_id</code></td><td>integer</td><td>yes</td><td>ID of the related country.</td></tr><tr><td><code>state_region_id</code></td><td>integer</td><td>yes</td><td>ID of the related state region.</td></tr><tr><td><code>city</code></td><td>string</td><td>yes</td><td>City.</td></tr><tr><td><code>location_address</code></td><td>string</td><td>yes</td><td>Location address.</td></tr><tr><td><code>latitude</code></td><td>string</td><td>yes</td><td>Latitude.</td></tr><tr><td><code>longitude</code></td><td>string</td><td>yes</td><td>Longitude.</td></tr><tr><td><code>farm_type_id</code></td><td>integer</td><td>yes</td><td>ID of the related farm type.</td></tr><tr><td><code>is_primary</code></td><td>boolean</td><td>yes</td><td>Is primary.</td></tr></table><div class='label'>Example request body</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/organization/farm/</span><h3 style='margin-top:8px'>Farm</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>client_request_id</code></td><td>string</td><td>no</td><td>ID of the related client request.</td></tr><tr><td><code>organization_id</code></td><td>string (uuid)</td><td>yes</td><td>UUID of the organization.</td></tr><tr><td><code>name</code></td><td>string</td><td>yes</td><td>Name.</td></tr><tr><td><code>country_id</code></td><td>integer</td><td>yes</td><td>ID of the related country.</td></tr><tr><td><code>state_region_id</code></td><td>integer</td><td>yes</td><td>ID of the related state region.</td></tr><tr><td><code>city</code></td><td>string</td><td>yes</td><td>City.</td></tr><tr><td><code>location_address</code></td><td>string</td><td>yes</td><td>Location address.</td></tr><tr><td><code>latitude</code></td><td>string</td><td>no</td><td>Latitude.</td></tr><tr><td><code>longitude</code></td><td>string</td><td>no</td><td>Longitude.</td></tr><tr><td><code>farm_type_id</code></td><td>integer</td><td>yes</td><td>ID of the related farm type.</td></tr><tr><td><code>is_primary</code></td><td>boolean</td><td>yes</td><td>Is primary.</td></tr></table><div class='label'>Example request body</div><pre>{
+  &quot;client_request_id&quot;: &quot;string&quot;,
   &quot;organization_id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
   &quot;name&quot;: &quot;Example name&quot;,
   &quot;country_id&quot;: 1,
@@ -617,7 +646,7 @@
   &quot;data&quot;: {
     &quot;id&quot;: 15
   }
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/organization/farm/</span><h3 style='margin-top:8px'>Get Farm</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/organization/farm/</span><h3 style='margin-top:8px'>Get Farm</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
   &quot;success&quot;: true,
   &quot;message&quot;: &quot;Request completed&quot;,
   &quot;data&quot;: {
@@ -640,28 +669,35 @@
       }
     ]
   }
-}</pre></div></div><h2 id='user-and-role-management'>User and Role management</h2><p>Invite staff, assign roles, and attach permission codes. Roles can be scoped to a farm.</p><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/role/permission/</span><h3 style='margin-top:8px'>Get Permission</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+}</pre></div></div><h2 id='user-and-role-management'>User and Role management</h2><p>Invite staff, assign roles, and attach permission codes. Roles can be scoped to a farm.</p><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/role/permission/</span><h3 style='margin-top:8px'>Get Permission</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
   &quot;success&quot;: true,
   &quot;message&quot;: &quot;Request completed&quot;,
   &quot;data&quot;: {
     &quot;id&quot;: 1
   }
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/role/role/</span><h3 style='margin-top:8px'>Role</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>name</code></td><td>string</td><td>yes</td><td>Name.</td></tr><tr><td><code>description</code></td><td>string</td><td>yes</td><td>Description.</td></tr></table><div class='label'>Example request body</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/role/role/</span><h3 style='margin-top:8px'>Role</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>name</code></td><td>string</td><td>yes</td><td>Name.</td></tr><tr><td><code>description</code></td><td>string</td><td>no</td><td>Description.</td></tr><tr><td><code>web_access</code></td><td>boolean</td><td>no</td><td>Web access.</td></tr><tr><td><code>mobile_access</code></td><td>boolean</td><td>no</td><td>Mobile access.</td></tr><tr><td><code>client_request_id</code></td><td>string</td><td>no</td><td>ID of the related client request.</td></tr></table><div class='label'>Example request body</div><pre>{
   &quot;name&quot;: &quot;Example name&quot;,
-  &quot;description&quot;: &quot;Free-text notes&quot;
+  &quot;description&quot;: &quot;Free-text notes&quot;,
+  &quot;web_access&quot;: true,
+  &quot;mobile_access&quot;: true,
+  &quot;client_request_id&quot;: &quot;string&quot;
 }</pre><div class='label'>Example JSON response (output)</div><pre>{
   &quot;success&quot;: true,
   &quot;message&quot;: &quot;Request completed&quot;,
   &quot;data&quot;: {
     &quot;id&quot;: 15
   }
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/role/role/</span><h3 style='margin-top:8px'>Get Role</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/role/role/</span><h3 style='margin-top:8px'>Get Role</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
   &quot;success&quot;: true,
   &quot;message&quot;: &quot;Request completed&quot;,
   &quot;data&quot;: {
     &quot;id&quot;: 1
   }
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method PATCH">PATCH</span><span class="path">/api/role/role/</span><h3 style='margin-top:8px'>Update Role</h3></div><div class='endpoint-bd'><p>Partially updates a record. Only send fields you want to change. Omitted fields stay as they are.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>role_id</code></td><td>integer</td><td>yes</td><td>ID of the related role.</td></tr><tr><td><code>name</code></td><td>string</td><td>no</td><td>Name.</td></tr><tr><td><code>description</code></td><td>string</td><td>no</td><td>Description.</td></tr></table><div class='label'>Example request body</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method PATCH">PATCH</span><span class="path">/api/role/role/</span><h3 style='margin-top:8px'>Update Role</h3></div><div class='endpoint-bd'><p>Partially updates a record. Only send fields you want to change. Omitted fields stay as they are.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>active</code></td><td>boolean</td><td>no</td><td>Active.</td></tr><tr><td><code>web_access</code></td><td>boolean</td><td>no</td><td>Web access.</td></tr><tr><td><code>mobile_access</code></td><td>boolean</td><td>no</td><td>Mobile access.</td></tr><tr><td><code>client_request_id</code></td><td>string</td><td>no</td><td>ID of the related client request.</td></tr><tr><td><code>role_id</code></td><td>integer</td><td>yes</td><td>ID of the related role.</td></tr><tr><td><code>name</code></td><td>string</td><td>no</td><td>Name.</td></tr><tr><td><code>description</code></td><td>string</td><td>no</td><td>Description.</td></tr></table><div class='label'>Example request body</div><pre>{
+  &quot;active&quot;: true,
+  &quot;web_access&quot;: true,
+  &quot;mobile_access&quot;: true,
+  &quot;client_request_id&quot;: &quot;string&quot;,
   &quot;role_id&quot;: 1,
   &quot;name&quot;: &quot;Example name&quot;,
   &quot;description&quot;: &quot;Free-text notes&quot;
@@ -676,15 +712,16 @@
   &quot;success&quot;: true,
   &quot;message&quot;: &quot;Request completed&quot;,
   &quot;data&quot;: null
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/role/user/</span><h3 style='margin-top:8px'>Add User</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>email</code></td><td>string (email)</td><td>yes</td><td>Account email. Used as the login username.</td></tr></table><div class='label'>Example request body</div><pre>{
-  &quot;email&quot;: &quot;farmer@example.com&quot;
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/role/user/</span><h3 style='margin-top:8px'>Add User</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>email</code></td><td>string (email)</td><td>yes</td><td>Account email. Used as the login username.</td></tr><tr><td><code>client_request_id</code></td><td>string</td><td>no</td><td>ID of the related client request.</td></tr></table><div class='label'>Example request body</div><pre>{
+  &quot;email&quot;: &quot;farmer@example.com&quot;,
+  &quot;client_request_id&quot;: &quot;string&quot;
 }</pre><div class='label'>Example JSON response (output)</div><pre>{
   &quot;success&quot;: true,
   &quot;message&quot;: &quot;Request completed&quot;,
   &quot;data&quot;: {
     &quot;id&quot;: 15
   }
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/role/user/</span><h3 style='margin-top:8px'>Get User</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/role/user/</span><h3 style='margin-top:8px'>Get User</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
   &quot;success&quot;: true,
   &quot;message&quot;: &quot;Request completed&quot;,
   &quot;data&quot;: {
@@ -710,7 +747,8 @@
       &quot;name&quot;: &quot;Example&quot;
     }
   ]
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/role/user-role/</span><h3 style='margin-top:8px'>Assign User Role</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>role_id</code></td><td>integer</td><td>yes</td><td>ID of the related role.</td></tr><tr><td><code>farm_id</code></td><td>integer</td><td>yes</td><td>Numeric ID of the farm this request applies to.</td></tr><tr><td><code>user_id</code></td><td>string (uuid)</td><td>yes</td><td>ID of the related user.</td></tr></table><div class='label'>Example request body</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/role/user-role/</span><h3 style='margin-top:8px'>Assign User Role</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>client_request_id</code></td><td>string</td><td>no</td><td>ID of the related client request.</td></tr><tr><td><code>role_id</code></td><td>integer</td><td>yes</td><td>ID of the related role.</td></tr><tr><td><code>farm_id</code></td><td>integer</td><td>yes</td><td>Numeric ID of the farm this request applies to.</td></tr><tr><td><code>user_id</code></td><td>string (uuid)</td><td>yes</td><td>ID of the related user.</td></tr></table><div class='label'>Example request body</div><pre>{
+  &quot;client_request_id&quot;: &quot;string&quot;,
   &quot;role_id&quot;: 1,
   &quot;farm_id&quot;: 1,
   &quot;user_id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;
@@ -720,13 +758,29 @@
   &quot;data&quot;: {
     &quot;id&quot;: 15
   }
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/role/user-role/</span><h3 style='margin-top:8px'>Get User Role</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/role/user-role/</span><h3 style='margin-top:8px'>Get User Role</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
   &quot;success&quot;: true,
   &quot;message&quot;: &quot;Request completed&quot;,
   &quot;data&quot;: {
     &quot;id&quot;: 1
   }
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/role/role-permission/</span><h3 style='margin-top:8px'>Assign Role Permission</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>role_id</code></td><td>integer</td><td>yes</td><td>ID of the related role.</td></tr><tr><td><code>permission_ids</code></td><td>array of integer</td><td>yes</td><td>Permission ids.</td></tr></table><div class='label'>Example request body</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method PATCH">PATCH</span><span class="path">/api/role/user-role/{assignment_id}/</span><h3 style='margin-top:8px'>Update User Role</h3></div><div class='endpoint-bd'><p>Partially updates a record. Only send fields you want to change. Omitted fields stay as they are.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>assignment_id</code></td><td>integer</td><td>ID of the related assignment.</td></tr></table><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>client_request_id</code></td><td>string</td><td>no</td><td>ID of the related client request.</td></tr><tr><td><code>farm_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the farm this request applies to.</td></tr><tr><td><code>role_id</code></td><td>integer</td><td>no</td><td>ID of the related role.</td></tr></table><div class='label'>Example request body</div><pre>{
+  &quot;client_request_id&quot;: &quot;string&quot;,
+  &quot;farm_id&quot;: 1,
+  &quot;role_id&quot;: 1
+}</pre><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15,
+    &quot;updated&quot;: true
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method DELETE">DELETE</span><span class="path">/api/role/user-role/{assignment_id}/</span><h3 style='margin-top:8px'>Revoke User Role</h3></div><div class='endpoint-bd'><p>Removes or deactivates a record identified by the path.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>assignment_id</code></td><td>integer</td><td>ID of the related assignment.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: null
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/role/role-permission/</span><h3 style='margin-top:8px'>Assign Role Permission</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>client_request_id</code></td><td>string</td><td>no</td><td>ID of the related client request.</td></tr><tr><td><code>role_id</code></td><td>integer</td><td>yes</td><td>ID of the related role.</td></tr><tr><td><code>permission_ids</code></td><td>array of integer</td><td>yes</td><td>Permission ids.</td></tr></table><div class='label'>Example request body</div><pre>{
+  &quot;client_request_id&quot;: &quot;string&quot;,
   &quot;role_id&quot;: 1,
   &quot;permission_ids&quot;: [
     1
@@ -737,7 +791,7 @@
   &quot;data&quot;: {
     &quot;id&quot;: 15
   }
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/role/role-permission/</span><h3 style='margin-top:8px'>Get Role Permission</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/role/role-permission/</span><h3 style='margin-top:8px'>Get Role Permission</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
   &quot;success&quot;: true,
   &quot;message&quot;: &quot;Request completed&quot;,
   &quot;data&quot;: {
@@ -1115,18 +1169,6 @@
       &quot;health_status&quot;: &quot;healthy&quot;
     }
   ]
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/animals/animal-profile/{animal_id}</span><h3 style='margin-top:8px'>Animal Profile</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>animal_id</code></td><td>integer</td><td>Numeric ID of the animal.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
-  &quot;success&quot;: true,
-  &quot;message&quot;: &quot;Request completed&quot;,
-  &quot;data&quot;: [
-    {
-      &quot;id&quot;: 12,
-      &quot;tag_id&quot;: &quot;COW-001&quot;,
-      &quot;gender&quot;: &quot;female&quot;,
-      &quot;status&quot;: &quot;active&quot;,
-      &quot;health_status&quot;: &quot;healthy&quot;
-    }
-  ]
 }</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/animals/animal/v2/</span><h3 style='margin-top:8px'>New Animal V2</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><p><span class='pill'>Input type</span> <code>multipart/form-data</code> (form fields, not a JSON body). If an <code>image</code> field is listed, attach a file.</p><div class='label'>Form fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>status</code></td><td>'active' | 'pregnant' | 'lactating' | 'sick' | 'quarantine' | 'sold' | 'dead'</td><td>yes</td><td>Record status filter or value.</td></tr><tr><td><code>gender</code></td><td>'male' | 'female'</td><td>yes</td><td>male or female.</td></tr><tr><td><code>source</code></td><td>'born' | 'purchased' | 'imported' | 'transferred_in' | 'donated' | 'opening_record' | 'other'</td><td>yes</td><td>How the animal entered the farm (born, purchased, imported, …).</td></tr><tr><td><code>farm_id</code></td><td>integer</td><td>yes</td><td>Numeric ID of the farm this request applies to.</td></tr><tr><td><code>tag_id</code></td><td>string</td><td>yes</td><td>Unique ear-tag / identifier for the animal.</td></tr><tr><td><code>livestock_species_id</code></td><td>integer</td><td>yes</td><td>v2 species ID from livestock master data.</td></tr><tr><td><code>livestock_breed_id</code></td><td>integer</td><td>yes</td><td>v2 breed ID from livestock master data.</td></tr><tr><td><code>housing_unit_id</code></td><td>integer</td><td>yes</td><td>v2 housing unit ID on the farm.</td></tr><tr><td><code>dob</code></td><td>string (date)</td><td>no</td><td>Date of birth (YYYY-MM-DD).</td></tr><tr><td><code>estimated_age_months</code></td><td>integer</td><td>no</td><td>Use when exact DOB is unknown.</td></tr><tr><td><code>mother_id</code></td><td>integer</td><td>no</td><td>Dam animal ID. Required when source is born.</td></tr><tr><td><code>health_status</code></td><td>'healthy' | 'sick' | 'recovering' | 'at_risk'</td><td>yes</td><td>Allowed values: healthy, sick, recovering, at_risk</td></tr><tr><td><code>is_pregnant</code></td><td>boolean</td><td>yes</td><td>Is pregnant.</td></tr><tr><td><code>is_lactating</code></td><td>boolean</td><td>yes</td><td>Is lactating.</td></tr><tr><td><code>is_quarantine</code></td><td>boolean</td><td>yes</td><td>Is quarantine.</td></tr><tr><td><code>is_active</code></td><td>boolean</td><td>yes</td><td>Is active.</td></tr><tr><td><code>notes</code></td><td>string</td><td>no</td><td>Notes.</td></tr><tr><td><code>image</code></td><td>string (binary)</td><td>no</td><td>Image.</td></tr></table><div class='label'>Example form values (shown as JSON for clarity)</div><pre>{
   &quot;status&quot;: &quot;active&quot;,
   &quot;gender&quot;: &quot;male&quot;,
@@ -1208,18 +1250,6 @@
   &quot;total_items&quot;: 42,
   &quot;has_next&quot;: true,
   &quot;has_previous&quot;: false
-}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/animals/animal-profile/v2/{animal_id}</span><h3 style='margin-top:8px'>Animal Profile V2</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>animal_id</code></td><td>integer</td><td>Numeric ID of the animal.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
-  &quot;success&quot;: true,
-  &quot;message&quot;: &quot;Request completed&quot;,
-  &quot;data&quot;: [
-    {
-      &quot;id&quot;: 12,
-      &quot;tag_id&quot;: &quot;COW-001&quot;,
-      &quot;gender&quot;: &quot;female&quot;,
-      &quot;status&quot;: &quot;active&quot;,
-      &quot;health_status&quot;: &quot;healthy&quot;
-    }
-  ]
 }</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/animals/animal-by-id/v2/{animal_id}</span><h3 style='margin-top:8px'>Get Animal By Id V2</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>animal_id</code></td><td>integer</td><td>Numeric ID of the animal.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
   &quot;success&quot;: true,
   &quot;message&quot;: &quot;Request completed&quot;,
@@ -1292,6 +1322,97 @@
   &quot;has_next&quot;: true,
   &quot;has_previous&quot;: false
 }</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/animals/animal-growth/{animal_id}/</span><h3 style='margin-top:8px'>Get Animal Growth</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>animal_id</code></td><td>integer</td><td>Numeric ID of the animal.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 12,
+      &quot;tag_id&quot;: &quot;COW-001&quot;,
+      &quot;gender&quot;: &quot;female&quot;,
+      &quot;status&quot;: &quot;active&quot;,
+      &quot;health_status&quot;: &quot;healthy&quot;
+    }
+  ]
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/animals/</span><h3 style='margin-top:8px'>List animals (card records)</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr><tr><td><code>farm_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the farm this request applies to.</td></tr><tr><td><code>search</code></td><td>string</td><td>no</td><td>Optional text filter (usually tag ID or name).</td></tr><tr><td><code>livestock_species_id</code></td><td>integer</td><td>no</td><td>v2 species ID from livestock master data.</td></tr><tr><td><code>livestock_breed_id</code></td><td>integer</td><td>no</td><td>v2 breed ID from livestock master data.</td></tr><tr><td><code>gender</code></td><td>string</td><td>no</td><td>male or female.</td></tr><tr><td><code>lifecycle_status</code></td><td>string</td><td>no</td><td>Lifecycle status.</td></tr><tr><td><code>health_status</code></td><td>string</td><td>no</td><td>Health status.</td></tr><tr><td><code>housing_unit_id</code></td><td>integer</td><td>no</td><td>v2 housing unit ID on the farm.</td></tr><tr><td><code>group_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the animal group.</td></tr><tr><td><code>is_pregnant</code></td><td>boolean</td><td>no</td><td>Is pregnant.</td></tr><tr><td><code>is_lactating</code></td><td>boolean</td><td>no</td><td>Is lactating.</td></tr><tr><td><code>is_quarantine</code></td><td>boolean</td><td>no</td><td>Is quarantine.</td></tr><tr><td><code>needs_attention</code></td><td>boolean</td><td>no</td><td>Needs attention.</td></tr><tr><td><code>sort</code></td><td>string</td><td>no</td><td>Sort.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 1
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/animals/</span><h3 style='margin-top:8px'>Progressive animal create (lifecycle status only)</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>integer</td><td>yes</td><td>Numeric ID of the farm this request applies to.</td></tr><tr><td><code>tag_id</code></td><td>string</td><td>no</td><td>Unique ear-tag / identifier for the animal.</td></tr><tr><td><code>gender</code></td><td>string</td><td>yes</td><td>male or female.</td></tr><tr><td><code>source_type</code></td><td>string</td><td>yes</td><td>How the animal entered the farm.</td></tr><tr><td><code>status</code></td><td>string</td><td>no</td><td>Record status filter or value.</td></tr><tr><td><code>livestock_species_id</code></td><td>integer</td><td>no</td><td>v2 species ID from livestock master data.</td></tr><tr><td><code>livestock_breed_id</code></td><td>integer</td><td>no</td><td>v2 breed ID from livestock master data.</td></tr><tr><td><code>housing_unit_id</code></td><td>integer</td><td>no</td><td>v2 housing unit ID on the farm.</td></tr><tr><td><code>dob</code></td><td>string (date)</td><td>no</td><td>Date of birth (YYYY-MM-DD).</td></tr><tr><td><code>estimated_age_months</code></td><td>integer</td><td>no</td><td>Use when exact DOB is unknown.</td></tr><tr><td><code>mother_id</code></td><td>integer</td><td>no</td><td>Dam animal ID. Required when source is born.</td></tr><tr><td><code>notes</code></td><td>string</td><td>no</td><td>Notes.</td></tr><tr><td><code>client_request_id</code></td><td>string</td><td>no</td><td>ID of the related client request.</td></tr></table><div class='label'>Example request body</div><pre>{
+  &quot;farm_id&quot;: 1,
+  &quot;tag_id&quot;: &quot;COW-001&quot;,
+  &quot;gender&quot;: &quot;string&quot;,
+  &quot;source_type&quot;: &quot;string&quot;,
+  &quot;status&quot;: &quot;active&quot;,
+  &quot;livestock_species_id&quot;: 1,
+  &quot;livestock_breed_id&quot;: 1,
+  &quot;housing_unit_id&quot;: 1,
+  &quot;dob&quot;: &quot;2026-03-15&quot;,
+  &quot;estimated_age_months&quot;: 1,
+  &quot;mother_id&quot;: 1,
+  &quot;notes&quot;: &quot;Free-text notes&quot;,
+  &quot;client_request_id&quot;: &quot;string&quot;
+}</pre><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15,
+    &quot;tag_id&quot;: &quot;COW-001&quot;,
+    &quot;gender&quot;: &quot;female&quot;,
+    &quot;species&quot;: &quot;Cattle&quot;,
+    &quot;breed&quot;: &quot;White Fulani&quot;,
+    &quot;housing_unit&quot;: &quot;Pen A&quot;
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method PATCH">PATCH</span><span class="path">/api/v2/animals/{animal_id}/</span><h3 style='margin-top:8px'>Partial animal update</h3></div><div class='endpoint-bd'><p>Partially updates a record. Only send fields you want to change. Omitted fields stay as they are.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>animal_id</code></td><td>integer</td><td>Numeric ID of the animal.</td></tr></table><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>livestock_breed_id</code></td><td>integer</td><td>no</td><td>v2 breed ID from livestock master data.</td></tr><tr><td><code>livestock_species_id</code></td><td>integer</td><td>no</td><td>v2 species ID from livestock master data.</td></tr><tr><td><code>housing_unit_id</code></td><td>integer</td><td>no</td><td>v2 housing unit ID on the farm.</td></tr><tr><td><code>notes</code></td><td>string</td><td>no</td><td>Notes.</td></tr><tr><td><code>tag_id</code></td><td>string</td><td>no</td><td>Unique ear-tag / identifier for the animal.</td></tr><tr><td><code>gender</code></td><td>string</td><td>no</td><td>male or female.</td></tr><tr><td><code>dob</code></td><td>string (date)</td><td>no</td><td>Date of birth (YYYY-MM-DD).</td></tr><tr><td><code>estimated_age_months</code></td><td>integer</td><td>no</td><td>Use when exact DOB is unknown.</td></tr><tr><td><code>client_request_id</code></td><td>string</td><td>no</td><td>ID of the related client request.</td></tr><tr><td><code>is_pregnant</code></td><td>boolean</td><td>no</td><td>Is pregnant.</td></tr><tr><td><code>is_lactating</code></td><td>boolean</td><td>no</td><td>Is lactating.</td></tr><tr><td><code>is_quarantine</code></td><td>boolean</td><td>no</td><td>Is quarantine.</td></tr><tr><td><code>needs_attention</code></td><td>boolean</td><td>no</td><td>Needs attention.</td></tr><tr><td><code>is_active</code></td><td>boolean</td><td>no</td><td>Is active.</td></tr><tr><td><code>status</code></td><td>string</td><td>no</td><td>Record status filter or value.</td></tr><tr><td><code>lifecycle_status</code></td><td>string</td><td>no</td><td>Lifecycle status.</td></tr></table><div class='label'>Example request body</div><pre>{
+  &quot;livestock_breed_id&quot;: 1,
+  &quot;livestock_species_id&quot;: 1,
+  &quot;housing_unit_id&quot;: 1,
+  &quot;notes&quot;: &quot;Free-text notes&quot;,
+  &quot;tag_id&quot;: &quot;COW-001&quot;,
+  &quot;gender&quot;: &quot;string&quot;,
+  &quot;dob&quot;: &quot;2026-03-15&quot;,
+  &quot;estimated_age_months&quot;: 1,
+  &quot;client_request_id&quot;: &quot;string&quot;,
+  &quot;is_pregnant&quot;: true,
+  &quot;is_lactating&quot;: true,
+  &quot;is_quarantine&quot;: true,
+  &quot;needs_attention&quot;: true,
+  &quot;is_active&quot;: true,
+  &quot;status&quot;: &quot;active&quot;,
+  &quot;lifecycle_status&quot;: &quot;active&quot;
+}</pre><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15,
+    &quot;updated&quot;: true
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/animals/{animal_id}/profile/</span><h3 style='margin-top:8px'>Animal operational profile</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>animal_id</code></td><td>integer</td><td>Numeric ID of the animal.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 12,
+      &quot;tag_id&quot;: &quot;COW-001&quot;,
+      &quot;gender&quot;: &quot;female&quot;,
+      &quot;status&quot;: &quot;active&quot;,
+      &quot;health_status&quot;: &quot;healthy&quot;
+    }
+  ]
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/animals/{animal_id}/timeline/</span><h3 style='margin-top:8px'>Animal timeline</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>animal_id</code></td><td>integer</td><td>Numeric ID of the animal.</td></tr></table><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 12,
+      &quot;tag_id&quot;: &quot;COW-001&quot;,
+      &quot;gender&quot;: &quot;female&quot;,
+      &quot;status&quot;: &quot;active&quot;,
+      &quot;health_status&quot;: &quot;healthy&quot;
+    }
+  ]
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/animals/resolve-tag/{tag_id}/</span><h3 style='margin-top:8px'>Resolve an animal tag within the organization</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>tag_id</code></td><td>string</td><td>Unique ear-tag / identifier for the animal.</td></tr></table><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the farm this request applies to.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
   &quot;success&quot;: true,
   &quot;message&quot;: &quot;Request completed&quot;,
   &quot;data&quot;: [
@@ -1575,6 +1696,44 @@
       &quot;health_status&quot;: &quot;healthy&quot;
     }
   ]
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/reproduction/births/</span><h3 style='margin-top:8px'>Record a birth with live offspring registration slots</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>integer</td><td>yes</td><td>Numeric ID of the farm this request applies to.</td></tr><tr><td><code>mother_id</code></td><td>integer</td><td>yes</td><td>Dam animal ID. Required when source is born.</td></tr><tr><td><code>birth_date</code></td><td>string (date)</td><td>yes</td><td>Birth date.</td></tr><tr><td><code>number_of_offspring</code></td><td>integer</td><td>yes</td><td>Number of offspring.</td></tr><tr><td><code>number_alive</code></td><td>integer</td><td>yes</td><td>Number alive.</td></tr><tr><td><code>number_dead</code></td><td>integer</td><td>yes</td><td>Number dead.</td></tr><tr><td><code>notes</code></td><td>string</td><td>no</td><td>Notes.</td></tr><tr><td><code>client_request_id</code></td><td>string</td><td>no</td><td>ID of the related client request.</td></tr></table><div class='label'>Example request body</div><pre>{
+  &quot;farm_id&quot;: 1,
+  &quot;mother_id&quot;: 1,
+  &quot;birth_date&quot;: &quot;2026-03-15&quot;,
+  &quot;number_of_offspring&quot;: 1,
+  &quot;number_alive&quot;: 1,
+  &quot;number_dead&quot;: 1,
+  &quot;notes&quot;: &quot;Free-text notes&quot;,
+  &quot;client_request_id&quot;: &quot;string&quot;
+}</pre><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/reproduction/births/{birth_id}/</span><h3 style='margin-top:8px'>Birth record and offspring registration slots</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>birth_id</code></td><td>integer</td><td>ID of the related birth.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 1,
+      &quot;name&quot;: &quot;Example&quot;
+    }
+  ]
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/reproduction/births/{birth_id}/register-offspring/</span><h3 style='margin-top:8px'>Register one live offspring against a birth slot</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>birth_id</code></td><td>integer</td><td>ID of the related birth.</td></tr></table><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>tag_id</code></td><td>string</td><td>no</td><td>Unique ear-tag / identifier for the animal.</td></tr><tr><td><code>gender</code></td><td>string</td><td>yes</td><td>male or female.</td></tr><tr><td><code>offspring_sequence</code></td><td>integer</td><td>no</td><td>Offspring sequence.</td></tr><tr><td><code>birth_weight</code></td><td>number</td><td>no</td><td>Birth weight.</td></tr><tr><td><code>livestock_species_id</code></td><td>integer</td><td>no</td><td>v2 species ID from livestock master data.</td></tr><tr><td><code>livestock_breed_id</code></td><td>integer</td><td>no</td><td>v2 breed ID from livestock master data.</td></tr><tr><td><code>client_request_id</code></td><td>string</td><td>no</td><td>ID of the related client request.</td></tr></table><div class='label'>Example request body</div><pre>{
+  &quot;tag_id&quot;: &quot;COW-001&quot;,
+  &quot;gender&quot;: &quot;string&quot;,
+  &quot;offspring_sequence&quot;: 1,
+  &quot;birth_weight&quot;: 10.5,
+  &quot;livestock_species_id&quot;: 1,
+  &quot;livestock_breed_id&quot;: 1,
+  &quot;client_request_id&quot;: &quot;string&quot;
+}</pre><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15
+  }
 }</pre></div></div><h2 id='health'>Health</h2><p>Treatments, vaccinations, quarantine, mortality, health alerts, and treatments that draw from pharmacy stock.</p><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/health/treatment/</span><h3 style='margin-top:8px'>Treatment</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>integer</td><td>yes</td><td>Numeric ID of the farm this request applies to.</td></tr><tr><td><code>animal_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the animal.</td></tr><tr><td><code>group_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the animal group.</td></tr><tr><td><code>diagnosis</code></td><td>string</td><td>yes</td><td>Diagnosis.</td></tr><tr><td><code>treatment</code></td><td>string</td><td>yes</td><td>Treatment.</td></tr><tr><td><code>severity</code></td><td>'mild' | 'moderate' | 'severe'</td><td>yes</td><td>Allowed values: mild, moderate, severe</td></tr><tr><td><code>treatment_date</code></td><td>string (date)</td><td>yes</td><td>Treatment date.</td></tr><tr><td><code>next_follow_up_date</code></td><td>string (date)</td><td>no</td><td>Next follow up date.</td></tr><tr><td><code>notes</code></td><td>string</td><td>no</td><td>Notes.</td></tr><tr><td><code>drug_id</code></td><td>integer</td><td>no</td><td>ID of the related drug.</td></tr><tr><td><code>drug_batch_id</code></td><td>integer</td><td>no</td><td>ID of the related drug batch.</td></tr><tr><td><code>quantity_administered</code></td><td>number</td><td>no</td><td>Quantity administered.</td></tr><tr><td><code>dose</code></td><td>string</td><td>no</td><td>Dose.</td></tr><tr><td><code>frequency</code></td><td>string</td><td>no</td><td>Frequency.</td></tr><tr><td><code>duration_days</code></td><td>integer</td><td>no</td><td>Duration days.</td></tr><tr><td><code>administration_route</code></td><td>'oral' | 'injection' | 'topical' | 'other'</td><td>no</td><td>Allowed values: oral, injection, topical, other</td></tr><tr><td><code>administered_by_id</code></td><td>integer</td><td>no</td><td>ID of the related administered by.</td></tr><tr><td><code>prescribed_by_id</code></td><td>integer</td><td>no</td><td>ID of the related prescribed by.</td></tr><tr><td><code>next_dose_date</code></td><td>string (date)</td><td>no</td><td>Next dose date.</td></tr><tr><td><code>withdrawal_end_date</code></td><td>string (date)</td><td>no</td><td>Withdrawal end date.</td></tr></table><div class='label'>Example request body</div><pre>{
   &quot;farm_id&quot;: 1,
   &quot;animal_id&quot;: 1,
@@ -1813,6 +1972,73 @@
   &quot;message&quot;: &quot;Request completed&quot;,
   &quot;data&quot;: {
     &quot;id&quot;: 15
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/health/observations/</span><h3 style='margin-top:8px'>Record a health observation</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>integer</td><td>yes</td><td>Numeric ID of the farm this request applies to.</td></tr><tr><td><code>animal_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the animal.</td></tr><tr><td><code>group_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the animal group.</td></tr><tr><td><code>case_id</code></td><td>integer</td><td>no</td><td>ID of the related case.</td></tr><tr><td><code>symptoms</code></td><td>string</td><td>yes</td><td>Symptoms.</td></tr><tr><td><code>severity</code></td><td>string</td><td>no</td><td>Severity.</td></tr><tr><td><code>observed_at</code></td><td>string (date-time)</td><td>no</td><td>Observed at.</td></tr><tr><td><code>create_task</code></td><td>boolean</td><td>no</td><td>Create task.</td></tr><tr><td><code>create_case</code></td><td>boolean</td><td>no</td><td>Create case.</td></tr><tr><td><code>assignee_id</code></td><td>string (uuid)</td><td>no</td><td>ID of the related assignee.</td></tr><tr><td><code>client_request_id</code></td><td>string</td><td>no</td><td>ID of the related client request.</td></tr></table><div class='label'>Example request body</div><pre>{
+  &quot;farm_id&quot;: 1,
+  &quot;animal_id&quot;: 1,
+  &quot;group_id&quot;: 1,
+  &quot;case_id&quot;: 1,
+  &quot;symptoms&quot;: &quot;string&quot;,
+  &quot;severity&quot;: &quot;string&quot;,
+  &quot;observed_at&quot;: &quot;2026-03-15T08:30:00Z&quot;,
+  &quot;create_task&quot;: true,
+  &quot;create_case&quot;: true,
+  &quot;assignee_id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
+  &quot;client_request_id&quot;: &quot;string&quot;
+}</pre><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/health/observations/</span><h3 style='margin-top:8px'>List health observations</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr><tr><td><code>farm_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the farm this request applies to.</td></tr><tr><td><code>animal_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the animal.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 1
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/health/cases/</span><h3 style='margin-top:8px'>Open a health case</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>integer</td><td>yes</td><td>Numeric ID of the farm this request applies to.</td></tr><tr><td><code>title</code></td><td>string</td><td>yes</td><td>Title.</td></tr><tr><td><code>notes</code></td><td>string</td><td>no</td><td>Notes.</td></tr><tr><td><code>animal_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the animal.</td></tr><tr><td><code>group_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the animal group.</td></tr><tr><td><code>client_request_id</code></td><td>string</td><td>no</td><td>ID of the related client request.</td></tr></table><div class='label'>Example request body</div><pre>{
+  &quot;farm_id&quot;: 1,
+  &quot;title&quot;: &quot;string&quot;,
+  &quot;notes&quot;: &quot;Free-text notes&quot;,
+  &quot;animal_id&quot;: 1,
+  &quot;group_id&quot;: 1,
+  &quot;client_request_id&quot;: &quot;string&quot;
+}</pre><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/health/cases/</span><h3 style='margin-top:8px'>List health cases</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr><tr><td><code>farm_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the farm this request applies to.</td></tr><tr><td><code>status</code></td><td>string</td><td>no</td><td>Record status filter or value.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 1
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/health/cases/{case_id}/close/</span><h3 style='margin-top:8px'>Close a health case</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>case_id</code></td><td>integer</td><td>ID of the related case.</td></tr></table><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>notes</code></td><td>string</td><td>no</td><td>Notes.</td></tr><tr><td><code>client_request_id</code></td><td>string</td><td>no</td><td>ID of the related client request.</td></tr></table><div class='label'>Example request body</div><pre>{
+  &quot;notes&quot;: &quot;Free-text notes&quot;,
+  &quot;client_request_id&quot;: &quot;string&quot;
+}</pre><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/health/cases/{case_id}/</span><h3 style='margin-top:8px'>Health case detail</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>case_id</code></td><td>integer</td><td>ID of the related case.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 1,
+      &quot;name&quot;: &quot;Example&quot;
+    }
+  ]
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/health/alerts/</span><h3 style='margin-top:8px'>Actionable health alerts</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr><tr><td><code>farm_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the farm this request applies to.</td></tr><tr><td><code>status</code></td><td>string</td><td>no</td><td>Record status filter or value.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 1
   }
 }</pre></div></div><h2 id='feed'>Feed</h2><p>Feed master data, inventory, batches, plans, issuance, and confirmation. v3 is the current master-data model.</p><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/feed/feed-inventory/</span><h3 style='margin-top:8px'>Feed Inventory</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>integer</td><td>yes</td><td>Numeric ID of the farm this request applies to.</td></tr><tr><td><code>feed_name</code></td><td>string</td><td>yes</td><td>Feed name.</td></tr><tr><td><code>quantity_available</code></td><td>number</td><td>yes</td><td>Quantity available.</td></tr><tr><td><code>unit</code></td><td>string</td><td>yes</td><td>Unit.</td></tr><tr><td><code>reorder_level</code></td><td>number</td><td>no</td><td>Reorder level.</td></tr></table><div class='label'>Example request body</div><pre>{
   &quot;farm_id&quot;: 1,
@@ -2638,6 +2864,67 @@
       &quot;farm_code&quot;: &quot;NP-01&quot;
     }
   ]
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/dashboard/organization/</span><h3 style='margin-top:8px'>Organization operational dashboard</h3></div><div class='endpoint-bd'><p>Returns aggregated numbers and trend series for this screen. Path farm_id selects the farm. No JSON body.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;totals&quot;: {
+      &quot;animals&quot;: 120,
+      &quot;active&quot;: 110,
+      &quot;sold&quot;: 6,
+      &quot;dead&quot;: 4
+    },
+    &quot;trends&quot;: [
+      {
+        &quot;period&quot;: &quot;2026-03&quot;,
+        &quot;value&quot;: 18
+      }
+    ]
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/dashboard/farm/{farm_id}/</span><h3 style='margin-top:8px'>Farm manager dashboard</h3></div><div class='endpoint-bd'><p>Returns aggregated numbers and trend series for this screen. Path farm_id selects the farm. No JSON body.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>integer</td><td>Numeric ID of the farm this request applies to.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 1,
+      &quot;name&quot;: &quot;North Paddock&quot;,
+      &quot;farm_code&quot;: &quot;NP-01&quot;
+    }
+  ]
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/dashboard/my-work/</span><h3 style='margin-top:8px'>My Work dashboard aggregate</h3></div><div class='endpoint-bd'><p>Returns aggregated numbers and trend series for this screen. Path farm_id selects the farm. No JSON body.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the farm this request applies to.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;totals&quot;: {
+      &quot;animals&quot;: 120,
+      &quot;active&quot;: 110,
+      &quot;sold&quot;: 6,
+      &quot;dead&quot;: 4
+    },
+    &quot;trends&quot;: [
+      {
+        &quot;period&quot;: &quot;2026-03&quot;,
+        &quot;value&quot;: 18
+      }
+    ]
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/dashboard/health/</span><h3 style='margin-top:8px'>Veterinarian / health workspace</h3></div><div class='endpoint-bd'><p>Returns aggregated numbers and trend series for this screen. Path farm_id selects the farm. No JSON body.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the farm this request applies to.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;totals&quot;: {
+      &quot;animals&quot;: 120,
+      &quot;active&quot;: 110,
+      &quot;sold&quot;: 6,
+      &quot;dead&quot;: 4
+    },
+    &quot;trends&quot;: [
+      {
+        &quot;period&quot;: &quot;2026-03&quot;,
+        &quot;value&quot;: 18
+      }
+    ]
+  }
 }</pre></div></div><h2 id='finance'>Finance</h2><p>Income and expense transactions, plus per-animal financial profiles.</p><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/finance/transaction-category/seed/</span><h3 style='margin-top:8px'>Seed Categories</h3></div><div class='endpoint-bd'><p>Setup helper: inserts default catalogue rows (rules, species, permissions, etc.). Body is often empty.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><p class='muted'>No JSON body. Path (and optional query) parameters are the input.</p><div class='label'>Example JSON response (output)</div><pre>{
   &quot;success&quot;: true,
   &quot;message&quot;: &quot;Request completed&quot;,
@@ -3017,4 +3304,504 @@
       &quot;farm_code&quot;: &quot;NP-01&quot;
     }
   ]
+}</pre></div></div><h2 id='contract'>Contract</h2><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/</span><h3 style='margin-top:8px'>Contract health</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 1
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/registry/</span><h3 style='margin-top:8px'>FarmOS MVP endpoint registry</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 1
+  }
+}</pre></div></div><h2 id='users'>Users</h2><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/users/me/</span><h3 style='margin-top:8px'>Current user operational profile</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 1
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method PATCH">PATCH</span><span class="path">/api/v2/users/me/</span><h3 style='margin-top:8px'>Update current user profile</h3></div><div class='endpoint-bd'><p>Partially updates a record. Only send fields you want to change. Omitted fields stay as they are.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>display_name</code></td><td>string</td><td>no</td><td>Display name.</td></tr><tr><td><code>phone</code></td><td>string</td><td>no</td><td>Phone.</td></tr></table><div class='label'>Example request body</div><pre>{
+  &quot;display_name&quot;: &quot;Example name&quot;,
+  &quot;phone&quot;: &quot;08012345678&quot;
+}</pre><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15,
+    &quot;updated&quot;: true
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/users/{user_id}/deactivate/</span><h3 style='margin-top:8px'>Deactivate a user account</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>user_id</code></td><td>string (uuid)</td><td>ID of the related user.</td></tr></table><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>reason</code></td><td>string</td><td>no</td><td>Reason.</td></tr></table><div class='label'>Example request body</div><pre>{
+  &quot;reason&quot;: &quot;Free-text notes&quot;
+}</pre><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/users/{user_id}/reactivate/</span><h3 style='margin-top:8px'>Reactivate a user account</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>user_id</code></td><td>string (uuid)</td><td>ID of the related user.</td></tr></table><p class='muted'>No JSON body. Path (and optional query) parameters are the input.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/users/me/avatar/</span><h3 style='margin-top:8px'>Upload or replace current user avatar</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><p><span class='pill'>Input type</span> <code>multipart/form-data</code> (form fields, not a JSON body). If an <code>image</code> field is listed, attach a file.</p><div class='label'>Form fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>avatar</code></td><td>string (binary)</td><td>yes</td><td>Avatar.</td></tr></table><div class='label'>Example form values (shown as JSON for clarity)</div><pre>{
+  &quot;avatar&quot;: &quot;string&quot;
+}</pre><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method DELETE">DELETE</span><span class="path">/api/v2/users/me/avatar/</span><h3 style='margin-top:8px'>Remove current user avatar</h3></div><div class='endpoint-bd'><p>Removes or deactivates a record identified by the path.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: null
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/users/me/capabilities/</span><h3 style='margin-top:8px'>Role-aware capabilities and navigation</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 1
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/users/me/activity/</span><h3 style='margin-top:8px'>Current user activity timeline</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 1
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/users/me/tasks/</span><h3 style='margin-top:8px'>Tasks assigned to the current user</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr><tr><td><code>status</code></td><td>string</td><td>no</td><td>Record status filter or value.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 1
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/users/</span><h3 style='margin-top:8px'>List organization people</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr><tr><td><code>search</code></td><td>string</td><td>no</td><td>Optional text filter (usually tag ID or name).</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 1
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/users/{user_id}/</span><h3 style='margin-top:8px'>Manager-visible user operational profile</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>user_id</code></td><td>string (uuid)</td><td>ID of the related user.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 1,
+      &quot;name&quot;: &quot;Example&quot;
+    }
+  ]
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/users/{user_id}/activity/</span><h3 style='margin-top:8px'>Manager-visible user activity</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>user_id</code></td><td>string (uuid)</td><td>ID of the related user.</td></tr></table><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 1,
+      &quot;name&quot;: &quot;Example&quot;
+    }
+  ]
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/users/{user_id}/tasks/</span><h3 style='margin-top:8px'>Manager-visible user tasks</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>user_id</code></td><td>string (uuid)</td><td>ID of the related user.</td></tr></table><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr><tr><td><code>status</code></td><td>string</td><td>no</td><td>Record status filter or value.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 1,
+      &quot;name&quot;: &quot;Example&quot;
+    }
+  ]
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/roles/</span><h3 style='margin-top:8px'>List organization roles</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 1
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/permissions/</span><h3 style='margin-top:8px'>List permission catalog</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 1
+  }
+}</pre></div></div><h2 id='organizations'>Organizations</h2><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/organizations/{organization_id}/</span><h3 style='margin-top:8px'>Organization operational profile</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>organization_id</code></td><td>string (uuid)</td><td>UUID of the organization.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 1,
+      &quot;name&quot;: &quot;Example&quot;
+    }
+  ]
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method PATCH">PATCH</span><span class="path">/api/v2/organizations/{organization_id}/</span><h3 style='margin-top:8px'>Update organization profile</h3></div><div class='endpoint-bd'><p>Partially updates a record. Only send fields you want to change. Omitted fields stay as they are.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>organization_id</code></td><td>string (uuid)</td><td>UUID of the organization.</td></tr></table><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>name</code></td><td>string</td><td>no</td><td>Name.</td></tr><tr><td><code>status</code></td><td>string</td><td>no</td><td>Record status filter or value.</td></tr><tr><td><code>client_request_id</code></td><td>string</td><td>no</td><td>ID of the related client request.</td></tr></table><div class='label'>Example request body</div><pre>{
+  &quot;name&quot;: &quot;Example name&quot;,
+  &quot;status&quot;: &quot;active&quot;,
+  &quot;client_request_id&quot;: &quot;string&quot;
+}</pre><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15,
+    &quot;updated&quot;: true
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/organizations/{organization_id}/summary/</span><h3 style='margin-top:8px'>Organization summary counts</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>organization_id</code></td><td>string (uuid)</td><td>UUID of the organization.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 1,
+      &quot;name&quot;: &quot;Example&quot;
+    }
+  ]
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/organizations/{organization_id}/activity/</span><h3 style='margin-top:8px'>Organization activity timeline</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>organization_id</code></td><td>string (uuid)</td><td>UUID of the organization.</td></tr></table><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 1,
+      &quot;name&quot;: &quot;Example&quot;
+    }
+  ]
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/organizations/{organization_id}/farms/</span><h3 style='margin-top:8px'>Farms in the organization</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>organization_id</code></td><td>string (uuid)</td><td>UUID of the organization.</td></tr></table><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 1,
+      &quot;name&quot;: &quot;North Paddock&quot;,
+      &quot;farm_code&quot;: &quot;NP-01&quot;
+    }
+  ]
+}</pre></div></div><h2 id='farms'>Farms</h2><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/farms/{farm_id}/</span><h3 style='margin-top:8px'>Farm profile</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>integer</td><td>Numeric ID of the farm this request applies to.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 1,
+      &quot;name&quot;: &quot;North Paddock&quot;,
+      &quot;farm_code&quot;: &quot;NP-01&quot;
+    }
+  ]
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method PATCH">PATCH</span><span class="path">/api/v2/farms/{farm_id}/</span><h3 style='margin-top:8px'>Update farm profile</h3></div><div class='endpoint-bd'><p>Partially updates a record. Only send fields you want to change. Omitted fields stay as they are.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>integer</td><td>Numeric ID of the farm this request applies to.</td></tr></table><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>name</code></td><td>string</td><td>no</td><td>Name.</td></tr><tr><td><code>city</code></td><td>string</td><td>no</td><td>City.</td></tr><tr><td><code>location_address</code></td><td>string</td><td>no</td><td>Location address.</td></tr><tr><td><code>status</code></td><td>string</td><td>no</td><td>Record status filter or value.</td></tr><tr><td><code>is_primary</code></td><td>boolean</td><td>no</td><td>Is primary.</td></tr><tr><td><code>client_request_id</code></td><td>string</td><td>no</td><td>ID of the related client request.</td></tr></table><div class='label'>Example request body</div><pre>{
+  &quot;name&quot;: &quot;Example name&quot;,
+  &quot;city&quot;: &quot;string&quot;,
+  &quot;location_address&quot;: &quot;string&quot;,
+  &quot;status&quot;: &quot;active&quot;,
+  &quot;is_primary&quot;: true,
+  &quot;client_request_id&quot;: &quot;string&quot;
+}</pre><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15,
+    &quot;updated&quot;: true
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/farms/{farm_id}/image/</span><h3 style='margin-top:8px'>Upload or replace a farm profile image</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>integer</td><td>Numeric ID of the farm this request applies to.</td></tr></table><p><span class='pill'>Input type</span> <code>multipart/form-data</code> (form fields, not a JSON body). If an <code>image</code> field is listed, attach a file.</p><div class='label'>Form fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>image</code></td><td>string (binary)</td><td>yes</td><td>Image.</td></tr></table><div class='label'>Example form values (shown as JSON for clarity)</div><pre>{
+  &quot;image&quot;: &quot;string&quot;
+}</pre><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/farms/{farm_id}/overview/</span><h3 style='margin-top:8px'>Farm operational overview</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>integer</td><td>Numeric ID of the farm this request applies to.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 1,
+      &quot;name&quot;: &quot;North Paddock&quot;,
+      &quot;farm_code&quot;: &quot;NP-01&quot;
+    }
+  ]
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/farms/{farm_id}/timeline/</span><h3 style='margin-top:8px'>Farm timeline</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>integer</td><td>Numeric ID of the farm this request applies to.</td></tr></table><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr><tr><td><code>event_type</code></td><td>string</td><td>no</td><td>Event type.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 1,
+      &quot;name&quot;: &quot;North Paddock&quot;,
+      &quot;farm_code&quot;: &quot;NP-01&quot;
+    }
+  ]
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/farms/{farm_id}/people/</span><h3 style='margin-top:8px'>People assigned to the farm</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>integer</td><td>Numeric ID of the farm this request applies to.</td></tr></table><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 1,
+      &quot;name&quot;: &quot;North Paddock&quot;,
+      &quot;farm_code&quot;: &quot;NP-01&quot;
+    }
+  ]
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/farms/{farm_id}/units/</span><h3 style='margin-top:8px'>Farm housing units</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>integer</td><td>Numeric ID of the farm this request applies to.</td></tr></table><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 1,
+      &quot;name&quot;: &quot;North Paddock&quot;,
+      &quot;farm_code&quot;: &quot;NP-01&quot;
+    }
+  ]
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/farms/{farm_id}/alerts/</span><h3 style='margin-top:8px'>Farm attention alerts (not tasks)</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>integer</td><td>Numeric ID of the farm this request applies to.</td></tr></table><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr><tr><td><code>status</code></td><td>string</td><td>no</td><td>Record status filter or value.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 1,
+      &quot;name&quot;: &quot;North Paddock&quot;,
+      &quot;farm_code&quot;: &quot;NP-01&quot;
+    }
+  ]
+}</pre></div></div><h2 id='operations'>Operations</h2><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/operations/tasks/</span><h3 style='margin-top:8px'>Create an operations task</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>integer</td><td>yes</td><td>Numeric ID of the farm this request applies to.</td></tr><tr><td><code>task_type</code></td><td>string</td><td>yes</td><td>Task type.</td></tr><tr><td><code>title</code></td><td>string</td><td>yes</td><td>Title.</td></tr><tr><td><code>description</code></td><td>string</td><td>no</td><td>Description.</td></tr><tr><td><code>animal_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the animal.</td></tr><tr><td><code>group_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the animal group.</td></tr><tr><td><code>due_at</code></td><td>string (date-time)</td><td>no</td><td>Due at.</td></tr><tr><td><code>priority</code></td><td>string</td><td>no</td><td>Priority.</td></tr><tr><td><code>assignee_id</code></td><td>string (uuid)</td><td>no</td><td>ID of the related assignee.</td></tr><tr><td><code>client_request_id</code></td><td>string</td><td>no</td><td>ID of the related client request.</td></tr></table><div class='label'>Example request body</div><pre>{
+  &quot;farm_id&quot;: 1,
+  &quot;task_type&quot;: &quot;string&quot;,
+  &quot;title&quot;: &quot;string&quot;,
+  &quot;description&quot;: &quot;Free-text notes&quot;,
+  &quot;animal_id&quot;: 1,
+  &quot;group_id&quot;: 1,
+  &quot;due_at&quot;: &quot;2026-03-15T08:30:00Z&quot;,
+  &quot;priority&quot;: &quot;string&quot;,
+  &quot;assignee_id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
+  &quot;client_request_id&quot;: &quot;string&quot;
+}</pre><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/operations/tasks/</span><h3 style='margin-top:8px'>List operations tasks</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr><tr><td><code>farm_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the farm this request applies to.</td></tr><tr><td><code>status</code></td><td>string</td><td>no</td><td>Record status filter or value.</td></tr><tr><td><code>task_type</code></td><td>string</td><td>no</td><td>Task type.</td></tr><tr><td><code>assigned_to_me</code></td><td>boolean</td><td>no</td><td>Assigned to me.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 1
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/operations/tasks/{task_id}/</span><h3 style='margin-top:8px'>Task detail</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>task_id</code></td><td>integer</td><td>ID of the related task.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 1,
+      &quot;name&quot;: &quot;Example&quot;
+    }
+  ]
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/operations/tasks/{task_id}/assign/</span><h3 style='margin-top:8px'>Assign or reassign a task</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>task_id</code></td><td>integer</td><td>ID of the related task.</td></tr></table><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>assignee_id</code></td><td>string (uuid)</td><td>yes</td><td>ID of the related assignee.</td></tr><tr><td><code>client_request_id</code></td><td>string</td><td>no</td><td>ID of the related client request.</td></tr></table><div class='label'>Example request body</div><pre>{
+  &quot;assignee_id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
+  &quot;client_request_id&quot;: &quot;string&quot;
+}</pre><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/operations/tasks/{task_id}/accept/</span><h3 style='margin-top:8px'>Accept an assigned task</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>task_id</code></td><td>integer</td><td>ID of the related task.</td></tr></table><p class='muted'>No JSON body. Path (and optional query) parameters are the input.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/operations/tasks/{task_id}/start/</span><h3 style='margin-top:8px'>Start a task</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>task_id</code></td><td>integer</td><td>ID of the related task.</td></tr></table><p class='muted'>No JSON body. Path (and optional query) parameters are the input.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/operations/tasks/{task_id}/complete/</span><h3 style='margin-top:8px'>Complete a task and write the domain record</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>task_id</code></td><td>integer</td><td>ID of the related task.</td></tr></table><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>notes</code></td><td>string</td><td>no</td><td>Notes.</td></tr><tr><td><code>evidence</code></td><td>string</td><td>no</td><td>Evidence.</td></tr><tr><td><code>client_request_id</code></td><td>string</td><td>no</td><td>ID of the related client request.</td></tr><tr><td><code>vaccine_name</code></td><td>string</td><td>no</td><td>Vaccine name.</td></tr><tr><td><code>date_given</code></td><td>string (date)</td><td>no</td><td>Date given.</td></tr><tr><td><code>next_due_date</code></td><td>string (date)</td><td>no</td><td>Next due date.</td></tr><tr><td><code>diagnosis</code></td><td>string</td><td>no</td><td>Diagnosis.</td></tr><tr><td><code>treatment</code></td><td>string</td><td>no</td><td>Treatment.</td></tr><tr><td><code>severity</code></td><td>string</td><td>no</td><td>Severity.</td></tr><tr><td><code>treatment_date</code></td><td>string (date)</td><td>no</td><td>Treatment date.</td></tr><tr><td><code>next_follow_up_date</code></td><td>string (date)</td><td>no</td><td>Next follow up date.</td></tr><tr><td><code>drug_id</code></td><td>integer</td><td>no</td><td>ID of the related drug.</td></tr><tr><td><code>drug_batch_id</code></td><td>integer</td><td>no</td><td>ID of the related drug batch.</td></tr><tr><td><code>quantity_administered</code></td><td>number</td><td>no</td><td>Quantity administered.</td></tr><tr><td><code>feed_inventory_id</code></td><td>integer</td><td>no</td><td>ID of the related feed inventory.</td></tr><tr><td><code>feed_batch_id</code></td><td>integer</td><td>no</td><td>ID of the related feed batch.</td></tr><tr><td><code>quantity_issued</code></td><td>number</td><td>no</td><td>Quantity issued.</td></tr><tr><td><code>target_type</code></td><td>string</td><td>no</td><td>Target type.</td></tr><tr><td><code>issue_date</code></td><td>string (date)</td><td>no</td><td>Issue date.</td></tr><tr><td><code>feeding_period</code></td><td>string</td><td>no</td><td>Feeding period.</td></tr><tr><td><code>allocation_method</code></td><td>string</td><td>no</td><td>Allocation method.</td></tr><tr><td><code>buyer_name</code></td><td>string</td><td>no</td><td>Buyer name.</td></tr><tr><td><code>price</code></td><td>number</td><td>no</td><td>Price.</td></tr><tr><td><code>sale_date</code></td><td>string (date-time)</td><td>no</td><td>Sale date.</td></tr><tr><td><code>override_reason</code></td><td>string</td><td>no</td><td>Required when staff override a breeding or sale restriction.</td></tr><tr><td><code>reason</code></td><td>string</td><td>no</td><td>Reason.</td></tr><tr><td><code>to_housing_unit_id</code></td><td>integer</td><td>no</td><td>ID of the related to housing unit.</td></tr><tr><td><code>to_unit_id</code></td><td>integer</td><td>no</td><td>ID of the related to unit.</td></tr><tr><td><code>move_date</code></td><td>string (date-time)</td><td>no</td><td>Move date.</td></tr><tr><td><code>symptoms</code></td><td>string</td><td>no</td><td>Symptoms.</td></tr><tr><td><code>observed_at</code></td><td>string (date-time)</td><td>no</td><td>Observed at.</td></tr><tr><td><code>case_id</code></td><td>integer</td><td>no</td><td>ID of the related case.</td></tr><tr><td><code>weight</code></td><td>number</td><td>no</td><td>Weight.</td></tr><tr><td><code>unit</code></td><td>string</td><td>no</td><td>Unit.</td></tr><tr><td><code>measured_at</code></td><td>string (date-time)</td><td>no</td><td>Measured at.</td></tr><tr><td><code>result</code></td><td>string</td><td>no</td><td>Result.</td></tr><tr><td><code>checked_at</code></td><td>string (date)</td><td>no</td><td>Checked at.</td></tr><tr><td><code>expected_delivery_date</code></td><td>string (date)</td><td>no</td><td>Expected delivery date.</td></tr><tr><td><code>died_at</code></td><td>string (date-time)</td><td>no</td><td>Died at.</td></tr><tr><td><code>cause</code></td><td>string</td><td>no</td><td>Cause.</td></tr><tr><td><code>related_case_id</code></td><td>integer</td><td>no</td><td>ID of the related related case.</td></tr><tr><td><code>performed_at</code></td><td>string (date-time)</td><td>no</td><td>Performed at.</td></tr><tr><td><code>device_id</code></td><td>string</td><td>no</td><td>ID of the related device.</td></tr><tr><td><code>recorded_at_device</code></td><td>string (date-time)</td><td>no</td><td>Recorded at device.</td></tr><tr><td><code>payload</code></td><td>any</td><td>no</td><td>Payload.</td></tr></table><div class='label'>Example request body</div><pre>{
+  &quot;notes&quot;: &quot;Free-text notes&quot;,
+  &quot;evidence&quot;: &quot;string&quot;,
+  &quot;client_request_id&quot;: &quot;string&quot;,
+  &quot;vaccine_name&quot;: &quot;Example name&quot;,
+  &quot;date_given&quot;: &quot;2026-03-15&quot;,
+  &quot;next_due_date&quot;: &quot;2026-03-15&quot;,
+  &quot;diagnosis&quot;: &quot;string&quot;,
+  &quot;treatment&quot;: &quot;string&quot;,
+  &quot;severity&quot;: &quot;string&quot;,
+  &quot;treatment_date&quot;: &quot;2026-03-15&quot;,
+  &quot;next_follow_up_date&quot;: &quot;2026-03-15&quot;,
+  &quot;drug_id&quot;: 1,
+  &quot;drug_batch_id&quot;: 1,
+  &quot;quantity_administered&quot;: 10.5,
+  &quot;feed_inventory_id&quot;: 1,
+  &quot;feed_batch_id&quot;: 1,
+  &quot;quantity_issued&quot;: 10.5,
+  &quot;target_type&quot;: &quot;string&quot;,
+  &quot;issue_date&quot;: &quot;2026-03-15&quot;,
+  &quot;feeding_period&quot;: &quot;string&quot;,
+  &quot;allocation_method&quot;: &quot;string&quot;,
+  &quot;buyer_name&quot;: &quot;Example name&quot;,
+  &quot;price&quot;: 10.5,
+  &quot;sale_date&quot;: &quot;2026-03-15T08:30:00Z&quot;,
+  &quot;override_reason&quot;: &quot;Free-text notes&quot;,
+  &quot;reason&quot;: &quot;Free-text notes&quot;,
+  &quot;to_housing_unit_id&quot;: 1,
+  &quot;to_unit_id&quot;: 1,
+  &quot;move_date&quot;: &quot;2026-03-15T08:30:00Z&quot;,
+  &quot;symptoms&quot;: &quot;string&quot;,
+  &quot;observed_at&quot;: &quot;2026-03-15T08:30:00Z&quot;,
+  &quot;case_id&quot;: 1,
+  &quot;weight&quot;: 10.5,
+  &quot;unit&quot;: &quot;string&quot;,
+  &quot;measured_at&quot;: &quot;2026-03-15T08:30:00Z&quot;,
+  &quot;result&quot;: &quot;string&quot;,
+  &quot;checked_at&quot;: &quot;2026-03-15&quot;,
+  &quot;expected_delivery_date&quot;: &quot;2026-03-15&quot;,
+  &quot;died_at&quot;: &quot;2026-03-15T08:30:00Z&quot;,
+  &quot;cause&quot;: &quot;string&quot;,
+  &quot;related_case_id&quot;: 1,
+  &quot;performed_at&quot;: &quot;2026-03-15T08:30:00Z&quot;,
+  &quot;device_id&quot;: &quot;string&quot;,
+  &quot;recorded_at_device&quot;: &quot;2026-03-15T08:30:00Z&quot;,
+  &quot;payload&quot;: null
+}</pre><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/operations/tasks/{task_id}/cancel/</span><h3 style='margin-top:8px'>Cancel a task</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>task_id</code></td><td>integer</td><td>ID of the related task.</td></tr></table><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>reason</code></td><td>string</td><td>no</td><td>Reason.</td></tr><tr><td><code>client_request_id</code></td><td>string</td><td>no</td><td>ID of the related client request.</td></tr></table><div class='label'>Example request body</div><pre>{
+  &quot;reason&quot;: &quot;Free-text notes&quot;,
+  &quot;client_request_id&quot;: &quot;string&quot;
+}</pre><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/operations/my-work/</span><h3 style='margin-top:8px'>My Work inbox</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr><tr><td><code>farm_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the farm this request applies to.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 1
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/operations/today/</span><h3 style='margin-top:8px'>Tasks due today</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr><tr><td><code>farm_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the farm this request applies to.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 1
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/operations/overdue/</span><h3 style='margin-top:8px'>Overdue tasks</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr><tr><td><code>farm_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the farm this request applies to.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 1
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/operations/schedules/</span><h3 style='margin-top:8px'>Task schedules</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr><tr><td><code>farm_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the farm this request applies to.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 1
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/operations/schedules/</span><h3 style='margin-top:8px'>Create a task schedule</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>farm_id</code></td><td>integer</td><td>yes</td><td>Numeric ID of the farm this request applies to.</td></tr><tr><td><code>task_type</code></td><td>string</td><td>yes</td><td>Task type.</td></tr><tr><td><code>title</code></td><td>string</td><td>yes</td><td>Title.</td></tr><tr><td><code>description</code></td><td>string</td><td>no</td><td>Description.</td></tr><tr><td><code>recurrence</code></td><td>string</td><td>no</td><td>Recurrence.</td></tr><tr><td><code>next_run_at</code></td><td>string (date-time)</td><td>yes</td><td>Next run at.</td></tr><tr><td><code>animal_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the animal.</td></tr><tr><td><code>group_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the animal group.</td></tr><tr><td><code>assignee_id</code></td><td>string (uuid)</td><td>no</td><td>ID of the related assignee.</td></tr><tr><td><code>template_payload</code></td><td>any</td><td>no</td><td>Template payload.</td></tr><tr><td><code>run_now</code></td><td>boolean</td><td>no</td><td>Run now.</td></tr><tr><td><code>client_request_id</code></td><td>string</td><td>no</td><td>ID of the related client request.</td></tr></table><div class='label'>Example request body</div><pre>{
+  &quot;farm_id&quot;: 1,
+  &quot;task_type&quot;: &quot;string&quot;,
+  &quot;title&quot;: &quot;string&quot;,
+  &quot;description&quot;: &quot;Free-text notes&quot;,
+  &quot;recurrence&quot;: &quot;string&quot;,
+  &quot;next_run_at&quot;: &quot;2026-03-15T08:30:00Z&quot;,
+  &quot;animal_id&quot;: 1,
+  &quot;group_id&quot;: 1,
+  &quot;assignee_id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
+  &quot;template_payload&quot;: null,
+  &quot;run_now&quot;: true,
+  &quot;client_request_id&quot;: &quot;string&quot;
+}</pre><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/operations/schedules/{schedule_id}/run/</span><h3 style='margin-top:8px'>Generate a task from a schedule</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>schedule_id</code></td><td>integer</td><td>ID of the related schedule.</td></tr></table><p class='muted'>No JSON body. Path (and optional query) parameters are the input.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/operations/tasks/{task_id}/unable-to-complete/</span><h3 style='margin-top:8px'>Mark a task unable to complete</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>task_id</code></td><td>integer</td><td>ID of the related task.</td></tr></table><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>reason_code</code></td><td>string</td><td>yes</td><td>Reason code.</td></tr><tr><td><code>notes</code></td><td>string</td><td>no</td><td>Notes.</td></tr><tr><td><code>performed_at</code></td><td>string (date-time)</td><td>no</td><td>Performed at.</td></tr><tr><td><code>client_request_id</code></td><td>string</td><td>no</td><td>ID of the related client request.</td></tr></table><div class='label'>Example request body</div><pre>{
+  &quot;reason_code&quot;: &quot;Free-text notes&quot;,
+  &quot;notes&quot;: &quot;Free-text notes&quot;,
+  &quot;performed_at&quot;: &quot;2026-03-15T08:30:00Z&quot;,
+  &quot;client_request_id&quot;: &quot;string&quot;
+}</pre><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/operations/tasks/{task_id}/reopen/</span><h3 style='margin-top:8px'>Reopen or reschedule unable work</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>task_id</code></td><td>integer</td><td>ID of the related task.</td></tr></table><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>due_at</code></td><td>string (date-time)</td><td>no</td><td>Due at.</td></tr><tr><td><code>assignee_id</code></td><td>string (uuid)</td><td>no</td><td>ID of the related assignee.</td></tr><tr><td><code>reason</code></td><td>string</td><td>no</td><td>Reason.</td></tr><tr><td><code>client_request_id</code></td><td>string</td><td>no</td><td>ID of the related client request.</td></tr></table><div class='label'>Example request body</div><pre>{
+  &quot;due_at&quot;: &quot;2026-03-15T08:30:00Z&quot;,
+  &quot;assignee_id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
+  &quot;reason&quot;: &quot;Free-text notes&quot;,
+  &quot;client_request_id&quot;: &quot;string&quot;
+}</pre><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/operations/schedules/{schedule_id}/</span><h3 style='margin-top:8px'>Schedule detail</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>schedule_id</code></td><td>integer</td><td>ID of the related schedule.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: [
+    {
+      &quot;id&quot;: 1,
+      &quot;name&quot;: &quot;Example&quot;
+    }
+  ]
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method PATCH">PATCH</span><span class="path">/api/v2/operations/schedules/{schedule_id}/</span><h3 style='margin-top:8px'>Update a schedule</h3></div><div class='endpoint-bd'><p>Partially updates a record. Only send fields you want to change. Omitted fields stay as they are.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>schedule_id</code></td><td>integer</td><td>ID of the related schedule.</td></tr></table><div class='label'>JSON body fields (input)</div><table><tr><th>Field</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>title</code></td><td>string</td><td>no</td><td>Title.</td></tr><tr><td><code>description</code></td><td>string</td><td>no</td><td>Description.</td></tr><tr><td><code>recurrence</code></td><td>string</td><td>no</td><td>Recurrence.</td></tr><tr><td><code>next_run_at</code></td><td>string (date-time)</td><td>no</td><td>Next run at.</td></tr><tr><td><code>assignee_id</code></td><td>string (uuid)</td><td>no</td><td>ID of the related assignee.</td></tr><tr><td><code>animal_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the animal.</td></tr><tr><td><code>group_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the animal group.</td></tr><tr><td><code>is_active</code></td><td>boolean</td><td>no</td><td>Is active.</td></tr><tr><td><code>client_request_id</code></td><td>string</td><td>no</td><td>ID of the related client request.</td></tr></table><div class='label'>Example request body</div><pre>{
+  &quot;title&quot;: &quot;string&quot;,
+  &quot;description&quot;: &quot;Free-text notes&quot;,
+  &quot;recurrence&quot;: &quot;string&quot;,
+  &quot;next_run_at&quot;: &quot;2026-03-15T08:30:00Z&quot;,
+  &quot;assignee_id&quot;: &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;,
+  &quot;animal_id&quot;: 1,
+  &quot;group_id&quot;: 1,
+  &quot;is_active&quot;: true,
+  &quot;client_request_id&quot;: &quot;string&quot;
+}</pre><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15,
+    &quot;updated&quot;: true
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/operations/schedules/{schedule_id}/deactivate/</span><h3 style='margin-top:8px'>Deactivate a schedule without deleting history</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>schedule_id</code></td><td>integer</td><td>ID of the related schedule.</td></tr></table><p class='muted'>No JSON body. Path (and optional query) parameters are the input.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15
+  }
+}</pre></div></div><h2 id='timeline'>Timeline</h2><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/timeline/</span><h3 style='margin-top:8px'>Unified organization timeline</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr><tr><td><code>farm_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the farm this request applies to.</td></tr><tr><td><code>animal_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the animal.</td></tr><tr><td><code>event_type</code></td><td>string</td><td>no</td><td>Event type.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 1
+  }
+}</pre></div></div><h2 id='notifications'>Notifications</h2><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/notifications/unread-count/</span><h3 style='margin-top:8px'>Unread notification badge count</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 1
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/notifications/</span><h3 style='margin-top:8px'>In-app notification inbox</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>page</code></td><td>integer</td><td>no</td><td>1-based page number for paginated lists.</td></tr><tr><td><code>page_size</code></td><td>integer</td><td>no</td><td>How many rows to return per page.</td></tr><tr><td><code>unread_only</code></td><td>boolean</td><td>no</td><td>Unread only.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 1
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/notifications/{notification_id}/read/</span><h3 style='margin-top:8px'>Mark a notification as read</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>URL parameters</div><table><tr><th>Name</th><th>Type</th><th>What to send</th></tr><tr><td><code>notification_id</code></td><td>integer</td><td>ID of the related notification.</td></tr></table><p class='muted'>No JSON body. Path (and optional query) parameters are the input.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15
+  }
+}</pre></div></div><div class="endpoint"><div class="endpoint-hd"><span class="method POST">POST</span><span class="path">/api/v2/notifications/read-all/</span><h3 style='margin-top:8px'>Mark all notifications as read</h3></div><div class='endpoint-bd'><p>Creates a record. Send the input fields below. On success, data usually contains the new id or the created object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><p class='muted'>No JSON body. Path (and optional query) parameters are the input.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 15
+  }
+}</pre></div></div><h2 id='search'>Search</h2><div class="endpoint"><div class="endpoint-hd"><span class="method GET">GET</span><span class="path">/api/v2/search/</span><h3 style='margin-top:8px'>Search animals, people, and tasks</h3></div><div class='endpoint-bd'><p>Reads a record or a computed result. Path parameters identify the object.</p><p><span class='pill'>Auth</span> Logged-in user (access-token cookie). Farm-scoped permission checked inside the handler.</p><div class='label'>Query parameters (optional unless marked)</div><table><tr><th>Name</th><th>Type</th><th>Required</th><th>What to send</th></tr><tr><td><code>q</code></td><td>string</td><td>yes</td><td>Q.</td></tr><tr><td><code>farm_id</code></td><td>integer</td><td>no</td><td>Numeric ID of the farm this request applies to.</td></tr><tr><td><code>limit</code></td><td>integer</td><td>no</td><td>Limit.</td></tr></table><p class='muted'>No JSON body. Input is the URL and any query parameters above.</p><div class='label'>Example JSON response (output)</div><pre>{
+  &quot;success&quot;: true,
+  &quot;message&quot;: &quot;Request completed&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: 1
+  }
 }</pre></div></div><p class='muted'>Generated from the Django Ninja OpenAPI schema. Regenerated by <code>python docs/generate_api_docs.py</code>.</p></div></body></html>

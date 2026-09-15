@@ -1,3 +1,5 @@
+from common.mutations import atomic_mutation
+from common.access import authorized_farms
 from django.core.exceptions import ValidationError
 from ninja import Router
 
@@ -44,10 +46,10 @@ def _serialize_birth(birth: BirthRecord) -> dict:
     }
 
 
-def _get_birth(org, birth_id, farm=None) -> BirthRecord:
+def _get_birth(org, birth_id, user, farm=None) -> BirthRecord:
     try:
         birth = BirthRecord.objects.select_related("mother", "farm").get(
-            id=birth_id, farm__organization=org
+            id=birth_id, farm__in=authorized_farms(user, org)
         )
     except BirthRecord.DoesNotExist:
         raise ContractError(404, ErrorCode.ANIMAL_NOT_FOUND, "Birth record could not be found.")
@@ -61,6 +63,7 @@ def _get_birth(org, birth_id, farm=None) -> BirthRecord:
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 422: V2Error},
     summary="Record a birth with live offspring registration slots",
 )
+@atomic_mutation
 def create_birth(request, payload: BirthCreateIn):
     user = require_user(request)
     org = resolve_organization(user)
@@ -104,7 +107,7 @@ def birth_detail(request, birth_id: int):
     user = require_user(request)
     org = resolve_organization(user)
     require_permission(user, org, Permissions.Reproduction.VIEW, Permissions.Reproduction.CREATE)
-    birth = _get_birth(org, birth_id)
+    birth = _get_birth(org, birth_id, user)
     require_farm(org, birth.farm_id, user)
     return 200, success_body(data=_serialize_birth(birth), message="Birth fetched successfully.")
 
@@ -114,6 +117,7 @@ def birth_detail(request, birth_id: int):
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 409: V2Error, 422: V2Error},
     summary="Register one live offspring against a birth slot",
 )
+@atomic_mutation
 def register_offspring(request, birth_id: int, payload: BirthRegisterOffspringIn):
     user = require_user(request)
     org = resolve_organization(user)
@@ -121,7 +125,7 @@ def register_offspring(request, birth_id: int, payload: BirthRegisterOffspringIn
     key, cached = begin_idempotency(user, request, payload)
     if cached:
         return cached
-    birth = _get_birth(org, birth_id)
+    birth = _get_birth(org, birth_id, user)
     require_farm(org, birth.farm_id, user)
     slots = birth.offspring_records.filter(registration_status="registration_required").order_by(
         "offspring_sequence"

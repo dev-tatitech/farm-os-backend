@@ -1,3 +1,5 @@
+from common.mutations import atomic_mutation
+from common.access import authorized_farms
 from django.utils import timezone
 from ninja import Router
 
@@ -49,14 +51,24 @@ def _serialize_observation(row: HealthObservation) -> dict:
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 422: V2Error},
     summary="Record a health observation",
 )
+@atomic_mutation
 def create_observation(request, payload: ObservationIn):
     user = require_user(request)
     org = resolve_organization(user)
-    require_permission(user, org, Permissions.Health.CREATE)
+    require_permission(user, org, "record_health_observation")
     key, cached = begin_idempotency(user, request, payload)
     if cached:
         return cached
     farm = require_farm(org, payload.farm_id, user)
+    if payload.create_case:
+        require_permission(user, org, "manage_health_case", farm=farm)
+    if payload.create_task:
+        require_permission(user, org, "create_operation", farm=farm)
+        if payload.assignee_id:
+            require_permission(user, org, "assign_operation", farm=farm)
+    if payload.group_id:
+        from operations.services import _get_group
+        _get_group(farm, payload.group_id)
     animal = require_animal(org, payload.animal_id, farm) if payload.animal_id else None
     case = None
     if payload.case_id:
@@ -124,7 +136,7 @@ def list_observations(request, page: int = 1, page_size: int = 20, farm_id: int 
     user = require_user(request)
     org = resolve_organization(user)
     require_permission(user, org, Permissions.Health.VIEW)
-    qs = HealthObservation.objects.filter(farm__organization=org)
+    qs = HealthObservation.objects.filter(farm__in=authorized_farms(user, org))
     if farm_id is not None:
         farm = require_farm(org, farm_id, user)
         qs = qs.filter(farm=farm)
@@ -138,10 +150,11 @@ def list_observations(request, page: int = 1, page_size: int = 20, farm_id: int 
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error},
     summary="Open a health case",
 )
+@atomic_mutation
 def create_case(request, payload: HealthCaseIn):
     user = require_user(request)
     org = resolve_organization(user)
-    require_permission(user, org, Permissions.Health.CREATE)
+    require_permission(user, org, "manage_health_case")
     farm = require_farm(org, payload.farm_id, user)
     animal = require_animal(org, payload.animal_id, farm) if payload.animal_id else None
     case = HealthCase.objects.create(
@@ -174,7 +187,7 @@ def list_cases(request, page: int = 1, page_size: int = 20, farm_id: int = None,
     user = require_user(request)
     org = resolve_organization(user)
     require_permission(user, org, Permissions.Health.VIEW)
-    qs = HealthCase.objects.filter(farm__organization=org)
+    qs = HealthCase.objects.filter(farm__in=authorized_farms(user, org))
     if farm_id is not None:
         farm = require_farm(org, farm_id, user)
         qs = qs.filter(farm=farm)
@@ -188,12 +201,13 @@ def list_cases(request, page: int = 1, page_size: int = 20, farm_id: int = None,
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 409: V2Error},
     summary="Close a health case",
 )
+@atomic_mutation
 def close_case(request, case_id: int, payload: HealthCaseCloseIn):
     user = require_user(request)
     org = resolve_organization(user)
-    require_permission(user, org, Permissions.Health.UPDATE, Permissions.Health.CREATE)
+    require_permission(user, org, "manage_health_case")
     try:
-        case = HealthCase.objects.get(id=case_id, farm__organization=org)
+        case = HealthCase.objects.get(id=case_id, farm__in=authorized_farms(user, org))
     except HealthCase.DoesNotExist:
         raise ContractError(404, ErrorCode.HEALTH_CASE_NOT_FOUND, "Health case could not be found.")
     require_farm(org, case.farm_id, user)
@@ -219,7 +233,7 @@ def case_detail(request, case_id: int):
     require_permission(user, org, Permissions.Health.VIEW)
     try:
         case = HealthCase.objects.select_related("animal", "farm").get(
-            id=case_id, farm__organization=org
+            id=case_id, farm__in=authorized_farms(user, org)
         )
     except HealthCase.DoesNotExist:
         raise ContractError(404, ErrorCode.HEALTH_CASE_NOT_FOUND, "Health case could not be found.")
@@ -240,7 +254,7 @@ def case_detail(request, case_id: int):
     ]
     follow = treatments[0] if treatments else None
     open_tasks = list(
-        Task.objects.filter(organization=org, animal=case.animal)
+        Task.objects.filter(farm__in=authorized_farms(user, org), animal=case.animal)
         .exclude(status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED])
         .select_related("assigned_to", "animal", "farm", "created_by")[:20]
     )
@@ -298,7 +312,7 @@ def list_alerts(request, page: int = 1, page_size: int = 20, farm_id: int = None
     user = require_user(request)
     org = resolve_organization(user)
     require_permission(user, org, Permissions.Health.VIEW)
-    qs = HealthAlert.objects.filter(farm__organization=org).select_related("animal", "farm", "drug_batch")
+    qs = HealthAlert.objects.filter(farm__in=authorized_farms(user, org)).select_related("animal", "farm", "drug_batch")
     if farm_id is not None:
         farm = require_farm(org, farm_id, user)
         qs = qs.filter(farm=farm)

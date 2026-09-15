@@ -1,3 +1,4 @@
+from common.mutations import atomic_mutation
 from ninja import Router, Query
 from django.conf import settings
 from ninja import File
@@ -60,6 +61,11 @@ from .schema import (
    OranizationSchemaIn,
    FarmInSchema
 )
+from common.access import organization_for, has_capability, authorized_farms
+from common.audit import security_event
+from contract.authz import require_permission, require_organization
+from contract.exceptions import ContractError
+from contract.codes import ErrorCode
 router = Router(tags=["Oganization module"])
 
 
@@ -181,18 +187,21 @@ def get_lga(request, state_region_id: int, page: int = 1, page_size: int = 20):
     "/organization/",
     response={200: APIResponse, 403: APIResponse},
 )
+@atomic_mutation
 def organiation(request, payload: OranizationSchemaIn):
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(400, "Permission denied")
-    if Organization.objects.filter(user=user).exists():
+    if organization_for(user):
         raise HttpError(409, "User already has an organization.")
     
-    industry = get_object_or_404(Industry, id = payload.industry_id)
+    if not payload.name.strip():
+        raise ContractError(422, ErrorCode.VALIDATION_ERROR, "Organization name is required.")
+    industry = get_object_or_404(Industry, id=payload.industry_id) if payload.industry_id else None
     country = get_object_or_404(Country, id = payload.country_id)
-    state = get_object_or_404(AdminLevel1, id = payload.state_region_id)
+    state = get_object_or_404(AdminLevel1, id=payload.state_region_id, country=country)
     org = f"ORG-{generate_ref()}"
     with db_transaction.atomic():
         plan, created = SubscriptionPlan.objects.get_or_create(
@@ -212,7 +221,16 @@ def organiation(request, payload: OranizationSchemaIn):
             industry_type = industry,
             country = country,
             state_region = state,
+            phone=payload.phone,
+            email=payload.email,
+            address=payload.address,
         )
+        user.organization = organization
+        user.save(update_fields=["organization"])
+        from role.templates import provision_templates
+        provision_templates(organization)
+        security_event("ORGANIZATION_CREATED", user, target=organization, org=organization,
+                       new={"name": organization.name, "owner_id": str(user.id)})
         sub = Subscription.objects.create(
             plan = plan,
             organization = organization,
@@ -264,6 +282,7 @@ def get_organization(request):
     "/organization/logo/",
     response={200: APIResponse, 403: APIResponse},
 )
+@atomic_mutation
 def update_organization_logo(
     request,
     logo: UploadedFile = File(...),
@@ -277,6 +296,9 @@ def update_organization_logo(
     org = user.organization or user.organizations.first()
     if not org:
         raise HttpError(404, "Permission denied")
+
+    if not org.user_id == user.id:
+        raise ContractError(403, ErrorCode.PERMISSION_DENIED, "Only the owner can update the organization logo.")
 
     if org.logo:
         try:
@@ -316,18 +338,27 @@ def farm_type(request, page: int = 1, page_size: int = 20):
     "/farm/",
     response={200: APIResponse, 403: APIResponse},
 )
+@atomic_mutation
 def farm(request, payload: FarmInSchema):
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(400, "Permission denied")
-    if Farm.objects.filter(name__iexact=payload.name).exists():
+    org = require_organization(user, payload.organization_id)
+    require_permission(user, org, "create_farm")
+    if not payload.name.strip():
+        raise ContractError(422, ErrorCode.VALIDATION_ERROR, "Farm name is required.")
+    if Farm.objects.filter(name__iexact=payload.name, organization=org).exists():
         raise HttpError(409, "Farm already exists") 
-    org = get_object_or_404(Organization, id = payload.organization_id)
     country = get_object_or_404(Country, id = payload.country_id)
-    state = get_object_or_404(AdminLevel1, id = payload.state_region_id)
+    state = get_object_or_404(AdminLevel1, id=payload.state_region_id, country=country)
     farm_type = get_object_or_404(FarmType, id = payload.farm_type_id)
+
+    # An organization may have at most one primary farm.  Clear the previous
+    # primary in the same transaction before promoting the new farm.
+    if payload.is_primary:
+        Farm.objects.filter(organization=org, is_primary=True).update(is_primary=False)
     
     farm_code= f"FRM-{generate_ref()}"
     farm = Farm.objects.create(
@@ -343,6 +374,8 @@ def farm(request, payload: FarmInSchema):
         farm_type = farm_type,
         is_primary = payload.is_primary
     )
+    security_event("FARM_CREATED", user, target=farm, org=org, farm=farm,
+                   new={"name": farm.name})
     data = {
         "name": farm.name,
         "city": farm.city,
@@ -362,15 +395,13 @@ def get_farm(request, page: int = 1, page_size: int = 20):
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         return 403, APIResponse(success=False, message="Permission denied", data=None)
-    org = user.organization
-    farms = Farm.objects.filter(
-    userrole__user=user
-    ).distinct()
-    if not org:
-        org = user.organizations.first()
-        farms = Farm.objects.filter(organization=org)
+    org = user.organization or user.organizations.first()
     if not org:
         raise HttpError(404, f"Permission denied")
+    # Owners are not required to have a UserRole assignment; use the shared
+    # authorization scope so they can see their organization's farms while
+    # staff remain limited to explicitly assigned farms.
+    farms = authorized_farms(user, org)
     
     return 200, _paged_legacy(farms, page, page_size, lambda farm: {
             "id": farm.id,
@@ -527,4 +558,3 @@ def organization_dashboard(request):
     return 200, APIResponse(
         success=True, message="organization dashboard fetch successfully", data=data
     )
-

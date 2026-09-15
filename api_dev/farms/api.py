@@ -1,3 +1,5 @@
+from common.access import authorized_farms
+from common.scoping import scoped_lookup
 from ninja import Router, Query
 from django.conf import settings
 from ninja import File
@@ -65,6 +67,7 @@ router = Router(tags=["Farm"])
     response={200: APIResponse, 403: APIResponse},
 )
 def add_farm_unit(request, payload: FarmSchemaIn):
+    get_object_or_404 = scoped_lookup(request, Permissions.FarmUnit.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -75,7 +78,8 @@ def add_farm_unit(request, payload: FarmSchemaIn):
         org = user.organizations.first()
     if not user.organizations.first():
         perm = user_has_permission(user,Permissions.FarmUnit.CREATE)
-        raise HttpError(404, f"you are not admin {perm}")
+        if not perm:
+            raise HttpError(403, "Permission denied")
    
 
     farm = get_object_or_404(Farm, id= payload.farm_id)
@@ -115,7 +119,7 @@ def get_farm_unit(
     if not user.organizations.first():
         if not perm:
             raise HttpError(404, f"Permission denied")
-    farm_unit = FarmUnit.objects.filter(organization = org)
+    farm_unit = FarmUnit.objects.filter(farm__in=authorized_farms(user, org, Permissions.FarmUnit.VIEW))
     paginator = Paginator(farm_unit, page_size)
     page_obj = paginator.page(page)
     # Serialization
@@ -167,7 +171,7 @@ def get_farm_unit_by_farm(
         if not perm:
             raise HttpError(404, f"Permission denied")
           
-    farm_unit = FarmUnit.objects.filter(farm_id = farm_id, organization = org)
+    farm_unit = FarmUnit.objects.filter(farm=scoped_lookup(request, Permissions.FarmUnit.VIEW)(Farm, pk=farm_id))
     paginator = Paginator(farm_unit, page_size)
     page_obj = paginator.page(page)
     # Serialization
@@ -204,6 +208,7 @@ def get_farm_unit_by_farm(
     response={200: APIResponse, 403: APIResponse},
 )
 def add_farm_unit_v2(request, payload: FarmUnitSchemaV2):
+    get_object_or_404 = scoped_lookup(request, Permissions.FarmUnit.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -238,6 +243,7 @@ def add_farm_unit_v2(request, payload: FarmUnitSchemaV2):
     response={200: APIResponse, 403: APIResponse},
 )
 def update_farm_unit_v2(request, unit_id: int, payload: FarmUnitUpdateSchemaV2):
+    get_object_or_404 = scoped_lookup(request, Permissions.FarmUnit.UPDATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -253,7 +259,7 @@ def update_farm_unit_v2(request, unit_id: int, payload: FarmUnitUpdateSchemaV2):
         if not perm:
             raise HttpError(404, "Permission denied")
 
-    farm_ids = Farm.objects.filter(organization=org).values_list("id", flat=True)
+    farm_ids = authorized_farms(user, org, Permissions.FarmUnit.VIEW).values_list("id", flat=True)
     housing_unit = get_object_or_404(FarmHousingUnit, id=unit_id, farm_id__in=farm_ids)
 
     if payload.name is not None:
@@ -311,7 +317,7 @@ def get_farm_unit_v2(request, page: int, page_size: int):
         if not perm:
             raise HttpError(404, "Permission denied")
 
-    farm_ids = Farm.objects.filter(organization=org).values_list("id", flat=True)
+    farm_ids = authorized_farms(user, org, Permissions.FarmUnit.VIEW).values_list("id", flat=True)
     units = FarmHousingUnit.objects.select_related("farm").prefetch_related(
         "allowed_species"
     ).filter(farm_id__in=farm_ids)
@@ -349,6 +355,7 @@ def get_farm_unit_v2(request, page: int, page_size: int):
     response={200: ListResponseSchema, 403: APIResponse},
 )
 def get_farm_unit_by_farm_v2(request, page: int, page_size: int, farm_id: int):
+    get_object_or_404 = scoped_lookup(request, Permissions.FarmUnit.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -402,6 +409,7 @@ def get_farm_unit_by_farm_v2(request, page: int, page_size: int, farm_id: int):
     response={200: ListResponseSchema, 403: APIResponse},
 )
 def get_farm_unit_by_species_v2(request, page: int, page_size: int, farm_id: int, species_id: int):
+    get_object_or_404 = scoped_lookup(request, Permissions.FarmUnit.VIEW)
     """
     Housing units on this farm usable for a given species — a unit with no
     allowed_species set is unrestricted (usable by any species), matching

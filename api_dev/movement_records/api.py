@@ -1,3 +1,4 @@
+from common.scoping import scoped_lookup
 from django.shortcuts import get_object_or_404
 from django.db import transaction as db_transaction
 from django.core.paginator import Paginator
@@ -26,6 +27,7 @@ router = Router(tags=["MovementRecords"])
 
 @router.post("/move/", response={200: APIResponse, 400: APIResponse, 403: APIResponse})
 def create_movement(request, payload: MovementRecordSchema):
+    get_object_or_404 = scoped_lookup(request, Permissions.MovementRecord.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(id=user_id)
@@ -95,6 +97,7 @@ def create_movement(request, payload: MovementRecordSchema):
 @router.get("/moves/{page}/{page_size}/{farm_id}", response={200: APIResponse, 400: APIResponse, 403: APIResponse})
 def list_movements(request, page: int, page_size: int, farm_id: int, q: str = Query(None)):
     # permission check
+    get_object_or_404 = scoped_lookup(request, Permissions.MovementRecord.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(id=user_id)
@@ -155,6 +158,7 @@ def list_movements(request, page: int, page_size: int, farm_id: int, q: str = Qu
 
 @router.get("/move/{movement_id}", response={200: APIResponse, 404: APIResponse, 403: APIResponse})
 def get_movement(request, movement_id: int):
+    get_object_or_404 = scoped_lookup(request, Permissions.MovementRecord.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(id=user_id)
@@ -188,6 +192,7 @@ def get_movement(request, movement_id: int):
 
 @router.post("/sale/", response={200: APIResponse, 400: APIResponse, 403: APIResponse})
 def create_sale(request, payload: SalesRecordSchema):
+    get_object_or_404 = scoped_lookup(request, Permissions.SalesRecord.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(id=user_id)
@@ -252,6 +257,7 @@ def create_sale(request, payload: SalesRecordSchema):
 
 @router.get("/sales/{page}/{page_size}/{farm_id}", response={200: APIResponse, 400: APIResponse, 403: APIResponse})
 def list_sales(request, page: int, page_size: int, farm_id: int, q: str = Query(None)):
+    get_object_or_404 = scoped_lookup(request, Permissions.SalesRecord.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(id=user_id)
@@ -311,6 +317,7 @@ def list_sales(request, page: int, page_size: int, farm_id: int, q: str = Query(
 
 @router.get("/sale/{sale_id}", response={200: APIResponse, 404: APIResponse, 403: APIResponse})
 def get_sale(request, sale_id: int):
+    get_object_or_404 = scoped_lookup(request, Permissions.SalesRecord.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(id=user_id)
@@ -349,6 +356,7 @@ def get_sale(request, sale_id: int):
 
 @router.post("/move/v2/", response={200: APIResponse, 400: APIResponse, 403: APIResponse})
 def create_movement_v2(request, payload: MoveSchemaV2):
+    get_object_or_404 = scoped_lookup(request, Permissions.MovementRecord.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(id=user_id)
@@ -409,6 +417,7 @@ def create_movement_v2(request, payload: MoveSchemaV2):
 
 @router.get("/moves/v2/{page}/{page_size}/{farm_id}", response={200: APIResponse, 400: APIResponse, 403: APIResponse})
 def list_movements_v2(request, page: int, page_size: int, farm_id: int, q: str = Query(None)):
+    get_object_or_404 = scoped_lookup(request, Permissions.MovementRecord.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(id=user_id)
@@ -482,6 +491,7 @@ def list_movements_v2(request, page: int, page_size: int, farm_id: int, q: str =
 
 @router.get("/move/v2/{movement_id}", response={200: APIResponse, 404: APIResponse, 403: APIResponse})
 def get_movement_v2(request, movement_id: int):
+    get_object_or_404 = scoped_lookup(request, Permissions.MovementRecord.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(id=user_id)
@@ -545,6 +555,7 @@ def seed_sale_policy(request):
 
 @router.get("/sale-policy/{species_id}/", response={200: APIResponse, 403: APIResponse})
 def get_sale_policy(request, species_id: int, farm_id: int = None):
+    get_object_or_404 = scoped_lookup(request, Permissions.SalesRecord.VIEW)
     user_id = get_current_user(request)
     try:
         users.objects.get(Q(id=user_id))
@@ -570,6 +581,7 @@ def create_farm_sale_policy(
     expected_sale_expenses_pct: float = 0, approaching_ready_threshold_pct: float = 85,
     sale_recommended_margin_pct: float = 15,
 ):
+    get_object_or_404 = scoped_lookup(request, Permissions.SalesRecord.UPDATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -624,6 +636,7 @@ def create_farm_sale_policy(
 
 @router.get("/sale-readiness/{animal_id}/", response={200: APIResponse, 403: APIResponse})
 def get_sale_readiness(request, animal_id: int, expected_sale_price: float = None):
+    get_object_or_404 = scoped_lookup(request, Permissions.SalesRecord.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -640,6 +653,7 @@ def get_sale_readiness(request, animal_id: int, expected_sale_price: float = Non
 
 @router.get("/animal-profitability/{animal_id}/", response={200: APIResponse, 403: APIResponse})
 def get_animal_profitability(request, animal_id: int, expected_sale_price: float = None, price_per_kg: float = None):
+    get_object_or_404 = scoped_lookup(request, Permissions.SalesRecord.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -658,6 +672,7 @@ def get_animal_profitability(request, animal_id: int, expected_sale_price: float
 
 @router.post("/sale-approval/{animal_id}/", response={200: APIResponse, 403: APIResponse})
 def approve_animal_sale(request, animal_id: int, reason: str = ""):
+    get_object_or_404 = scoped_lookup(request, Permissions.SalesRecord.UPDATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))

@@ -1,3 +1,4 @@
+from common.scoping import scoped_lookup
 from ninja import Router
 from django.db.models import Q
 from django.core.paginator import Paginator
@@ -51,6 +52,7 @@ def get_drug_categories(request):
     response={200: ListResponseSchema, 403: APIResponse},
 )
 def get_drugs(request, page: int, page_size: int, farm_id: int, category_id: int = None):
+    get_object_or_404 = scoped_lookup(request, Permissions.Pharmacy.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -86,6 +88,7 @@ def get_drugs(request, page: int, page_size: int, farm_id: int, category_id: int
 
 @router.post("/drug/", response={200: APIResponse, 403: APIResponse})
 def create_farm_drug(request, farm_id: int, payload: DrugSchemaIn):
+    get_object_or_404 = scoped_lookup(request, Permissions.Pharmacy.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -119,6 +122,7 @@ def create_farm_drug(request, farm_id: int, payload: DrugSchemaIn):
 
 @router.post("/drug-batch/", response={200: APIResponse, 403: APIResponse})
 def create_drug_batch(request, payload: DrugBatchSchemaIn):
+    get_object_or_404 = scoped_lookup(request, Permissions.Pharmacy.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -166,6 +170,7 @@ def create_drug_batch(request, payload: DrugBatchSchemaIn):
     response={200: ListResponseSchema, 403: APIResponse},
 )
 def get_drug_batches(request, page: int, page_size: int, farm_id: int, drug_id: int = None, status: str = None):
+    get_object_or_404 = scoped_lookup(request, Permissions.Pharmacy.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -205,6 +210,7 @@ def get_drug_batches(request, page: int, page_size: int, farm_id: int, drug_id: 
 
 @router.post("/pharmacy-alert/scan/{farm_id}/", response={200: APIResponse, 403: APIResponse})
 def scan_pharmacy_alerts(request, farm_id: int):
+    get_object_or_404 = scoped_lookup(request, Permissions.Pharmacy.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -231,6 +237,7 @@ def scan_pharmacy_alerts(request, farm_id: int):
     response={200: ListResponseSchema, 403: APIResponse},
 )
 def get_pharmacy_alerts(request, page: int, page_size: int, farm_id: int, status: str = None):
+    get_object_or_404 = scoped_lookup(request, Permissions.Pharmacy.VIEW)
     from health.models import HealthAlert
 
     user_id = get_current_user(request)
@@ -276,6 +283,7 @@ def get_pharmacy_alerts(request, page: int, page_size: int, farm_id: int, status
 
 @router.get("/animal-withdrawal/{farm_id}/", response={200: APIResponse, 403: APIResponse})
 def get_animals_under_withdrawal(request, farm_id: int):
+    get_object_or_404 = scoped_lookup(request, Permissions.Pharmacy.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))

@@ -1,3 +1,5 @@
+from common.mutations import atomic_mutation
+from common.access import authorized_farms
 import uuid
 
 from django.core.exceptions import ValidationError
@@ -268,7 +270,7 @@ def list_animals(
     user = require_user(request)
     org = resolve_organization(user)
     require_permission(user, org, Permissions.Animal.VIEW)
-    qs = Animal.objects.filter(farm__organization=org).select_related(
+    qs = Animal.objects.filter(farm__in=authorized_farms(user, org)).select_related(
         "farm", "livestock_species", "livestock_breed", "housing_unit", "species", "breed"
     )
     if farm_id is not None:
@@ -322,6 +324,7 @@ def list_animals(
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 409: V2Error, 422: V2Error},
     summary="Partial animal update",
 )
+@atomic_mutation
 def patch_animal(request, animal_id: int, payload: AnimalPatchIn):
     user = require_user(request)
     org = resolve_organization(user)
@@ -433,6 +436,7 @@ def animal_timeline(request, animal_id: int, page: int = 1, page_size: int = 20)
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 409: V2Error, 422: V2Error},
     summary="Progressive animal create (lifecycle status only)",
 )
+@atomic_mutation
 def create_animal(request, payload: AnimalCreateIn):
     user = require_user(request)
     org = resolve_organization(user)
@@ -510,7 +514,7 @@ def resolve_tag(request, tag_id: str, farm_id: int = None):
     user = require_user(request)
     org = resolve_organization(user)
     require_permission(user, org, Permissions.Animal.VIEW)
-    qs = Animal.objects.filter(tag_id__iexact=tag_id, farm__organization=org)
+    qs = Animal.objects.filter(tag_id__iexact=tag_id, farm__in=authorized_farms(user, org))
     if farm_id is not None:
         farm = require_farm(org, farm_id, user)
         qs = qs.filter(farm=farm)

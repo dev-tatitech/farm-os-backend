@@ -98,6 +98,7 @@ class PasswordResetOTP(models.Model):
 
 
 class RefreshSession(models.Model):
+    channel = models.CharField(max_length=10, default="web")
     user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="refresh_sessions"
     )

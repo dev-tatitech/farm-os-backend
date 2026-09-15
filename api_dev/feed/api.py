@@ -1,3 +1,4 @@
+from common.scoping import scoped_lookup
 from ninja import Router, Query
 from typing import Optional
 from django.conf import settings
@@ -88,6 +89,7 @@ def feed_inventory(
     request,
     payload:FeedInventorySchema
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Feed.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -141,6 +143,7 @@ def get_feed(
     page_size: int,
     farm_id: int
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Feed.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -193,6 +196,7 @@ def feed_plan(
     request,
     payload:FeedPlanSchema
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Feed.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -259,6 +263,7 @@ def get_feed_plan(
     page_size: int,
     farm_id: int
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Feed.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -315,6 +320,7 @@ def feed_issue(
     request,
     payload:FeedIssuanceRecordSchema
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Feed.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -408,6 +414,7 @@ def get_feed_issue(
     page_size: int,
     farm_id: int
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Feed.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -466,6 +473,7 @@ def feed_confirmation(
     request,
     payload:FeedConfirmationRecordSchema
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Feed.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -541,6 +549,7 @@ def get_feed_confirmatione(
     page_size: int,
     farm_id: int
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Feed.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -596,6 +605,7 @@ def get_feed_confirmatione(
 
 @router.post("/feed-plan/v2/", response={200: APIResponse, 403: APIResponse})
 def feed_plan_v2(request, payload: FeedPlanSchemaV2):
+    get_object_or_404 = scoped_lookup(request, Permissions.Feed.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -652,6 +662,7 @@ def feed_plan_v2(request, payload: FeedPlanSchemaV2):
     response={200: ListResponseSchema, 403: APIResponse},
 )
 def get_feed_plan_v2(request, page: int, page_size: int, farm_id: int):
+    get_object_or_404 = scoped_lookup(request, Permissions.Feed.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -711,6 +722,7 @@ def get_feed_plan_v2(request, page: int, page_size: int, farm_id: int):
     response={200: ListResponseSchema, 403: APIResponse},
 )
 def get_feed_issue_v2(request, page: int, page_size: int, farm_id: int):
+    get_object_or_404 = scoped_lookup(request, Permissions.Feed.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -974,6 +986,7 @@ def get_feed_units_v3(request, farm_id: Optional[int] = None):
 
 @router.post("/feed-unit/v3/", response={200: APIResponse, 403: APIResponse})
 def create_farm_feed_unit_v3(request, farm_id: int, payload: FeedUnitSchemaIn):
+    get_object_or_404 = scoped_lookup(request, Permissions.Feed.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -1011,6 +1024,7 @@ def create_farm_feed_unit_v3(request, farm_id: int, payload: FeedUnitSchemaIn):
 def get_feed_types_v3(
     request, page: int, page_size: int, farm_id: int, species_id: Optional[int] = None
 ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Feed.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -1063,6 +1077,7 @@ def get_feed_types_v3(
 
 @router.post("/feed-type/v3/", response={200: APIResponse, 403: APIResponse})
 def create_farm_feed_type_v3(request, farm_id: int, payload: FeedTypeSchemaIn):
+    get_object_or_404 = scoped_lookup(request, Permissions.Feed.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -1118,6 +1133,7 @@ def create_farm_feed_type_v3(request, farm_id: int, payload: FeedTypeSchemaIn):
 
 @router.patch("/feed-type/v3/{feed_type_id}/", response={200: APIResponse, 403: APIResponse})
 def update_farm_feed_type_v3(request, feed_type_id: int, payload: FeedTypeUpdateSchemaIn):
+    get_object_or_404 = scoped_lookup(request, Permissions.Feed.UPDATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -1165,6 +1181,7 @@ def update_farm_feed_type_v3(request, feed_type_id: int, payload: FeedTypeUpdate
 
 @router.post("/feed-type/v3/{feed_type_id}/deactivate/", response={200: APIResponse, 403: APIResponse})
 def deactivate_farm_feed_type_v3(request, feed_type_id: int):
+    get_object_or_404 = scoped_lookup(request, Permissions.Feed.UPDATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -1191,6 +1208,7 @@ def deactivate_farm_feed_type_v3(request, feed_type_id: int):
 
 @router.post("/feed-inventory/v3/", response={200: APIResponse, 403: APIResponse})
 def feed_inventory_v3(request, payload: FeedInventorySchemaV3):
+    get_object_or_404 = scoped_lookup(request, Permissions.Feed.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -1245,6 +1263,7 @@ def feed_inventory_v3(request, payload: FeedInventorySchemaV3):
     response={200: ListResponseSchema, 403: APIResponse},
 )
 def get_feed_v3(request, page: int, page_size: int, farm_id: int, species_id: Optional[int] = None):
+    get_object_or_404 = scoped_lookup(request, Permissions.Feed.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -1301,6 +1320,7 @@ def get_feed_v3(request, page: int, page_size: int, farm_id: int, species_id: Op
 
 @router.post("/feed-batch/", response={200: APIResponse, 403: APIResponse})
 def create_feed_batch(request, payload: FeedBatchSchemaIn):
+    get_object_or_404 = scoped_lookup(request, Permissions.Feed.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -1348,6 +1368,7 @@ def create_feed_batch(request, payload: FeedBatchSchemaIn):
     response={200: ListResponseSchema, 403: APIResponse},
 )
 def get_feed_batches(request, page: int, page_size: int, farm_id: int, feed_type_id: int = None, status: str = None):
+    get_object_or_404 = scoped_lookup(request, Permissions.Feed.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))

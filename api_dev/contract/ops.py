@@ -1,3 +1,5 @@
+from common.mutations import atomic_mutation
+from common.access import authorized_farms
 from django.utils import timezone
 from ninja import Router
 
@@ -47,15 +49,14 @@ def _caps(user, org):
 
 
 def _require_cap(user, org, name: str):
-    if not _caps(user, org).get(name):
-        raise ContractError(403, ErrorCode.PERMISSION_DENIED, f"{name} is required.")
+    require_permission(user, org, name)
 
 
 def _domain_complete_perm(task):
     mapping = {
         Task.Type.VACCINATION: (Permissions.Health.CREATE,),
         Task.Type.TREATMENT: (Permissions.Health.CREATE,),
-        Task.Type.OBSERVATION: (Permissions.Health.CREATE,),
+        Task.Type.OBSERVATION: ("record_health_observation",),
         Task.Type.MORTALITY: (Permissions.Health.CREATE,),
         Task.Type.WEIGHT: (Permissions.Animal.UPDATE, Permissions.Animal.CREATE),
         Task.Type.PREGNANCY_CHECK: (Permissions.Reproduction.CREATE,),
@@ -68,7 +69,7 @@ def _domain_complete_perm(task):
 
 
 def _open_qs(org, user, farm_id=None):
-    qs = Task.objects.filter(organization=org).select_related(
+    qs = Task.objects.filter(farm__in=authorized_farms(user, org)).select_related(
         "animal", "assigned_to", "created_by", "farm", "group"
     )
     if farm_id is not None:
@@ -93,6 +94,7 @@ def _payload_dict(payload: TaskCompleteIn) -> dict:
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 422: V2Error},
     summary="Create an operations task",
 )
+@atomic_mutation
 def create_operations_task(request, payload: TaskCreateIn):
     user = require_user(request)
     org = resolve_organization(user)
@@ -173,6 +175,7 @@ def task_detail(request, task_id: int):
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 409: V2Error},
     summary="Assign or reassign a task",
 )
+@atomic_mutation
 def task_assign(request, task_id: int, payload: TaskAssignIn):
     user = require_user(request)
     org = resolve_organization(user)
@@ -188,6 +191,7 @@ def task_assign(request, task_id: int, payload: TaskAssignIn):
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 409: V2Error},
     summary="Accept an assigned task",
 )
+@atomic_mutation
 def task_accept(request, task_id: int):
     user = require_user(request)
     org = resolve_organization(user)
@@ -202,6 +206,7 @@ def task_accept(request, task_id: int):
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 409: V2Error},
     summary="Start a task",
 )
+@atomic_mutation
 def task_start(request, task_id: int):
     user = require_user(request)
     org = resolve_organization(user)
@@ -216,6 +221,7 @@ def task_start(request, task_id: int):
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 409: V2Error, 422: V2Error},
     summary="Complete a task and write the domain record",
 )
+@atomic_mutation
 def task_complete(request, task_id: int, payload: TaskCompleteIn):
     user = require_user(request)
     org = resolve_organization(user)
@@ -225,7 +231,7 @@ def task_complete(request, task_id: int, payload: TaskCompleteIn):
         return cached
     task = get_task(org, task_id)
     require_farm(org, task.farm_id, user)
-    require_permission(user, org, *_domain_complete_perm(task))
+    require_permission(user, org, *_domain_complete_perm(task), farm=task.farm)
     task = complete_task(task, user, _payload_dict(payload), evidence=payload.evidence or "")
     body = success_body(data=serialize_task(task), message="Task completed successfully.")
     store_idempotency(user, key, 200, body)
@@ -237,6 +243,7 @@ def task_complete(request, task_id: int, payload: TaskCompleteIn):
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 409: V2Error},
     summary="Cancel a task",
 )
+@atomic_mutation
 def task_cancel(request, task_id: int, payload: TaskCancelIn):
     user = require_user(request)
     org = resolve_organization(user)
@@ -310,7 +317,7 @@ def list_schedules(request, page: int = 1, page_size: int = 20, farm_id: int = N
     user = require_user(request)
     org = resolve_organization(user)
     _require_cap(user, org, "view_operation")
-    qs = TaskSchedule.objects.filter(organization=org)
+    qs = TaskSchedule.objects.filter(farm__in=authorized_farms(user, org))
     if farm_id is not None:
         farm = require_farm(org, farm_id, user)
         qs = qs.filter(farm=farm)
@@ -322,6 +329,7 @@ def list_schedules(request, page: int = 1, page_size: int = 20, farm_id: int = N
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 422: V2Error},
     summary="Create a task schedule",
 )
+@atomic_mutation
 def create_schedule(request, payload: ScheduleCreateIn):
     user = require_user(request)
     org = resolve_organization(user)
@@ -355,6 +363,7 @@ def create_schedule(request, payload: ScheduleCreateIn):
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 409: V2Error},
     summary="Generate a task from a schedule",
 )
+@atomic_mutation
 def run_schedule_endpoint(request, schedule_id: int):
     user = require_user(request)
     org = resolve_organization(user)
@@ -373,6 +382,7 @@ def run_schedule_endpoint(request, schedule_id: int):
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 409: V2Error, 422: V2Error},
     summary="Mark a task unable to complete",
 )
+@atomic_mutation
 def task_unable(request, task_id: int, payload: TaskUnableIn):
     user = require_user(request)
     org = resolve_organization(user)
@@ -392,6 +402,7 @@ def task_unable(request, task_id: int, payload: TaskUnableIn):
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 409: V2Error},
     summary="Reopen or reschedule unable work",
 )
+@atomic_mutation
 def task_reopen(request, task_id: int, payload: TaskReopenIn):
     user = require_user(request)
     org = resolve_organization(user)
@@ -424,6 +435,7 @@ def schedule_detail(request, schedule_id: int):
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 422: V2Error},
     summary="Update a schedule",
 )
+@atomic_mutation
 def schedule_patch(request, schedule_id: int, payload: SchedulePatchIn):
     user = require_user(request)
     org = resolve_organization(user)
@@ -460,6 +472,7 @@ def schedule_patch(request, schedule_id: int, payload: SchedulePatchIn):
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error},
     summary="Deactivate a schedule without deleting history",
 )
+@atomic_mutation
 def schedule_deactivate(request, schedule_id: int):
     user = require_user(request)
     org = resolve_organization(user)

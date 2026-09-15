@@ -46,6 +46,8 @@ def client_request_id(request, payload=None) -> Optional[str]:
 
 
 def begin_idempotency(user, request, payload=None):
+    if getattr(request, "_idempotency_managed", False):
+        return None, None
     key = client_request_id(request, payload)
     if not key:
         return None, None

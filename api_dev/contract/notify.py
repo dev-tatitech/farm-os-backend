@@ -1,3 +1,5 @@
+from common.mutations import atomic_mutation
+from common.access import authorized_farms
 from django.utils import timezone
 from ninja import Router
 
@@ -46,6 +48,7 @@ def list_notifications(request, page: int = 1, page_size: int = 20, unread_only:
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error},
     summary="Mark a notification as read",
 )
+@atomic_mutation
 def read_notification(request, notification_id: int):
     user = require_user(request)
     org = resolve_organization(user)
@@ -65,6 +68,7 @@ def read_notification(request, notification_id: int):
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error},
     summary="Mark all notifications as read",
 )
+@atomic_mutation
 def read_all_notifications(request):
     user = require_user(request)
     org = resolve_organization(user)

@@ -1,3 +1,4 @@
+from common.access import authorized_farms
 from ninja import Router
 
 from animals.models import AnimalEvent
@@ -26,7 +27,7 @@ def list_timeline(
     user = require_user(request)
     org = resolve_organization(user)
     qs = (
-        AnimalEvent.objects.filter(farm__organization=org)
+        AnimalEvent.objects.filter(farm__in=authorized_farms(user, org))
         .select_related("event_type", "animal", "farm")
         .order_by("-event_date", "-id")
     )

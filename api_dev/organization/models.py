@@ -36,6 +36,9 @@ class Organization(TimeStampedModel):
     )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="trial")
     logo = models.ImageField(upload_to="organizations/", null=True, blank=True)
+    phone = models.CharField(max_length=32, null=True, blank=True)
+    email = models.EmailField(null=True, blank=True)
+    address = models.TextField(null=True, blank=True)
 
 class FarmType(models.Model):
     name = models.CharField(max_length=50)

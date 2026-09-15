@@ -1,3 +1,4 @@
+from common.access import authorized_farms
 from datetime import timedelta
 
 from django.utils import timezone
@@ -18,8 +19,8 @@ from .identity import display_name
 dash_router = Router(tags=["Dashboard"])
 
 
-def _open_tasks(org, farm=None):
-    qs = Task.objects.filter(organization=org).exclude(
+def _open_tasks(org, user, farm=None):
+    qs = Task.objects.filter(farm__in=authorized_farms(user, org)).exclude(
         status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED, Task.Status.UNABLE_TO_COMPLETE]
     )
     if farm:
@@ -36,19 +37,18 @@ def org_dashboard(request):
     user = require_user(request)
     org = resolve_organization(user)
     require_permission(user, org, Permissions.Reports.LIVESTOCK_DASHBOARD, Permissions.Animal.VIEW)
-    animals = Animal.objects.filter(farm__organization=org)
-    farms = Farm.objects.filter(organization=org)
-    open_tasks = _open_tasks(org)
+    animals = Animal.objects.filter(farm__in=authorized_farms(user, org))
+    farms = authorized_farms(user, org)
+    open_tasks = _open_tasks(org, user)
     now = timezone.now()
     today = timezone.localdate()
-    upcoming_vacc = Task.objects.filter(
-        organization=org,
+    upcoming_vacc = Task.objects.filter(farm__in=authorized_farms(user, org),
         task_type=Task.Type.VACCINATION,
         due_at__date__gte=today,
         due_at__date__lte=today + timedelta(days=7),
     ).exclude(status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED]).count()
     expected_births = PregnancyRecord.objects.filter(
-        farm__organization=org,
+        farm__in=authorized_farms(user, org),
         result="pregnant",
         expected_delivery_date__gte=today,
         expected_delivery_date__lte=today + timedelta(days=14),
@@ -56,13 +56,13 @@ def org_dashboard(request):
     from animals.models import AnimalEvent
 
     recent = (
-        AnimalEvent.objects.filter(farm__organization=org)
+        AnimalEvent.objects.filter(farm__in=authorized_farms(user, org))
         .select_related("event_type", "animal", "farm", "created_by")
         .order_by("-event_date", "-id")[:10]
     )
     farm_breakdown = []
     for farm in farms:
-        farm_open = _open_tasks(org, farm)
+        farm_open = _open_tasks(org, user, farm)
         farm_today = farm_open.filter(due_at__date=today)
         completed_today = Task.objects.filter(
             farm=farm, status=Task.Status.COMPLETED, completed_at__date=today
@@ -93,8 +93,7 @@ def org_dashboard(request):
         },
         "operations": {
             "scheduled_today": open_tasks.filter(due_at__date=today).count(),
-            "completed_today": Task.objects.filter(
-                organization=org, status=Task.Status.COMPLETED, completed_at__date=today
+            "completed_today": Task.objects.filter(farm__in=authorized_farms(user, org), status=Task.Status.COMPLETED, completed_at__date=today
             ).count(),
             "in_progress": open_tasks.filter(status=Task.Status.IN_PROGRESS).count(),
             "overdue": open_tasks.filter(due_at__lt=now).count(),
@@ -102,15 +101,14 @@ def org_dashboard(request):
         "attention": {
             "critical_health": animals.filter(health_status="sick").count(),
             "feed_risk": HealthAlert.objects.filter(
-                farm__organization=org, status="open", alert_type__icontains="feed"
+                farm__in=authorized_farms(user, org), status="open", alert_type__icontains="feed"
             ).count(),
             "quarantine": animals.filter(is_quarantine=True).count(),
             "overdue_operations": open_tasks.filter(due_at__lt=now).count(),
         },
         "upcoming": {
             "vaccinations_7_days": upcoming_vacc,
-            "followups_7_days": Task.objects.filter(
-                organization=org,
+            "followups_7_days": Task.objects.filter(farm__in=authorized_farms(user, org),
                 parent__isnull=False,
                 due_at__date__gte=today,
                 due_at__date__lte=today + timedelta(days=7),
@@ -143,7 +141,7 @@ def farm_dashboard(request, farm_id: int):
     require_permission(user, org, Permissions.Reports.LIVESTOCK_DASHBOARD, Permissions.Animal.VIEW)
     farm = require_farm(org, farm_id, user)
     animals = Animal.objects.filter(farm=farm)
-    open_tasks = _open_tasks(org, farm)
+    open_tasks = _open_tasks(org, user, farm)
     now = timezone.now()
     today = timezone.localdate()
     from animals.models import AnimalEvent
@@ -237,7 +235,7 @@ def farm_dashboard(request, farm_id: int):
 def my_work_dashboard(request, farm_id: int = None):
     user = require_user(request)
     org = resolve_organization(user)
-    qs = Task.objects.filter(organization=org, assigned_to=user).select_related(
+    qs = Task.objects.filter(farm__in=authorized_farms(user, org), assigned_to=user).select_related(
         "animal", "assigned_to", "created_by", "farm"
     )
     if farm_id is not None:
@@ -269,9 +267,9 @@ def health_dashboard(request, farm_id: int = None):
     org = resolve_organization(user)
     require_permission(user, org, Permissions.Health.VIEW)
     farm = require_farm(org, farm_id, user) if farm_id is not None else None
-    cases = HealthCase.objects.filter(farm__organization=org, status=HealthCase.Status.OPEN)
-    animals = Animal.objects.filter(farm__organization=org)
-    tasks = Task.objects.filter(organization=org)
+    cases = HealthCase.objects.filter(farm__in=authorized_farms(user, org), status=HealthCase.Status.OPEN)
+    animals = Animal.objects.filter(farm__in=authorized_farms(user, org))
+    tasks = Task.objects.filter(farm__in=authorized_farms(user, org))
     if farm:
         cases = cases.filter(farm=farm)
         animals = animals.filter(farm=farm)
@@ -295,7 +293,7 @@ def health_dashboard(request, farm_id: int = None):
         .exclude(status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED])
         .count(),
         "quarantined_animals": animals.filter(is_quarantine=True).count(),
-        "mortality_cases": MortalityRecord.objects.filter(farm__organization=org).count()
+        "mortality_cases": MortalityRecord.objects.filter(farm__in=authorized_farms(user, org)).count()
         if not farm
         else MortalityRecord.objects.filter(farm=farm).count(),
         "withdrawal_animals": animals.filter(is_quarantine=True).count(),

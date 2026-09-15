@@ -1,3 +1,4 @@
+from common.scoping import scoped_lookup
 from ninja import Router, Query
 from django.conf import settings
 from ninja import File
@@ -82,6 +83,7 @@ def insemination(
     request,
     payload:InseminationRecordSchema
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Reproduction.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -181,6 +183,7 @@ def get_insemination(
     page_size: int,
     farm_id: int
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Reproduction.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -240,6 +243,7 @@ def pregnancy(
     request,
     payload:PregnancyRecordIn
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Reproduction.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -338,6 +342,7 @@ def get_pregnancy(
     page_size: int,
     farm_id: int
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Reproduction.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -396,6 +401,7 @@ def birth(
     request,
     payload:BirthRecordIn
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Reproduction.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -470,6 +476,7 @@ def get_birth(
     page_size: int,
     farm_id: int
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Reproduction.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -534,6 +541,7 @@ def birth_offspring(
     request,
     payload:BirthOffspringRecordIn
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Reproduction.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -637,6 +645,7 @@ def get_birth_offspring(
     page_size: int,
     farm_id: int
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Reproduction.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -707,6 +716,7 @@ def get_insemination_v2(
     page_size: int,
     farm_id: int
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Reproduction.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -771,6 +781,7 @@ def get_pregnancy_v2(
     page_size: int,
     farm_id: int
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Reproduction.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -835,6 +846,7 @@ def get_birth_v2(
     page_size: int,
     farm_id: int
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Reproduction.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -894,6 +906,7 @@ def birth_offspring_v2(
     request,
     payload:BirthOffspringRecordIn
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Reproduction.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -1014,6 +1027,7 @@ def get_birth_offspring_v2(
     page_size: int,
     farm_id: int
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Reproduction.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -1082,6 +1096,7 @@ def seed_breeding_rule(request):
 
 @router.get("/breeding-rule/{species_id}/", response={200: APIResponse, 403: APIResponse})
 def get_breeding_rule(request, species_id: int, farm_id: int = None):
+    get_object_or_404 = scoped_lookup(request, Permissions.Reproduction.VIEW)
     user_id = get_current_user(request)
     try:
         users.objects.get(Q(id=user_id))
@@ -1110,6 +1125,7 @@ def create_farm_breeding_rule(
     min_postpartum_interval_days: int = None, max_births_lifetime: int = None,
     allow_pregnant_and_lactating: bool = True,
 ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Reproduction.UPDATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -1164,6 +1180,7 @@ def create_farm_breeding_rule(
 
 @router.get("/breeding-eligibility/{animal_id}/", response={200: APIResponse, 403: APIResponse})
 def get_breeding_eligibility(request, animal_id: int, for_pregnancy: bool = False):
+    get_object_or_404 = scoped_lookup(request, Permissions.Reproduction.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))

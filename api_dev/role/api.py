@@ -1,3 +1,4 @@
+from common.mutations import atomic_mutation
 from ninja import Router, Query
 from django.conf import settings
 from ninja import File
@@ -68,7 +69,36 @@ from .schema import (
     UserRolePatchIn,
     RolePermissionIn
 )
+from common.access import organization_for, owner
+from common.audit import security_event
+from contract.authz import require_permission
+from contract.exceptions import ContractError
+from contract.codes import ErrorCode
+
 router = Router(tags=["User and Role management"])
+
+
+def _authority(request, capability):
+    actor = User.objects.get(pk=get_current_user(request))
+    org = organization_for(actor)
+    if org is None:
+        raise ContractError(404, ErrorCode.ORGANIZATION_NOT_FOUND, "Organization could not be found.")
+    require_permission(actor, org, capability)
+    return org
+
+
+def _assignment_state(row):
+    return {"user_id": str(row.user_id), "role_id": row.role_id, "farm_id": row.farm_id, "status": row.status}
+
+
+def _validate_assignment(org, user, role, farm):
+    if owner(user, org) or user.organization_id != org.id or user.account_status != "active" or not user.is_active:
+        raise ContractError(422, ErrorCode.INVALID_ROLE_ASSIGNMENT, "An active staff member is required.")
+    if role.organization_id != org.id or not role.active:
+        raise ContractError(422, ErrorCode.INVALID_ROLE_ASSIGNMENT, "An active organization role is required.")
+    if farm.organization_id != org.id or farm.status != "active":
+        raise ContractError(422, ErrorCode.INVALID_FARM_ASSIGNMENT, "An active organization farm is required.")
+
 
 
 def _paged_rows(queryset, page, page_size, serializer, message):
@@ -102,6 +132,7 @@ def get_permission(request, page: int = 1, page_size: int = 20):
     except users.DoesNotExist:
         return 403, APIResponse(success=False, message="Permission denied", data=None)
     
+    org = _authority(request, "view_roles")
     plans = Permission.objects.all()
     return 200, _paged_rows(plans, page, page_size, lambda plan: {
          "id": plan.id,
@@ -115,6 +146,7 @@ def get_permission(request, page: int = 1, page_size: int = 20):
     "/role/",
     response={200: APIResponse, 403: APIResponse},
 )
+@atomic_mutation
 def role(request, payload: RoleIn):
     user_id = get_current_user(request)
     try:
@@ -122,18 +154,22 @@ def role(request, payload: RoleIn):
     except users.DoesNotExist:
         raise HttpError(400, "Permission denied")
  
-    org = get_object_or_404(Organization, user = user)
+    org = _authority(request, "create_role")
+    if not payload.name.strip():
+        raise ContractError(422, ErrorCode.VALIDATION_ERROR, "Role name is required.")
     normalized = " ".join(payload.name.split()).casefold()
     if Role.objects.filter(normalized_name=normalized, organization=org).exists():
-        raise HttpError(409, "Role name must be unique within this organization.")
+        raise ContractError(409, ErrorCode.ROLE_NAME_ALREADY_EXISTS, "Role name must be unique within this organization.")
     code = f"RL-{generate_ref()}"
     role = Role.objects.create(
         organization = org,
         name = " ".join(payload.name.split()),
         normalized_name = normalized,
         code = code,
-        description =  payload.description
+        description = payload.description,
+        web_access=payload.web_access, mobile_access=payload.mobile_access,
     )
+    security_event("ROLE_CREATED", user, target=role, org=org, new={"name": role.name})
     data = {
      "id": role.id,
      "nae": role.name   
@@ -152,7 +188,7 @@ def get_role(request, page: int = 1, page_size: int = 20):
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         return 403, APIResponse(success=False, message="Permission denied", data=None)
-    org = get_object_or_404(Organization, user = user)
+    org = _authority(request, "view_roles")
     plans = Role.objects.filter(organization = org)
     return 200, _paged_rows(plans, page, page_size, lambda plan: {
          "id": plan.id,
@@ -165,14 +201,19 @@ def get_role(request, page: int = 1, page_size: int = 20):
     "/role/",
     response={200: APIResponse, 403: APIResponse},
 )
+@atomic_mutation
 def update_role(request, payload:RoleUpdateSchema):
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         return 403, APIResponse(success=False, message="Permission denied", data=None)
-    role = get_object_or_404(Role, id = payload.role_id)
-    if payload.name:
+    org = _authority(request, "update_role")
+    role = get_object_or_404(Role, id = payload.role_id, organization=org)
+    previous = {"name": role.name, "description": role.description}
+    if payload.name is not None:
+        if not payload.name.strip():
+            raise ContractError(422, ErrorCode.VALIDATION_ERROR, "Role name is required.")
         normalized = " ".join(payload.name.split()).casefold()
         if Role.objects.filter(
             organization=role.organization,
@@ -181,9 +222,15 @@ def update_role(request, payload:RoleUpdateSchema):
             raise HttpError(409, "Role name must be unique within this organization.")
         role.name = " ".join(payload.name.split())
         role.normalized_name = normalized
-    if payload.description:
+    if payload.description is not None:
         role.description = payload.description
+    for field in ("active", "web_access", "mobile_access"):
+        if getattr(payload, field) is not None:
+            setattr(role, field, getattr(payload, field))
     role.save()
+    security_event("ROLE_UPDATED", user, target=role, org=org, previous=previous,
+                   new={"name": role.name, "description": role.description, "active": role.active,
+                        "web_access": role.web_access, "mobile_access": role.mobile_access})
     data ={
          "id": role.id,
          "code": role.code  ,
@@ -199,16 +246,22 @@ def update_role(request, payload:RoleUpdateSchema):
     "/role/{role_id}",
     response={200: APIResponse, 403: APIResponse},
 )
+@atomic_mutation
 def delete_role(request, role_id: int):
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         return 403, APIResponse(success=False, message="Permission denied", data=None)
-    role = get_object_or_404(Role, id = role_id)
-    role.delete()
+    org = _authority(request, "update_role")
+    role = get_object_or_404(Role, id = role_id, organization=org)
+    if UserRole.objects.filter(role=role).exists():
+        raise ContractError(409, ErrorCode.ROLE_IN_USE, "Role has assignment history; deactivate it instead.")
+    role.active = False
+    role.save(update_fields=["active"])
+    security_event("ROLE_UPDATED", user, target=role, org=org, previous={"active": True}, new={"active": False})
     return 200, APIResponse(
-        success=True, message="Role deleted successfully", data=None
+        success=True, message="Role archived successfully", data=None
     )
     
 
@@ -216,6 +269,7 @@ def delete_role(request, role_id: int):
     "/user/",
     response={200: APIResponse, 403: APIResponse},
 )
+@atomic_mutation
 def add_user(request, payload: NewUserIn):
     user_id = get_current_user(request)
     try:
@@ -225,7 +279,7 @@ def add_user(request, payload: NewUserIn):
     
     if User.objects.filter(email=payload.email).exists():
        raise HttpError(400, "Email already exists.")
-    org = get_object_or_404(Organization, user = user)
+    org = _authority(request, "invite_user")
 
     username = generate_unique_username()
     password = generate_strong_password()
@@ -236,7 +290,7 @@ def add_user(request, payload: NewUserIn):
         organization = org,
         account_status = "invited"
     )
-    send_sub_account_otp_email(client,client.email)
+    db_transaction.on_commit(lambda: send_sub_account_otp_email(client, client.email))
     return 200, APIResponse(
         success=True, message="New User added successfully", data=None
     )
@@ -305,7 +359,7 @@ def get_user(request, page: int = 1, page_size: int = 20):
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(400, "Permission denied")
-    org = get_object_or_404(Organization, user = user)
+    org = _authority(request, "view_people")
     all_user = User.objects.filter(organization =org)
     return 200, _paged_rows(all_user, page, page_size, lambda user: {
         "id": user.id,
@@ -316,18 +370,20 @@ def get_user(request, page: int = 1, page_size: int = 20):
     "/user-role/",
     response={200: APIResponse},
 )
+@atomic_mutation
 def assign_user_role(request, payload: NewUserRoleIn):
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(400, "Permission denied")
-    org = get_object_or_404(Organization, user = user)
+    org = _authority(request, "manage_user_assignment")
     my_user = get_object_or_404(User, organization= org, id = payload.user_id)
     role = get_object_or_404(Role, organization = org, id =payload.role_id)
     farm = get_object_or_404(Farm, organization = org, id = payload.farm_id)
     if my_user.id == org.user_id:
         raise HttpError(403, "Organization ownership cannot be replaced by a role assignment.")
+    _validate_assignment(org, my_user, role, farm)
     if UserRole.objects.filter(
         user = my_user,
         role = role,
@@ -341,6 +397,8 @@ def assign_user_role(request, payload: NewUserRoleIn):
         farm = farm,
         assigned_by = user
     )
+    security_event("USER_ASSIGNMENT_CREATED", user, target=user_role, org=org, farm=farm,
+                   new=_assignment_state(user_role))
     data = {"assignment": {
         "id": user_role.id,
         "user_id": str(user_role.user_id),
@@ -356,10 +414,11 @@ def assign_user_role(request, payload: NewUserRoleIn):
 
 
 @router.patch("/user-role/{assignment_id}/", response={200: APIResponse, 403: APIResponse})
+@atomic_mutation
 def update_user_role(request, assignment_id: int, payload: UserRolePatchIn):
     actor_id = get_current_user(request)
     actor = get_object_or_404(User, id=actor_id)
-    org = get_object_or_404(Organization, user=actor)
+    org = _authority(request, "manage_user_assignment")
     assignment = get_object_or_404(
         UserRole.objects.select_related("user", "role", "farm"),
         id=assignment_id,
@@ -368,13 +427,19 @@ def update_user_role(request, assignment_id: int, payload: UserRolePatchIn):
     )
     if assignment.user_id == org.user_id:
         raise HttpError(403, "Organization owner assignments cannot be changed.")
+    previous = _assignment_state(assignment)
     if payload.farm_id is not None:
         assignment.farm = get_object_or_404(Farm, id=payload.farm_id, organization=org)
     if payload.role_id is not None:
         assignment.role = get_object_or_404(Role, id=payload.role_id, organization=org)
     if payload.farm_id is None and payload.role_id is None:
         raise HttpError(422, "farm_id or role_id is required.")
-    assignment.save(update_fields=["farm", "role"])
+    _validate_assignment(org, assignment.user, assignment.role, assignment.farm)
+    if UserRole.objects.filter(user=assignment.user, role=assignment.role, farm=assignment.farm, status="active").exclude(pk=assignment.pk).exists():
+        raise ContractError(409, ErrorCode.CONFLICT, "Assignment already exists.")
+    assignment.save(update_fields=["farm", "role", "updated_at"])
+    security_event("USER_ASSIGNMENT_UPDATED", actor, target=assignment, org=org, farm=assignment.farm,
+                   previous=previous, new=_assignment_state(assignment))
     return 200, APIResponse(
         success=True,
         message="User assignment updated successfully.",
@@ -389,23 +454,27 @@ def update_user_role(request, assignment_id: int, payload: UserRolePatchIn):
 
 
 @router.delete("/user-role/{assignment_id}/", response={200: APIResponse, 403: APIResponse})
+@atomic_mutation
 def revoke_user_role(request, assignment_id: int):
     actor_id = get_current_user(request)
     actor = get_object_or_404(User, id=actor_id)
-    org = get_object_or_404(Organization, user=actor)
+    org = _authority(request, "manage_user_assignment")
     assignment = get_object_or_404(
         UserRole.objects.select_related("user", "farm"),
         id=assignment_id,
         farm__organization=org,
     )
     if assignment.status == "revoked":
-        raise HttpError(409, "Assignment already revoked.")
+        raise ContractError(409, ErrorCode.ASSIGNMENT_ALREADY_REVOKED, "Assignment already revoked.")
     if assignment.user_id == org.user_id:
         raise HttpError(403, "Organization owner access cannot be revoked.")
+    previous = _assignment_state(assignment)
     assignment.status = "revoked"
     assignment.revoked_at = timezone.now()
     assignment.revoked_by = actor
-    assignment.save(update_fields=["status", "revoked_at", "revoked_by"])
+    assignment.save(update_fields=["status", "revoked_at", "revoked_by", "updated_at"])
+    security_event("USER_ASSIGNMENT_REVOKED", actor, target=assignment, org=org, farm=assignment.farm,
+                   previous=previous, new=_assignment_state(assignment))
     return 200, APIResponse(
         success=True,
         message="Farm assignment removed successfully.",
@@ -421,7 +490,7 @@ def get_user_role(request, page: int = 1, page_size: int = 20):
     except User.DoesNotExist:
         raise HttpError(403, "Permission denied")
 
-    org = get_object_or_404(Organization, user=user)
+    org = _authority(request, "view_people")
     all_users = (
         User.objects
         .filter(organization=org)
@@ -467,13 +536,14 @@ def get_user_role(request, page: int = 1, page_size: int = 20):
     "/role-permission/",
     response={200: APIResponse},
 )
+@atomic_mutation
 def assign_role_permission(request, payload: RolePermissionIn):
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(400, "Permission denied")
-    org = get_object_or_404(Organization, user=user)
+    org = _authority(request, "manage_role_permissions")
     role = get_object_or_404(Role, organization=org, id=payload.role_id)
 
     permissions = Permission.objects.filter(id__in=payload.permission_ids)
@@ -482,7 +552,9 @@ def assign_role_permission(request, payload: RolePermissionIn):
     if missing:
         raise HttpError(404, f"Permission(s) not found: {sorted(missing)}")
 
+    previous = list(RolePermission.objects.filter(role=role).values_list("permission_id", flat=True))
     with db_transaction.atomic():
+        Role.objects.select_for_update().get(pk=role.pk)
         RolePermission.objects.filter(role=role).delete()
         RolePermission.objects.bulk_create(
             [RolePermission(role=role, permission=p) for p in permissions]
@@ -492,6 +564,8 @@ def assign_role_permission(request, payload: RolePermissionIn):
         .order_by("permission_id")
         .values_list("permission_id", flat=True)
     )
+    security_event("ROLE_PERMISSIONS_UPDATED", user, target=role, org=org,
+                   previous={"permission_ids": previous}, new={"permission_ids": authoritative_ids})
     data = {"role_id": role.id, "permission_ids": authoritative_ids}
     return 200, APIResponse(
         success=True,
@@ -509,7 +583,7 @@ def get_role_permission(request, page: int = 1, page_size: int = 20):
         user = users.objects.get(Q(id=user_id))
     except users.DoesNotExist:
         raise HttpError(400, "Permission denied")
-    org = get_object_or_404(Organization, user = user)
+    org = _authority(request, "view_roles")
     roles = Role.objects.prefetch_related("roles_permission__permission").filter(organization= org)
     data = []
     for role in roles:

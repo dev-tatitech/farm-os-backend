@@ -1,3 +1,5 @@
+from common.mutations import atomic_mutation
+from common.access import authorized_farms
 from django.db.models import Count, Q
 from ninja import File, Router
 from ninja.files import UploadedFile
@@ -84,6 +86,7 @@ def get_farm(request, farm_id: int):
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error},
     summary="Update farm profile",
 )
+@atomic_mutation
 def patch_farm(request, farm_id: int, payload: FarmPatchIn):
     user = require_user(request)
     org = resolve_organization(user)
@@ -110,6 +113,7 @@ def patch_farm(request, farm_id: int, payload: FarmPatchIn):
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error},
     summary="Upload or replace a farm profile image",
 )
+@atomic_mutation
 def upload_farm_image(request, farm_id: int, image: UploadedFile = File(...)):
     user = require_user(request)
     org = resolve_organization(user)

@@ -43,6 +43,8 @@ def _is_deprecated_doc_path(path: str, deprecated_patterns: set[str]) -> bool:
 def merge_dev_openapi(dev_schema: dict[str, Any], v2_schema: dict[str, Any]) -> dict[str, Any]:
     merged = copy.deepcopy(dev_schema)
     merged_paths = merged.setdefault("paths", {})
+    for section, definitions in (v2_schema.get("components") or {}).items():
+        merged.setdefault("components", {}).setdefault(section, {}).update(copy.deepcopy(definitions))
     deprecated_patterns = _deprecated_doc_patterns()
 
     for path in list(merged_paths.keys()):

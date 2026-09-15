@@ -1,3 +1,4 @@
+from common.scoping import scoped_lookup
 from ninja import Router, Query
 from typing import Optional
 from django.conf import settings
@@ -564,6 +565,7 @@ def get_livestock_species(request, page: int = 1, page_size: int = 20):
 
 @router.get("/livestock/breeds/{species_id}/", response={200: APIResponse, 403: APIResponse})
 def get_livestock_breeds(request, species_id: int, farm_id: Optional[int] = None, page: int = 1, page_size: int = 20):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.VIEW)
     user_id = get_current_user(request)
     try:
         users.objects.get(Q(id=user_id))
@@ -600,6 +602,7 @@ def get_housing_unit_types(request, species_id: int, page: int = 1, page_size: i
 
 @router.get("/livestock/housing-units/{farm_id}/", response={200: APIResponse, 403: APIResponse})
 def get_farm_housing_units(request, farm_id: int, species_id: Optional[int] = None, page: int = 1, page_size: int = 20):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -686,6 +689,7 @@ def create_farm_breed(request, payload: LivestockBreedIn):
 
 @router.patch("/livestock/breeds/{breed_id}/", response={200: APIResponse, 403: APIResponse})
 def update_farm_breed(request, breed_id: int, payload: LivestockBreedUpdate):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.UPDATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -757,6 +761,7 @@ def create_farm_housing_unit(request, payload: FarmHousingUnitIn):
 
 @router.patch("/livestock/housing-unit/{unit_id}/", response={200: APIResponse, 403: APIResponse})
 def update_farm_housing_unit(request, unit_id: int, payload: FarmHousingUnitUpdate):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.UPDATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -1050,6 +1055,7 @@ def get_life_stages(request, species_id: int):
 
 @router.get("/lifecycle/animal/{animal_id}/", response={200: APIResponse, 403: APIResponse})
 def get_animal_lifecycle(request, animal_id: int):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -1077,6 +1083,7 @@ def get_animal_lifecycle(request, animal_id: int):
 
 @router.post("/lifecycle/animal/{animal_id}/refresh/", response={200: APIResponse, 403: APIResponse})
 def refresh_animal_lifecycle(request, animal_id: int):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.UPDATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -1093,6 +1100,7 @@ def refresh_animal_lifecycle(request, animal_id: int):
 
 @router.post("/lifecycle/animal/{animal_id}/override/", response={200: APIResponse, 403: APIResponse})
 def override_animal_lifecycle(request, animal_id: int, stage: str, reason: str):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.UPDATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -1136,6 +1144,7 @@ def create_farm_weight_range(
     min_age_months: float = None, max_age_months: float = None,
     min_weight_kg: float = None, max_weight_kg: float = None, target_daily_gain_kg: float = None,
 ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.UPDATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -1190,6 +1199,7 @@ def create_farm_weight_range(
 
 @router.get("/weight-range/{species_id}/", response={200: APIResponse, 403: APIResponse})
 def get_weight_ranges(request, species_id: int, farm_id: int = None):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.VIEW)
     user_id = get_current_user(request)
     try:
         users.objects.get(Q(id=user_id))
@@ -1208,6 +1218,7 @@ def get_weight_ranges(request, species_id: int, farm_id: int = None):
 
 @router.get("/weight-range/animal/{animal_id}/", response={200: APIResponse, 403: APIResponse})
 def get_animal_weight_range(request, animal_id: int):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))

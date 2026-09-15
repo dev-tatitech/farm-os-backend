@@ -32,14 +32,13 @@ def identity_payload(user) -> dict:
 
 
 def can_manage_people(user, org) -> bool:
-    if is_organization_owner(user, org):
-        return True
-    codes = permission_codes_for_user(user, org)
-    return Permissions.Farm.UPDATE in codes
+    from common.access import has_capability
+    return has_capability(user, org, "manage_people")
 
 
 def can_view_people(user, org) -> bool:
-    return can_manage_people(user, org)
+    from common.access import has_capability
+    return has_capability(user, org, "view_people")
 
 
 def actor_payload(user, org=None) -> dict:

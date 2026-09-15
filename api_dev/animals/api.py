@@ -1,3 +1,4 @@
+from common.scoping import scoped_lookup
 from ninja import Router, Query, Form
 from django.conf import settings
 from ninja import File
@@ -96,6 +97,7 @@ def new_animal(
     payload: AnimalsSchemaIn,
     image: UploadedFile = File(None),
 ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -184,6 +186,7 @@ def get_animal(
     breed_id: int = None,
     search: str = None,
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -263,6 +266,7 @@ def get_animal_by_id(
     request,
     animal_id: int
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -310,6 +314,7 @@ def update_animal_image(
     animal_id: int,
     image: UploadedFile = File(...),
 ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.UPDATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -345,6 +350,7 @@ def update_animal(
     animal_id: int,
     farm_id: int
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.UPDATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -436,6 +442,7 @@ def animal_profile_attribute(
     payload:AnimalProfileAttributeSchemaIn,
     farm_id: int
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -526,6 +533,7 @@ def delete_animal_at_proile(
     request,
     animal_attribute_id: int
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.DELETE)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -573,6 +581,7 @@ def animal_group(
         if not perm:
             raise HttpError(404, f"Permission denied")
         
+    scoped_lookup(request, Permissions.Animal.CREATE)(Farm, id=payload.farm_id)
     if not Farm.objects.filter(id=payload.farm_id, organization=org).exists():
         raise HttpError(400, "Invalid farm_id")
     if not GroupType.objects.filter(id=payload.group_type_id).exists():
@@ -598,6 +607,7 @@ def get_animal_group(
     page_size: int,
     farm_id: int
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -649,6 +659,7 @@ def update_animal_group(
     payload: AnimalGroupUpdateSchema,
     group_id:int
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.UPDATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -701,6 +712,7 @@ def animal_group(
         if not perm:
             raise HttpError(404, f"Permission denied")
         
+    scoped_lookup(request, Permissions.Animal.CREATE)(Farm, id=payload.farm_id)
     if not Farm.objects.filter(id=payload.farm_id).exists():
         raise HttpError(400, "Invalid farm_id")
     if not GroupType.objects.filter(id=payload.group_type_id).exists():
@@ -844,6 +856,7 @@ def update_animal_group_member(
     payload: UpdateAnimalGroupMemberSchemaIn,
     member_id:int
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.UPDATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -948,6 +961,7 @@ def weight(
     request,
     payload:AnimalWeightIn
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -1056,6 +1070,7 @@ def get_animal_weight(
     response={200: APIResponse, 403: APIResponse},
 )
 def get_animal_weight_by_animal(request, animal_id: int):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -1087,6 +1102,7 @@ def milk(
     request,
     payload:MilkRecordSchema
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Production.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -1171,6 +1187,7 @@ def get_milk(
     page_size: int,
     farm_id: int
     ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Production.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -1223,6 +1240,7 @@ def get_milk(
 
 @router.get("/animal-profile/{animal_id}", response={200: APIResponse, 403: APIResponse})
 def animal_profile(request, animal_id: int):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -1442,6 +1460,7 @@ def new_animal_v2(
     payload: AnimalsSchemaInV2 = Form(...),
     image: UploadedFile = File(None),
 ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -1525,6 +1544,7 @@ def new_animal_v2(
 
 @router.post("/animal/{animal_id}/acquisition/", response={200: APIResponse, 403: APIResponse})
 def set_animal_acquisition(request, animal_id: int, payload: AnimalAcquisitionSchemaIn):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.UPDATE)
     """
     Records how an animal entered the farm (purchase/import/born/opening
     record) and turns that into the animal's cost baseline. Purchased and
@@ -1580,6 +1600,7 @@ def get_animal_v2(
     housing_unit_id: int = None,
     search: str = None,
 ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -1656,6 +1677,7 @@ def get_animal_v2(
 
 @router.get("/animal-profile/v2/{animal_id}", response={200: APIResponse, 403: APIResponse})
 def animal_profile_v2(request, animal_id: int):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -1837,6 +1859,7 @@ def animal_profile_v2(request, animal_id: int):
 
 @router.get("/animal-by-id/v2/{animal_id}", response={200: APIResponse, 403: APIResponse})
 def get_animal_by_id_v2(request, animal_id: int):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -1892,6 +1915,7 @@ def update_animal_v2(
     payload: AnimalsUpdateSchemaInV2,
     animal_id: int,
 ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.UPDATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -2129,6 +2153,7 @@ def get_animal_weight_v2(request, page: int, page_size: int, farm_id: int):
     tags=["Production"],
 )
 def get_milk_v2(request, page: int, page_size: int, farm_id: int):
+    get_object_or_404 = scoped_lookup(request, Permissions.Production.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -2190,6 +2215,7 @@ def get_milk_v2(request, page: int, page_size: int, farm_id: int):
 
 @router.get("/animal-growth/{animal_id}/", response={200: APIResponse, 403: APIResponse})
 def get_animal_growth(request, animal_id: int):
+    get_object_or_404 = scoped_lookup(request, Permissions.Animal.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))

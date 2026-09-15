@@ -1,3 +1,4 @@
+from common.mutations import atomic_mutation
 from uuid import UUID
 
 from django.db.models import Count, Q
@@ -27,6 +28,9 @@ from .envelope import V2Error, V2Success, success_body
 from .exceptions import ContractError
 from .helpers import paginated
 from .identity import can_view_people, display_name, identity_payload
+from common.access import authorized_farms, has_capability, organization_for
+from common.audit import security_event
+from .authz import require_permission
 from .schemas import AssignmentPatchIn, OrgPatchIn, UserDeactivateIn, UserProfilePatchIn
 
 orgs_router = Router(tags=["Organizations"])
@@ -34,18 +38,19 @@ users_router = Router(tags=["Users"])
 
 
 def _org_payload(org, user):
-    farms = Farm.objects.filter(organization=org)
+    farms = authorized_farms(user, org)
     people = User.objects.filter(Q(organization=org) | Q(id=org.user_id)).distinct()
-    open_tasks = Task.objects.filter(organization=org).exclude(
+    open_tasks = Task.objects.filter(farm__in=authorized_farms(user, org)).exclude(
         status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED]
     )
-    animals = Animal.objects.filter(farm__organization=org)
+    animals = Animal.objects.filter(farm__in=authorized_farms(user, org))
     return {
         "id": str(org.id),
         "name": org.name,
         "code": org.code,
         "status": org.status,
         "industry": org.industry_type.name if org.industry_type_id else None,
+        "phone": org.phone, "email": org.email, "address": org.address,
         "country": org.country.name if org.country_id else None,
         "state_region": org.state_region.name if org.state_region_id else None,
         "logo": org.logo.url if org.logo else None,
@@ -82,6 +87,7 @@ def users_me(request):
             "status": org.status,
         },
         "assignments": user_assignments(user, org),
+        **build_capabilities(user, org, codes),
         "access": access_payload(user, org),
         "permissions": sorted(codes),
         "work_summary": work_summary_for(user, org),
@@ -94,6 +100,7 @@ def users_me(request):
     response={200: V2Success, 400: V2Error, 401: V2Error, 403: V2Error},
     summary="Update current user profile",
 )
+@atomic_mutation
 def patch_users_me(request, payload: UserProfilePatchIn):
     user = require_user(request)
     allowed = {"display_name", "phone"}
@@ -125,18 +132,24 @@ def patch_users_me(request, payload: UserProfilePatchIn):
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error},
     summary="Deactivate a user account",
 )
+@atomic_mutation
 def deactivate_user(request, user_id: UUID, payload: UserDeactivateIn):
     actor = require_user(request)
     org = resolve_organization(actor)
-    if not can_view_people(actor, org):
-        raise ContractError(403, ErrorCode.PERMISSION_DENIED, "You cannot manage user accounts.")
+    require_permission(actor, org, "deactivate_user")
     target = _require_org_user(org, user_id)
     if is_organization_owner(target, org):
         raise ContractError(403, ErrorCode.PERMISSION_DENIED, "The organization owner cannot be deactivated.")
+    target = User.objects.select_for_update().get(pk=target.pk)
+    previous = {"account_status": target.account_status}
     target.account_status = "deactivated"
     target.deactivated_at = timezone.now()
     target.deactivation_reason = payload.reason
     target.save(update_fields=["account_status", "deactivated_at", "deactivation_reason", "updated_at"])
+    from account.models import RefreshSession
+    RefreshSession.objects.filter(user=target, is_active=True).update(is_active=False)
+    security_event("USER_DEACTIVATED", actor, target=target, org=org, previous=previous,
+                   new={"account_status": target.account_status})
     return 200, success_body(
         data={
             "user_id": str(target.id),
@@ -153,16 +166,20 @@ def deactivate_user(request, user_id: UUID, payload: UserDeactivateIn):
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error},
     summary="Reactivate a user account",
 )
+@atomic_mutation
 def reactivate_user(request, user_id: UUID):
     actor = require_user(request)
     org = resolve_organization(actor)
-    if not can_view_people(actor, org):
-        raise ContractError(403, ErrorCode.PERMISSION_DENIED, "You cannot manage user accounts.")
+    require_permission(actor, org, "reactivate_user")
     target = _require_org_user(org, user_id)
+    target = User.objects.select_for_update().get(pk=target.pk)
+    previous = {"account_status": target.account_status}
     target.account_status = "active"
     target.deactivated_at = None
     target.deactivation_reason = ""
     target.save(update_fields=["account_status", "deactivated_at", "deactivation_reason", "updated_at"])
+    security_event("USER_REACTIVATED", actor, target=target, org=org, previous=previous,
+                   new={"account_status": target.account_status})
     return 200, success_body(
         data={"user_id": str(target.id), "account_status": target.account_status},
         code="USER_REACTIVATED",
@@ -175,6 +192,7 @@ def reactivate_user(request, user_id: UUID):
     response={200: V2Success, 400: V2Error, 401: V2Error, 413: V2Error},
     summary="Upload or replace current user avatar",
 )
+@atomic_mutation
 def upload_user_avatar(request, avatar: UploadedFile = File(...)):
     user = require_user(request)
     if avatar.content_type not in {"image/jpeg", "image/png"}:
@@ -195,6 +213,7 @@ def upload_user_avatar(request, avatar: UploadedFile = File(...)):
     response={200: V2Success, 401: V2Error},
     summary="Remove current user avatar",
 )
+@atomic_mutation
 def delete_user_avatar(request):
     user = require_user(request)
     if user.avatar:
@@ -230,7 +249,7 @@ def users_me_activity(request, page: int = 1, page_size: int = 20):
     user = require_user(request)
     org = resolve_organization(user)
     qs = (
-        AnimalEvent.objects.filter(farm__organization=org, created_by=user)
+        AnimalEvent.objects.filter(farm__in=authorized_farms(user, org), created_by=user)
         .select_related("event_type", "animal", "farm")
         .order_by("-event_date", "-id")
     )
@@ -247,7 +266,7 @@ def users_me_tasks(request, page: int = 1, page_size: int = 20, status: str = No
 
     user = require_user(request)
     org = resolve_organization(user)
-    qs = Task.objects.filter(organization=org, assigned_to=user).select_related(
+    qs = Task.objects.filter(farm__in=authorized_farms(user, org), assigned_to=user).select_related(
         "animal", "assigned_to", "created_by", "farm"
     )
     if status == "open":
@@ -278,7 +297,7 @@ def _user_operational(target: User, org, viewer):
 
 def _require_org_user(org, user_id) -> User:
     try:
-        target = User.objects.get(id=user_id)
+        target = User.objects.filter(Q(organization=org) | Q(id=org.user_id)).get(id=user_id)
     except (User.DoesNotExist, ValueError):
         raise ContractError(404, ErrorCode.USER_NOT_FOUND, "User could not be found.")
     if target.organization_id != org.id and org.user_id != target.id:
@@ -322,7 +341,7 @@ def list_users(request, page: int = 1, page_size: int = 20, search: str = None):
 def user_profile(request, user_id: UUID):
     user = require_user(request)
     org = resolve_organization(user)
-    if str(user.id) != str(user_id) and not can_view_people(user, org):
+    if str(user.id) != str(user_id) and not has_capability(user, org, "view_user_profile"):
         raise ContractError(403, ErrorCode.PERMISSION_DENIED, "You cannot view this user profile.")
     target = _require_org_user(org, user_id)
     payload = _user_operational(target, org, user)
@@ -339,11 +358,11 @@ def user_profile(request, user_id: UUID):
 def user_activity(request, user_id: UUID, page: int = 1, page_size: int = 20):
     user = require_user(request)
     org = resolve_organization(user)
-    if str(user.id) != str(user_id) and not can_view_people(user, org):
+    if str(user.id) != str(user_id) and not has_capability(user, org, "view_user_profile"):
         raise ContractError(403, ErrorCode.PERMISSION_DENIED, "You cannot view this user activity.")
     target = _require_org_user(org, user_id)
     qs = (
-        AnimalEvent.objects.filter(farm__organization=org, created_by=target)
+        AnimalEvent.objects.filter(farm__in=authorized_farms(user, org), created_by=target)
         .select_related("event_type", "animal", "farm", "created_by")
         .order_by("-event_date", "-id")
     )
@@ -358,10 +377,10 @@ def user_activity(request, user_id: UUID, page: int = 1, page_size: int = 20):
 def user_tasks(request, user_id: UUID, page: int = 1, page_size: int = 20, status: str = None):
     user = require_user(request)
     org = resolve_organization(user)
-    if str(user.id) != str(user_id) and not can_view_people(user, org):
+    if str(user.id) != str(user_id) and not has_capability(user, org, "view_user_profile"):
         raise ContractError(403, ErrorCode.PERMISSION_DENIED, "You cannot view this user's tasks.")
     target = _require_org_user(org, user_id)
-    qs = Task.objects.filter(organization=org, assigned_to=target).select_related(
+    qs = Task.objects.filter(farm__in=authorized_farms(user, org), assigned_to=target).select_related(
         "animal", "assigned_to", "created_by", "farm"
     )
     if status == "open":
@@ -389,14 +408,15 @@ permissions_router = Router(tags=["Users"])
 def list_roles(request, page: int = 1, page_size: int = 20):
     user = require_user(request)
     org = resolve_organization(user)
-    if not can_view_people(user, org):
+    if not has_capability(user, org, "view_roles"):
         raise ContractError(403, ErrorCode.PERMISSION_DENIED, "Roles are not available.")
-    rows = Role.objects.filter(Q(organization=org) | Q(organization__isnull=True)).order_by("name")
+    rows = Role.objects.filter(organization=org).order_by("name")
     return 200, paginated(
         rows,
         page,
         page_size,
-        lambda r: {"id": r.id, "name": r.name, "code": r.code},
+        lambda r: {"id": r.id, "name": r.name, "code": r.code, "active": r.active, "system_template_type": r.system_template_type,
+                   "channel_access": {"web": r.web_access, "mobile": r.mobile_access}},
         "Roles fetched successfully.",
     )
 
@@ -409,7 +429,7 @@ def list_roles(request, page: int = 1, page_size: int = 20):
 def list_permissions(request, page: int = 1, page_size: int = 20):
     user = require_user(request)
     org = resolve_organization(user)
-    if not can_view_people(user, org):
+    if not has_capability(user, org, "view_roles"):
         raise ContractError(403, ErrorCode.PERMISSION_DENIED, "Permissions are not available.")
     rows = Permission.objects.all().order_by("code")
     return 200, paginated(
@@ -447,6 +467,7 @@ def get_organization(request, organization_id: UUID):
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error},
     summary="Update organization profile",
 )
+@atomic_mutation
 def patch_organization(request, organization_id: UUID, payload: OrgPatchIn):
     user = require_user(request)
     org = require_organization(user, organization_id)
@@ -470,7 +491,7 @@ def patch_organization(request, organization_id: UUID, payload: OrgPatchIn):
 def organization_summary(request, organization_id: UUID):
     user = require_user(request)
     org = require_organization(user, organization_id)
-    animals = Animal.objects.filter(farm__organization=org)
+    animals = Animal.objects.filter(farm__in=authorized_farms(user, org))
     farms = Farm.objects.filter(organization=org)
     data = {
         "organization_id": str(org.id),
@@ -483,7 +504,7 @@ def organization_summary(request, organization_id: UUID):
             "quarantine": animals.filter(is_quarantine=True).count(),
             "pregnant": animals.filter(is_pregnant=True).count(),
         },
-        "open_tasks": Task.objects.filter(organization=org)
+        "open_tasks": Task.objects.filter(farm__in=authorized_farms(user, org))
         .exclude(status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED])
         .count(),
         "roles": Role.objects.filter(organization=org).count(),
@@ -501,7 +522,7 @@ def organization_activity(request, organization_id: UUID, page: int = 1, page_si
     user = require_user(request)
     org = require_organization(user, organization_id)
     qs = (
-        AnimalEvent.objects.filter(farm__organization=org)
+        AnimalEvent.objects.filter(farm__in=authorized_farms(user, org))
         .select_related("event_type", "animal", "farm")
         .order_by("-event_date", "-id")
     )

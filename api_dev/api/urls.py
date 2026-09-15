@@ -54,6 +54,37 @@ api.add_router("/reports/", reports)
 
 patch_dev_openapi(api, v2_api)
 
+from contract.exceptions import ContractError
+from contract.envelope import error_body
+from contract.codes import ErrorCode
+from django.http import Http404
+from ninja.errors import HttpError, ValidationError as NinjaValidationError
+
+
+@api.exception_handler(ContractError)
+def domain01_error(request, exc):
+    return api.create_response(request, error_body(exc.code, exc.message, errors=exc.errors,
+                               retryable=exc.retryable, data=exc.data), status=exc.http_status)
+
+
+@api.exception_handler(Http404)
+def resource_not_found(request, exc):
+    return api.create_response(request, error_body(ErrorCode.RESOURCE_NOT_FOUND,
+        "Resource could not be found."), status=404)
+
+
+@api.exception_handler(HttpError)
+def stable_http_error(request, exc):
+    code = {401: ErrorCode.AUTHENTICATION_REQUIRED, 403: ErrorCode.PERMISSION_DENIED,
+            404: ErrorCode.RESOURCE_NOT_FOUND, 409: ErrorCode.CONFLICT}.get(exc.status_code, ErrorCode.VALIDATION_ERROR)
+    return api.create_response(request, error_body(code, str(exc.message)), status=exc.status_code)
+
+
+@api.exception_handler(NinjaValidationError)
+def stable_validation_error(request, exc):
+    return api.create_response(request, error_body(ErrorCode.VALIDATION_ERROR,
+        "Request validation failed.", errors={"details": exc.errors}), status=422)
+
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/v2/docs", RedirectView.as_view(url="/api/docs", permanent=False)),

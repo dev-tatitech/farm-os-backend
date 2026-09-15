@@ -4,24 +4,17 @@ from common.permissions import Permissions
 from role.models import RolePermission, UserRole
 
 from .authz import is_organization_owner
+from common.access import assignments as active_assignments, channel_access, ALIASES, GOVERNANCE_CODES, OPERATION_CODES
 
 
 def permission_codes_for_user(user, org) -> set[str]:
-    if is_organization_owner(user, org):
-        from role.models import Permission
-
-        return set(Permission.objects.values_list("code", flat=True))
-    return set(
-        RolePermission.objects.filter(
-            Q(role__userrole__user=user, role__userrole__status="active"),
-            Q(role__organization=org) | Q(role__organization__isnull=True),
-        ).values_list("permission__code", flat=True)
-    )
+    from common.access import permission_codes
+    return permission_codes(user, org)
 
 
 def user_assignments(user, org) -> list[dict]:
     rows = (
-        UserRole.objects.filter(user=user, status="active")
+        active_assignments(user, org)
         .select_related("role", "farm")
         .filter(Q(farm__organization=org) | Q(farm__isnull=True))
     )
@@ -47,11 +40,12 @@ def access_payload(user, org) -> dict:
     if owner:
         return {
             "account_type": "organization_owner",
-            "access_source": "ownership",
+            "access_source": "organization_ownership",
             "scope": "organization",
             "is_organization_owner": True,
             "all_farms": True,
             "assignments": [],
+            "channel_access": channel_access(user, org),
         }
     return {
         "account_type": "staff",
@@ -59,6 +53,7 @@ def access_payload(user, org) -> dict:
         "scope": "assigned_farms" if assignments else "none",
         "is_organization_owner": False,
         "all_farms": False,
+        "channel_access": channel_access(user, org),
         "assignments": [
             {
                 "id": row["id"],
@@ -79,7 +74,7 @@ def build_capabilities(user, org, codes: set[str]) -> dict:
     owner = is_organization_owner(user, org)
 
     def cap(*needed: str) -> bool:
-        return owner or _has(codes, *needed)
+        return owner or any(bool(codes & ({code} | ALIASES.get(code, set()))) for code in needed)
 
     capabilities = {
         "view_animal_details": cap(Permissions.Animal.VIEW),
@@ -87,8 +82,8 @@ def build_capabilities(user, org, codes: set[str]) -> dict:
         "update_animal_details": cap(Permissions.Animal.UPDATE),
         "view_health": cap(Permissions.Health.VIEW),
         "record_health": cap(Permissions.Health.CREATE),
-        "record_health_observation": cap(Permissions.Health.CREATE),
-        "manage_health_case": cap(Permissions.Health.UPDATE, Permissions.Health.CREATE),
+        "record_health_observation": cap("record_health_observation"),
+        "manage_health_case": cap("manage_health_case"),
         "view_feed": cap(Permissions.Feed.VIEW),
         "record_feed_activity": cap(Permissions.Feed.CREATE),
         "manage_feed_inventory": cap(Permissions.Feed.UPDATE, Permissions.Feed.CREATE),
@@ -120,6 +115,7 @@ def build_capabilities(user, org, codes: set[str]) -> dict:
         "cancel_operation": cap(Permissions.Farm.UPDATE),
         "view_user_activity": owner,
     }
+    capabilities.update({code: cap(code) for code in GOVERNANCE_CODES | OPERATION_CODES})
     navigation = {
         "dashboard": cap(
             Permissions.Reports.LIVESTOCK_DASHBOARD,
@@ -138,10 +134,12 @@ def build_capabilities(user, org, codes: set[str]) -> dict:
         "reports": capabilities["view_reports"],
         "operations": capabilities["view_operation"],
         "my_work": capabilities["view_operation"],
-        "people": owner or capabilities["manage_farm"],
+        "people": capabilities["view_people"],
     }
     return {
         "is_organization_owner": owner,
+        "access": access_payload(user, org),
+        "channel_access": channel_access(user, org),
         "permissions": sorted(codes),
         "capabilities": capabilities,
         "navigation": navigation,

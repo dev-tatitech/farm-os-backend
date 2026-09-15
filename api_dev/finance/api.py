@@ -1,3 +1,4 @@
+from common.scoping import scoped_lookup
 from ninja import Router
 from django.db.models import Q, Sum
 from django.core.paginator import Paginator
@@ -52,6 +53,7 @@ def get_transaction_categories(request, type: str = None):
 
 @router.post("/transaction/", response={200: APIResponse, 403: APIResponse})
 def create_transaction(request, payload: TransactionSchemaIn):
+    get_object_or_404 = scoped_lookup(request, Permissions.Finance.CREATE)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -108,6 +110,7 @@ def get_transactions(
     request, page: int, page_size: int, farm_id: int,
     animal_id: int = None, group_id: int = None, type: str = None,
 ):
+    get_object_or_404 = scoped_lookup(request, Permissions.Finance.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
@@ -168,6 +171,7 @@ def get_transactions(
 
 @router.get("/animal-financial-summary/{animal_id}/", response={200: APIResponse, 403: APIResponse})
 def animal_financial_summary(request, animal_id: int):
+    get_object_or_404 = scoped_lookup(request, Permissions.Finance.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -219,6 +223,7 @@ def animal_financial_summary(request, animal_id: int):
 
 @router.get("/animal-cost-timeline/{animal_id}/", response={200: APIResponse, 403: APIResponse})
 def animal_cost_timeline(request, animal_id: int):
+    get_object_or_404 = scoped_lookup(request, Permissions.Finance.VIEW)
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))

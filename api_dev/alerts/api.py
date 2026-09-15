@@ -9,6 +9,8 @@ from organization.models import Farm
 from .models import Alert
 from .schema import AlertSchema
 from core.schema import APIResponse
+from common.scoping import scoped_lookup
+from common.permissions import Permissions
 
 router = Router(tags=["Alerts"])
 
@@ -20,6 +22,7 @@ def root(request):
 
 @router.post("/create/", response={200: APIResponse, 400: APIResponse, 403: APIResponse})
 def create_alert(request, payload: AlertSchema):
+    get_object_or_404 = scoped_lookup(request, Permissions.Health.CREATE)
     user_id = get_current_user(request)
     try:
         user =users.objects.get(id=user_id)
@@ -51,6 +54,7 @@ def create_alert(request, payload: AlertSchema):
 
 @router.get("/alerts/{page}/{page_size}/{farm_id}", response={200: APIResponse, 400: APIResponse, 403: APIResponse})
 def list_alerts(request, page: int, page_size: int, farm_id: int, q: str = Query(None)):
+    scoped_lookup(request, Permissions.Health.VIEW)(Farm, id=farm_id)
     user_id = get_current_user(request)
     try:
         users.objects.get(id=user_id)
@@ -102,6 +106,7 @@ def list_alerts(request, page: int, page_size: int, farm_id: int, q: str = Query
 
 @router.get("/alert/{alert_id}", response={200: APIResponse, 404: APIResponse, 403: APIResponse})
 def get_alert(request, alert_id: int):
+    get_object_or_404 = scoped_lookup(request, Permissions.Health.VIEW)
     user_id = get_current_user(request)
     try:
         users.objects.get(id=user_id)

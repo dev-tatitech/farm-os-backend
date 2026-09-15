@@ -22,19 +22,24 @@ class APIResponse(Schema):
     
 class OranizationSchemaIn(Schema):
     name: str
-    industry_id: int
+    industry_id: Optional[int] = None
     country_id: int
     state_region_id: int
+    phone: Optional[str] = None
+    email: Optional[EmailStr] = None
+    address: Optional[str] = None
+    client_request_id: Optional[str] = None
     
 class FarmInSchema(Schema):
+    client_request_id: Optional[str] = None
     organization_id: UUID
     name: str
     country_id: int
     state_region_id: int
     city: str
     location_address: str
-    latitude: str
-    longitude: str
+    latitude: Optional[str] = None
+    longitude: Optional[str] = None
     farm_type_id: int
     is_primary: bool
     

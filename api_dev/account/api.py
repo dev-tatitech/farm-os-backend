@@ -146,96 +146,17 @@ def email_validations(request, payload: EmailValidationSchema):
     "/login", response={401: Error_out}, auth=None, 
 )
 def login(request, data: LoginSchema):
-    try:
-        user = users.objects.get(email=data.email)
-    except users.DoesNotExist:
+    from .sessions import active_account, login_session
+    user = users.objects.filter(email=data.email).first()
+    if user is None or not check_password(data.password, user.password):
         return 401, Error_out(status="Error", message="Invalid credentials")
-
-    if user.account_status == "invited":
-        raise HttpError(400, "Please activate your account")
-    if user.account_status == "deactivated":
-        raise HttpError(403, "Your account is currently deactivated.")
-    
-    is_admin = user.is_superuser
-    if not check_password(data.password, user.password):
-        return 401, Error_out(status="Error", message="Invalid credentials")
-    
-    if not is_admin:
-        try:
-            otp_record = EmailValidation.objects.get(
-                email=user.email,
-                is_used=True,
-            )
-        except EmailValidation.DoesNotExist:
-            return JsonResponse({"detail": "Please verify your email"}, status=400)
-
-    domain = get_cookie_domain(request)
+    active_account(user)
+    if not user.is_superuser and not EmailValidation.objects.filter(email=user.email, is_used=True).exists():
+        raise HttpError(400, "Please verify your email")
     app_type = get_app_type(request)
-    ACCESS_COOKIE = f"{app_type}_access_token"
-    REFRESH_COOKIE = f"{app_type}_refresh_token"
-    CSRF_COOKIE = f"{app_type}_csrf_token"
-    # ---------- 4. Enforce domain ↔ role ----------
-    if app_type == "admin" and not is_admin:
-        raise HttpError(403, "Admins only")
-
-    if app_type == "client" and is_admin:
-        raise HttpError(403, f"client only {domain} my domain")
-    # Generate tokens
-    access_token = create_access_token({"sub": str(user.id)})
-    refresh_token = create_refresh_token({"sub": str(user.id)})
-    csrf_token = generate_csrf_token()  # just a random string
-    RefreshSession.objects.filter(user=user, is_active=True).update(is_active=False)
-    store_refresh_session(user, refresh_token, request)
-
-    # update csrftoken
-    user.csrf_token = csrf_token
-    user.save()
-    # Prepare response
-    response = JsonResponse(
-        {"status": "Success",
-         "message": f"Login successful", 
-         "is_admin": is_admin,
-         
-         }
-    )
-
-    # Access token cookie
-    response.set_cookie(
-        key=ACCESS_COOKIE,
-        value=access_token,
-        httponly=True,
-        secure=True,
-        samesite="None",
-        domain=domain,
-        path="/",
-        max_age=900,  # 15 minutes
-    )
-
-    # Refresh token cookie
-    response.set_cookie(
-        key=REFRESH_COOKIE,
-        value=refresh_token,
-        httponly=True,
-        secure=True,
-        samesite="None",
-        domain=domain,
-        path="/api/auth/refresh-token",
-        max_age=7 * 24 * 60 * 60,  # 7 days
-    )
-
-    # CSRF token (readable by JavaScript)
-    response.set_cookie(
-        key=CSRF_COOKIE,
-        value=csrf_token,
-        httponly=False,
-        secure=True,
-        samesite="None",
-        domain=domain,
-        path="/",
-        max_age=900,  # Match access token lifespan
-    )
-
-    return response
+    if (app_type == "admin") != user.is_superuser:
+        raise HttpError(403, "This account cannot use this application")
+    return login_session(request, user)
 
 @router.post("/resend_otp",response={200: APIResponse},)
 def resend_otp(request, payload: ResendOtpSchema):
@@ -358,103 +279,14 @@ def reset_password(request, payload: ResetPasswordSchema):
 
 @router.post("/refresh-token")
 def refresh_token(request):
-    domain = get_cookie_domain(request)
-    app_type = get_app_type(request)
-    ACCESS_COOKIE = f"{app_type}_access_token"
-    REFRESH_COOKIE = f"{app_type}_refresh_token"
-    CSRF_COOKIE = f"{app_type}_csrf_token"
-    
-    token = request.COOKIES.get(REFRESH_COOKIE)
-
-    if not token:
-        raise HttpError(401, f"No refresh token token{token}")
-
-    try:
-        payload = decode_token(token)
-    except Exception:
-        raise HttpError(401, "Invalid refresh token")
-    
-    new_access = create_access_token({"sub": payload["sub"]})
-    csrf_token = generate_csrf_token()
-    new_refresh = create_refresh_token({"sub": payload["sub"]})
-    # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-    token_hash = hash_token(token)
-
-    try:
-        session = RefreshSession.objects.select_related("user").get(
-            token_hash=token_hash, is_active=True
-        )
-    except RefreshSession.DoesNotExist:
-        raise HttpError(401, f"Token reuse or invalid session")
-    if session.expires_at < now():
-        raise HttpError(401, "Refresh token expired")
-
-    # Invalidate old session
-    session.is_active = False
-    session.save()
-
-    user = session.user
-    user.csrf_token = csrf_token
-    user.save()
-    # Save new session
-    domain = get_cookie_domain(request)
-    store_refresh_session(session.user, new_refresh, request)
-    # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>.
-    response = JsonResponse({"message": f"Token refreshed"})
-    response.set_cookie(
-        REFRESH_COOKIE,
-        new_refresh,
-        httponly=True,
-        secure=True,
-        samesite="None",
-        domain=domain,
-        path="/api/auth/refresh-token",
-        max_age=604800,
-    )
-
-    response.set_cookie(
-        ACCESS_COOKIE,
-        new_access,
-        httponly=True,
-        secure=True,
-        samesite="None",
-        domain=domain,
-        path="/",
-    )
-
-    response.set_cookie(
-        CSRF_COOKIE, csrf_token,
-        httponly=False, 
-        secure=True, 
-        samesite="None",
-        domain=domain,
-        path="/"
-    )
-
-    return response
-
+    from .sessions import renew_session
+    return renew_session(request)
 
 
 @router.post("/signout")
 def signout(request):
-    domain = get_cookie_domain(request)
-    app_type = get_app_type(request)
-    ACCESS_COOKIE = f"{app_type}_access_token"
-    REFRESH_COOKIE = f"{app_type}_refresh_token"
-    CSRF_COOKIE = f"{app_type}_csrf_token"
-
-    user_id = get_current_user(request)
-    if user_id:
-        RefreshSession.objects.filter(user_id=user_id, is_active=True).update(is_active=False)
-
-    response = JsonResponse({"message": f"Signed out successfully"})
-
-    # Delete cookies, matching the name/path/domain used when they were set
-    response.delete_cookie(REFRESH_COOKIE, path="/api/auth/refresh-token", domain=domain)
-    response.delete_cookie(ACCESS_COOKIE, path="/", domain=domain)
-    response.delete_cookie(CSRF_COOKIE, path="/", domain=domain)
-
-    return response
+    from .sessions import logout_session
+    return logout_session(request)
 
 @router.get(
     "/profile",

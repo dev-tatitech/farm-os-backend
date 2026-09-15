@@ -44,7 +44,8 @@ def _auth(request):
 
 
 def _farm(request, farm_id, org):
-    return get_object_or_404(Farm, id=farm_id, organization=org)
+    from common.scoping import scoped_lookup
+    return scoped_lookup(request, Permissions.Reports.REPORTS)(Farm, id=farm_id, organization=org)
 
 
 def _apply_animal_filters(qs, status=None, gender=None, livestock_species_id=None, livestock_breed_id=None, search=None):

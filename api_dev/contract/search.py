@@ -1,3 +1,4 @@
+from common.access import authorized_farms
 from django.db.models import Q
 from ninja import Router
 
@@ -21,7 +22,7 @@ def _search_person(user, org):
     assignments = list(
         UserRole.objects.filter(user=user)
         .select_related("role", "farm")
-        .filter(Q(farm__organization=org) | Q(farm__isnull=True))
+        .filter(Q(farm__in=authorized_farms(user, org)) | Q(farm__isnull=True))
         .order_by("id")
     )
     farm_assignments = [row for row in assignments if row.farm_id]
@@ -68,7 +69,7 @@ def search(request, q: str, farm_id: int = None, limit: int = 10):
     tasks = []
     if query:
         if caps.get("view_animal_details"):
-            animals_qs = Animal.objects.filter(farm__organization=org).select_related(
+            animals_qs = Animal.objects.filter(farm__in=authorized_farms(user, org, "view_animal_details")).select_related(
                 "farm", "livestock_species", "livestock_breed", "species", "breed"
             )
             if farm:
@@ -82,7 +83,7 @@ def search(request, q: str, farm_id: int = None, limit: int = 10):
             )
             people = list(people_qs.distinct()[:limit])
         if caps.get("view_operation"):
-            tasks_qs = Task.objects.filter(organization=org).select_related(
+            tasks_qs = Task.objects.filter(farm__in=authorized_farms(user, org, "view_operation")).select_related(
                 "animal", "assigned_to", "created_by", "farm"
             )
             if farm:

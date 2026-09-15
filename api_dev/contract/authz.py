@@ -8,40 +8,8 @@ from .exceptions import ContractError
 
 
 def require_user(request) -> User:
-    app_type = get_app_type(request)
-    access_token = request.COOKIES.get(f"{app_type}_access_token")
-    if not access_token:
-        raise ContractError(
-            401,
-            ErrorCode.AUTHENTICATION_REQUIRED,
-            "Authentication is required.",
-        )
-    try:
-        payload = decode_token(access_token)
-    except Exception:
-        raise ContractError(
-            401,
-            ErrorCode.SESSION_EXPIRED,
-            "Session has expired. Please sign in again.",
-        )
-    try:
-        user = User.objects.get(id=payload["sub"])
-    except (User.DoesNotExist, KeyError, ValueError):
-        raise ContractError(
-            401,
-            ErrorCode.AUTHENTICATION_REQUIRED,
-            "Authentication is required.",
-        )
-    if user.account_status in ("invited", "deactivated", "Suspended", "Deleted", "inactive"):
-        raise ContractError(
-            403,
-            ErrorCode.ACCOUNT_DEACTIVATED if user.account_status in ("deactivated", "Suspended", "Deleted") else ErrorCode.PERMISSION_DENIED,
-            "Your account is currently deactivated."
-            if user.account_status in ("deactivated", "Suspended", "Deleted")
-            else "This account is not active.",
-        )
-    return user
-
+    from account.sessions import authenticate_request
+    return authenticate_request(request)
 
 def resolve_organization(user: User) -> Organization:
     org = user.organization or user.organizations.first()
@@ -55,8 +23,6 @@ def resolve_organization(user: User) -> Organization:
 
 
 def is_organization_owner(user: User, org: Organization) -> bool:
-    if user.is_superuser:
-        return True
     if org.user_id and str(org.user_id) == str(user.id):
         return True
     return False
@@ -73,14 +39,15 @@ def require_organization(user: User, organization_id) -> Organization:
     return org
 
 
-def require_permission(user: User, org: Organization, *codes: str):
+def require_permission(user: User, org: Organization, *codes: str, farm=None):
+    user._required_capabilities = codes
     if is_organization_owner(user, org):
         return
-    from common.permission_checker import user_has_permission
+    from common.access import has_capability
 
     if not codes:
         return
-    if any(user_has_permission(user, code) for code in codes):
+    if any(has_capability(user, org, code, farm) for code in codes):
         return
     raise ContractError(
         403,
@@ -128,14 +95,14 @@ def require_farm(org: Organization, farm_id, user: User = None) -> Farm:
             "Farm could not be found.",
         )
     if user and not is_organization_owner(user, org):
-        from role.models import UserRole
-
-        allowed = UserRole.objects.filter(user=user, farm=farm, status="active").exists()
-        org_wide = UserRole.objects.filter(user=user, farm__isnull=True, status="active").exists()
-        if not allowed and not org_wide:
+        from common.access import authorized_farms
+        if not authorized_farms(user, org).filter(pk=farm.pk).exists():
             raise ContractError(
                 403,
                 ErrorCode.FARM_ACCESS_DENIED,
                 "You do not have access to this farm.",
             )
+        codes = getattr(user, "_required_capabilities", ())
+        if codes:
+            require_permission(user, org, *codes, farm=farm)
     return farm

@@ -1,4 +1,5 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.http import Http404
 from ninja import NinjaAPI
 from ninja.errors import HttpError, ValidationError as NinjaValidationError
 
@@ -29,6 +30,12 @@ v2_api = NinjaAPI(
     openapi_url="/openapi.json",
     urls_namespace="api_v2",
 )
+
+
+@v2_api.exception_handler(Http404)
+def on_not_found(request, exc):
+    return v2_api.create_response(request, error_body(ErrorCode.RESOURCE_NOT_FOUND,
+        "Resource could not be found."), status=404)
 
 
 @v2_api.exception_handler(ContractError)

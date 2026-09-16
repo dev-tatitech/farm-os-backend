@@ -4,7 +4,7 @@ from typing import List, Optional, Any, Literal
 from enum import Enum
 from uuid import UUID
 from datetime import date
-from pydantic import EmailStr, Field
+from pydantic import ConfigDict, EmailStr, Field
 from typing_extensions import Annotated
 
 PhoneNumber = Annotated[str, Field(min_length=11, max_length=11)]
@@ -125,8 +125,7 @@ class LgaSchema(Schema):
     state: str
     name: str
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class LGAListResponse(Schema):

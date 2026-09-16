@@ -199,7 +199,6 @@ def organiation(request, payload: OranizationSchemaIn):
     
     if not payload.name.strip():
         raise ContractError(422, ErrorCode.VALIDATION_ERROR, "Organization name is required.")
-    industry = get_object_or_404(Industry, id=payload.industry_id) if payload.industry_id else None
     country = get_object_or_404(Country, id = payload.country_id)
     state = get_object_or_404(AdminLevel1, id=payload.state_region_id, country=country)
     org = f"ORG-{generate_ref()}"
@@ -218,7 +217,6 @@ def organiation(request, payload: OranizationSchemaIn):
             user = user,
             name = payload.name,
             code = org,
-            industry_type = industry,
             country = country,
             state_region = state,
             phone=payload.phone,

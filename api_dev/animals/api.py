@@ -690,44 +690,6 @@ def update_animal_group(
         raise HttpError(409, "Duplicate group name for this farm")
     
 @router.post(
-    "/animal-group/",
-    response={200: APIResponse, 403: APIResponse},
-)
-def animal_group(
-    request,
-    payload: AnimalGroupSchemaIn
-    ):
-    user_id = get_current_user(request)
-    try:
-        user = users.objects.select_related("organization").prefetch_related("organizations").get(Q(id=user_id))
-    except users.DoesNotExist:
-        raise HttpError(400, "Login Failed")
-    org = user.organization
-    if not org:
-        org = user.organizations.first()
-    if not org:
-        raise HttpError(404, f"Permission denied")
-    perm = user_has_permission(user,Permissions.Animal.CREATE)
-    if not user.organizations.first():
-        if not perm:
-            raise HttpError(404, f"Permission denied")
-        
-    scoped_lookup(request, Permissions.Animal.CREATE)(Farm, id=payload.farm_id)
-    if not Farm.objects.filter(id=payload.farm_id).exists():
-        raise HttpError(400, "Invalid farm_id")
-    if not GroupType.objects.filter(id=payload.group_type_id).exists():
-        raise HttpError(400, "Invalid group_type_id")
-    try:
-        group = AnimalGroup.objects.create(**payload.dict())
-        return 200,APIResponse(
-        success=True,
-        message="animal group added successfully",
-        data=None
-    )
-    except IntegrityError as e:
-        raise HttpError(409, "Group with this name already exists in this farm")
-    
-@router.post(
     "/animal-group-member/",
     response={200: APIResponse, 403: APIResponse},
 )

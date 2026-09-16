@@ -136,7 +136,7 @@ if user is None:
             username=generate_unique_username(),
             email=EMAIL,
             password=make_password(PASSWORD),
-            account_status="Active",
+            account_status="active",
         )
         EmailValidation.objects.update_or_create(
             email=EMAIL,
@@ -159,7 +159,7 @@ else:
     check("signup_new_account", st == 200 or True, http=st, message=body.get("message"), user_id=str(user.id))
 
 # Ensure Active
-user.account_status = "Active"
+user.account_status = "active"
 user.save(update_fields=["account_status"])
 
 # --- 2. OTP verify via endpoint ---

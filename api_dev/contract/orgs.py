@@ -14,7 +14,7 @@ from common.permissions import Permissions
 from operations.models import Task
 from operations.services import serialize_event, serialize_task, work_summary_for
 from organization.models import Farm
-from role.models import Permission, Role
+from role.models import Permission, Role, UserRole
 
 from .authz import (
     is_organization_owner,
@@ -187,6 +187,33 @@ def reactivate_user(request, user_id: UUID):
     )
 
 
+@users_router.delete(
+    "/{user_id}/remove-from-organization/",
+    response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error},
+    summary="Soft-remove a user from the organization",
+)
+@atomic_mutation
+def remove_user_from_organization(request, user_id: UUID):
+    actor = require_user(request)
+    org = resolve_organization(actor)
+    require_permission(actor, org, "manage_people")
+    target = _require_org_user(org, user_id)
+    if is_organization_owner(target, org) or str(target.id) == str(actor.id):
+        raise ContractError(403, ErrorCode.PERMISSION_DENIED, "The organization owner and current user cannot be removed.")
+    target = User.objects.select_for_update().get(pk=target.pk)
+    previous = {"organization_id": str(target.organization_id), "active_assignments": UserRole.objects.filter(user=target, status="active").count()}
+    now = timezone.now()
+    UserRole.objects.filter(user=target, status="active").update(status="revoked", revoked_at=now, revoked_by=actor, updated_at=now)
+    target.organization = None
+    target.save(update_fields=["organization", "updated_at"])
+    security_event("USER_REMOVED_FROM_ORGANIZATION", actor, target=target, org=org, previous=previous, new={"organization_id": None, "active_assignments": 0})
+    return 200, success_body(
+        data={"user_id": str(target.id), "removed": True, "organization_id": None, "assignments_revoked": previous["active_assignments"]},
+        code="USER_REMOVED_FROM_ORGANIZATION",
+        message="User was removed from the organization without deleting historical data.",
+    )
+
+
 @users_router.post(
     "/me/avatar/",
     response={200: V2Success, 400: V2Error, 401: V2Error, 413: V2Error},
@@ -328,6 +355,7 @@ def list_users(request, page: int = 1, page_size: int = 20, search: str = None):
             "display_name": display_name(row),
             "email": row.email,
             "account_status": row.account_status,
+            "owner": str(row.id) == str(org.user_id),
         },
         "People fetched successfully.",
     )

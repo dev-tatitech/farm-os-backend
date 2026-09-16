@@ -22,7 +22,6 @@ class APIResponse(Schema):
     
 class OranizationSchemaIn(Schema):
     name: str
-    industry_id: Optional[int] = None
     country_id: int
     state_region_id: int
     phone: Optional[str] = None

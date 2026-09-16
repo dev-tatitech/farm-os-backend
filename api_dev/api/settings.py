@@ -1,6 +1,7 @@
 from pathlib import Path
 import environ
 import os
+from corsheaders.defaults import default_headers
 
 env = environ.Env(
     DEBUG=(bool, False),
@@ -93,6 +94,7 @@ CORS_ALLOWED_ORIGINS = _unique(
     + _csv("CORS_ALLOWED_ORIGINS")
 )
 CORS_ALLOW_CREDENTIALS = env.bool("CORS_ALLOW_CREDENTIALS", default=True)
+CORS_ALLOW_HEADERS = list(default_headers) + ["x-app-channel"]
 CSRF_TRUSTED_ORIGINS = _unique(
     [
         "http://localhost:3000",

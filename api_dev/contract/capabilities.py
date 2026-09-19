@@ -7,17 +7,19 @@ from .authz import is_organization_owner
 from common.access import assignments as active_assignments, channel_access, ALIASES, GOVERNANCE_CODES, OPERATION_CODES
 
 
-def permission_codes_for_user(user, org) -> set[str]:
+def permission_codes_for_user(user, org, farm=None) -> set[str]:
     from common.access import permission_codes
-    return permission_codes(user, org)
+    return permission_codes(user, org, farm=farm)
 
 
-def user_assignments(user, org) -> list[dict]:
+def user_assignments(user, org, farm=None) -> list[dict]:
     rows = (
         active_assignments(user, org)
         .select_related("role", "farm")
         .filter(Q(farm__organization=org) | Q(farm__isnull=True))
     )
+    if farm is not None:
+        rows = rows.filter(farm=farm)
     assignments = []
     for row in rows:
         assignments.append(
@@ -34,17 +36,18 @@ def user_assignments(user, org) -> list[dict]:
     return assignments
 
 
-def access_payload(user, org) -> dict:
+def access_payload(user, org, farm=None) -> dict:
     owner = is_organization_owner(user, org)
-    assignments = user_assignments(user, org)
+    assignments = user_assignments(user, org, farm=farm)
     if owner:
         return {
             "account_type": "organization_owner",
             "access_source": "organization_ownership",
-            "scope": "organization",
+            "scope": "farm" if farm is not None else "organization",
             "is_organization_owner": True,
             "all_farms": True,
             "assignments": [],
+            "farm": {"id": farm.id, "name": farm.name} if farm is not None else None,
             "channel_access": channel_access(user, org),
         }
     return {
@@ -63,6 +66,7 @@ def access_payload(user, org) -> dict:
             }
             for row in assignments
         ],
+        "farm": {"id": farm.id, "name": farm.name} if farm is not None else None,
     }
 
 
@@ -70,7 +74,7 @@ def _has(codes: set[str], *needed: str) -> bool:
     return any(code in codes for code in needed)
 
 
-def build_capabilities(user, org, codes: set[str]) -> dict:
+def build_capabilities(user, org, codes: set[str], farm=None) -> dict:
     owner = is_organization_owner(user, org)
 
     def cap(*needed: str) -> bool:
@@ -138,7 +142,7 @@ def build_capabilities(user, org, codes: set[str]) -> dict:
     }
     return {
         "is_organization_owner": owner,
-        "access": access_payload(user, org),
+        "access": access_payload(user, org, farm=farm),
         "channel_access": channel_access(user, org),
         "permissions": sorted(codes),
         "capabilities": capabilities,

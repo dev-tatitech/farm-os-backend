@@ -262,8 +262,15 @@ def delete_user_avatar(request):
 def users_me_capabilities(request):
     user = require_user(request)
     org = resolve_organization(user)
-    codes = permission_codes_for_user(user, org)
-    data = build_capabilities(user, org, codes)
+    farm_id = request.GET.get("farm_id")
+    farm = None
+    if farm_id:
+        from .authz import require_farm
+        farm = require_farm(org, farm_id, user)
+    codes = permission_codes_for_user(user, org, farm=farm)
+    data = build_capabilities(user, org, codes, farm=farm)
+    if farm is not None:
+        data["farm_id"] = farm.id
     return 200, success_body(data=data, message="Capabilities fetched successfully.")
 
 

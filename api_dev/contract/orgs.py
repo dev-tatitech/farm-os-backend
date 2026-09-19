@@ -259,10 +259,9 @@ def delete_user_avatar(request):
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error},
     summary="Role-aware capabilities and navigation",
 )
-def users_me_capabilities(request):
+def users_me_capabilities(request, farm_id: int = None):
     user = require_user(request)
     org = resolve_organization(user)
-    farm_id = request.GET.get("farm_id")
     farm = None
     if farm_id:
         from .authz import require_farm

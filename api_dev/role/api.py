@@ -389,8 +389,33 @@ def assign_user_role(request, payload: NewUserRoleIn):
         role = role,
         farm = farm,
         status="active",
-        ).exists():
+       ).exists():
        raise HttpError(400, "Role already exists.")
+
+    # A user has one active staff role per farm. Reassigning the user keeps
+    # the old assignment as history, but it must stop granting access.
+    now = timezone.now()
+    previous_assignments = list(
+        UserRole.objects.select_for_update()
+        .filter(user=my_user, farm=farm, status="active")
+        .select_related("role")
+    )
+    for previous_assignment in previous_assignments:
+        previous_state = _assignment_state(previous_assignment)
+        previous_assignment.status = "revoked"
+        previous_assignment.revoked_at = now
+        previous_assignment.revoked_by = user
+        previous_assignment.save(update_fields=["status", "revoked_at", "revoked_by", "updated_at"])
+        security_event(
+            "USER_ASSIGNMENT_REVOKED",
+            user,
+            target=previous_assignment,
+            org=org,
+            farm=farm,
+            previous=previous_state,
+            new={**previous_state, "status": "revoked"},
+        )
+
     user_role = UserRole.objects.create(
         user = my_user,
         role = role,

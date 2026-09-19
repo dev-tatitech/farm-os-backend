@@ -234,6 +234,24 @@ class Domain01Tests(TestCase):
         self.assertEqual(staff_client.get("/api/v2/users/me/").status_code, 200)
         self.assertNotEqual(staff_client.get(f"/api/v2/farms/{self.farm_b.pk}/").status_code, 200)
 
+    def test_assigning_new_role_replaces_previous_role_on_farm(self):
+        client = self.login()
+        manager_role = Role.objects.get(organization=self.org, system_template_type="farm_manager")
+        vet_role = Role.objects.get(organization=self.org, system_template_type="veterinarian")
+        first = self.request(client, "post", "/api/role/user-role/", {
+            "user_id": str(self.unassigned.pk), "role_id": manager_role.pk,
+            "farm_id": self.farm_a.pk, "client_request_id": "replace-manager",
+        })
+        self.assertEqual(first.status_code, 200, first.content)
+        second = self.request(client, "post", "/api/role/user-role/", {
+            "user_id": str(self.unassigned.pk), "role_id": vet_role.pk,
+            "farm_id": self.farm_a.pk, "client_request_id": "replace-vet",
+        })
+        self.assertEqual(second.status_code, 200, second.content)
+        active = UserRole.objects.filter(user=self.unassigned, farm=self.farm_a, status="active")
+        self.assertEqual(list(active.values_list("role_id", flat=True)), [vet_role.pk])
+        self.assertEqual(UserRole.objects.get(user=self.unassigned, farm=self.farm_a, role=manager_role).status, "revoked")
+
     def test_role_deactivation_removes_current_access(self):
         client = self.login(self.manager)
         role = Role.objects.get(organization=self.org, system_template_type="farm_manager")

@@ -309,7 +309,9 @@ def profile(request):
                 owner = True
     all_permission_codes = set()
     roles = []
-    for ur in user.user_roles.all():
+    # Profile access reflects current authority only. Revoked or archived
+    # assignments remain historical records but must not grant permissions.
+    for ur in user.user_roles.filter(status="active", role__active=True):
         role_permissions = [
             {"code": rp.permission.code, "name": rp.permission.name, "module": rp.permission.module}
             for rp in ur.role.roles_permission.all()

@@ -164,8 +164,12 @@ def list_tasks(
 def task_detail(request, task_id: int):
     user = require_user(request)
     org = resolve_organization(user)
-    _require_cap(user, org, "view_operation")
     task = get_task(org, task_id)
+    # A directly assigned task is visible to its assignee even when the
+    # assignee's role does not include broad operation-list capability. Farm
+    # scope is still enforced below.
+    if task.assigned_to_id != user.id:
+        _require_cap(user, org, "view_operation")
     require_farm(org, task.farm_id, user)
     return 200, success_body(data=serialize_task(task), message="Task fetched successfully.")
 

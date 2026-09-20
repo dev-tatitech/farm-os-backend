@@ -543,10 +543,12 @@ def get_user_role(request, page: int = 1, page_size: int = 20):
                     "id": role_id,
                     "role": ur.role.name,
                     "farms": [],
+                    "farm_ids": [],
                     "permissions": permission_map.get(role_id, [])
                 }
             if ur.farm:
                 role_map[role_id]["farms"].append(ur.farm.name)
+                role_map[role_id]["farm_ids"].append(ur.farm_id)
 
         data.append({
             "id": usa.id,
@@ -602,7 +604,7 @@ def assign_role_permission(request, payload: RolePermissionIn):
     "/role-permission/",
     response={200: APIResponse, 403: APIResponse},
 )
-def get_role_permission(request, page: int = 1, page_size: int = 20):
+def get_role_permission(request):
     user_id = get_current_user(request)
     try:
         user = users.objects.get(Q(id=user_id))
@@ -628,6 +630,8 @@ def get_role_permission(request, page: int = 1, page_size: int = 20):
             }
         )
         
-    return 200, _paged_rows(
-        data, page, page_size, lambda row: row, "role permission fetch successfully"
+    return 200, APIResponse(
+        success=True,
+        message="role permission fetch successfully",
+        data=data,
     )

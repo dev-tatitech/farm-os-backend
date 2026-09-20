@@ -196,7 +196,7 @@ def farm_people(request, farm_id: int, page: int = 1, page_size: int = 20):
                 "username": owner.username,
                 "account_status": owner.account_status,
                 "is_owner": True,
-                "roles": [{"role": "owner", "role_code": "owner", "farm_id": None}],
+                "roles": [{"role": "owner", "role_id": None, "role_code": "owner", "farm_id": None}],
             }
     for row in rows:
         key = str(row.user_id)
@@ -215,6 +215,7 @@ def farm_people(request, farm_id: int, page: int = 1, page_size: int = 20):
         entry["roles"].append(
             {
                 "role": row.role.name,
+                "role_id": row.role_id,
                 "role_code": row.role.code,
                 "farm_id": row.farm_id,
             }

@@ -460,24 +460,22 @@ def list_roles(request, page: int = 1, page_size: int = 20):
     response={200: V2Success, 401: V2Error, 403: V2Error},
     summary="List permission catalog",
 )
-def list_permissions(request, page: int = 1, page_size: int = 20):
+def list_permissions(request):
     user = require_user(request)
     org = resolve_organization(user)
     if not has_capability(user, org, "view_roles"):
         raise ContractError(403, ErrorCode.PERMISSION_DENIED, "Permissions are not available.")
     rows = Permission.objects.all().order_by("code")
-    return 200, paginated(
-        rows,
-        page,
-        page_size,
-        lambda p: {
+    data = [
+        {
             "id": p.id,
             "code": p.code,
             "name": getattr(p, "name", p.code),
             "module": p.module,
-        },
-        "Permissions fetched successfully.",
-    )
+        }
+        for p in rows
+    ]
+    return 200, success_body(data=data, message="Permissions fetched successfully.")
 
 
 @orgs_router.get(

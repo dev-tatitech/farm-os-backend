@@ -412,6 +412,7 @@ def get_farm(request, page: int = 1, page_size: int = 20):
             "location_address": farm.location_address,
             "latitude": farm.latitude,
             "longitude": farm.longitude,
+            "image_url": farm.image.url if farm.image else None,
             "is_primary": farm.is_primary,
             "status": farm.status,
             

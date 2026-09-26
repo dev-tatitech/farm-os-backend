@@ -73,11 +73,13 @@ class AnimalPatchIn(Schema):
 class TaskCreateIn(Schema):
     farm_id: int
     task_type: str
-    title: str
+    # Typed titles are generated from task type and subject. Only generic
+    # tasks need a caller-provided title.
+    title: str = ""
     description: str = ""
     animal_id: Optional[int] = None
     group_id: Optional[int] = None
-    due_at: Optional[datetime] = None
+    due_at: datetime
     priority: str = "normal"
     assignee_id: Optional[UUID] = None
     client_request_id: Optional[str] = None
@@ -139,6 +141,15 @@ class TaskCompleteIn(Schema):
     device_id: Optional[str] = None
     recorded_at_device: Optional[datetime] = None
     payload: Optional[Any] = None
+
+
+class DirectDomainActionIn(TaskCompleteIn):
+    """A direct, authorized domain action; no Operations task is created."""
+
+    farm_id: int
+    task_type: str
+    animal_id: Optional[int] = None
+    group_id: Optional[int] = None
 
 
 class TaskUnableIn(Schema):

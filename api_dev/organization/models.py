@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models.deletion import ProtectedError
 from core.models import TimeStampedModel
 from django.contrib.auth import get_user_model
 from account.models import Country, AdminLevel1, AdminLevel2
@@ -72,3 +73,25 @@ class Farm(TimeStampedModel):
     is_primary = models.BooleanField(default=False)
     status = models.CharField(max_length=20, default="active")
     image = models.ImageField(upload_to="farms/images/", null=True, blank=True)
+
+    def delete(self, *args, **kwargs):
+        """Retain Farm scope whenever D02 authoritative history exists.
+
+        Farm deactivation is the supported lifecycle for a Farm with Operations
+        history.  This guard deliberately permits Domain 01's existing empty-
+        Farm deletion behavior while preventing a cascade from orphaning or
+        erasing authoritative D02 records.
+        """
+        from animals.models import AnimalEvent
+        from operations.models import Task, TaskSchedule
+
+        protected = [
+            model for model in (Task, TaskSchedule, AnimalEvent)
+            if model.objects.filter(farm_id=self.pk).exists()
+        ]
+        if protected:
+            raise ProtectedError(
+                "A Farm with authoritative operational history must be deactivated, not deleted.",
+                protected,
+            )
+        return super().delete(*args, **kwargs)

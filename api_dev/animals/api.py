@@ -1906,7 +1906,10 @@ def update_animal_v2(
         animal.tag_id = payload.tag_id
 
     if payload.new_farm_id:
-        farm = get_object_or_404(Farm, id=payload.new_farm_id)
+        # A transfer is an explicit cross-Farm workflow: both the current
+        # animal lookup and destination Farm lookup are authorization-scoped.
+        # Historical D02 records keep their own immutable farm attribution.
+        farm = get_object_or_404(Farm, id=payload.new_farm_id, organization=org)
         animal.farm = farm
 
     if payload.livestock_species_id:

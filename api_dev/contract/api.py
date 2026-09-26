@@ -7,6 +7,7 @@ from .animals import animals_router
 from .births import births_router
 from .codes import ErrorCode
 from .dash import dash_router
+from .domain_actions import domain_actions_router
 from .envelope import V2Error, V2Success, error_body, success_body
 from .exceptions import ContractError
 from .farms import farms_router
@@ -16,6 +17,7 @@ from .ops import ops_router
 from .orgs import orgs_router, permissions_router, roles_router, users_router
 from .registry import registry_router
 from .search import search_router
+from .reporting import reporting_router
 from .timeline import timeline_router
 
 v2_api = NinjaAPI(
@@ -123,9 +125,11 @@ v2_api.add_router("/organizations/", orgs_router)
 v2_api.add_router("/farms/", farms_router)
 v2_api.add_router("/animals/", animals_router)
 v2_api.add_router("/operations/", ops_router)
+v2_api.add_router("/domain-actions/", domain_actions_router)
 v2_api.add_router("/timeline/", timeline_router)
 v2_api.add_router("/notifications/", notify_router)
 v2_api.add_router("/search/", search_router)
+v2_api.add_router("/reports/", reporting_router)
 v2_api.add_router("/dashboard/", dash_router)
 v2_api.add_router("/health/", health_router)
 v2_api.add_router("/reproduction/births/", births_router)

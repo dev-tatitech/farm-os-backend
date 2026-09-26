@@ -1,4 +1,6 @@
 from typing import Callable, Optional
+import hashlib
+import json
 
 from django.core.paginator import Paginator
 
@@ -51,7 +53,15 @@ def begin_idempotency(user, request, payload=None):
     key = client_request_id(request, payload)
     if not key:
         return None, None
+    if payload is not None:
+        value = payload.dict() if hasattr(payload, "dict") else payload
+        raw = json.dumps(value, sort_keys=True, default=str).encode()
+    else:
+        raw = getattr(request, "body", b"") or b""
+    fingerprint = hashlib.sha256(request.method.encode() + b"\n" + request.path.encode() + b"\n" + raw).hexdigest()
     existing = IdempotencyKey.objects.filter(user=user, key=key).first()
+    if existing and existing.request_fingerprint and existing.request_fingerprint != fingerprint:
+        raise ContractError(409, ErrorCode.CONFLICT, "client_request_id was reused for a different request.")
     if existing and existing.response_json is not None:
         return key, (existing.status_code or 200, existing.response_json)
     if existing and existing.response_json is None:
@@ -66,6 +76,7 @@ def begin_idempotency(user, request, payload=None):
         key=key,
         method=request.method,
         path=request.path,
+        request_fingerprint=fingerprint,
     )
     return key, None
 

@@ -248,6 +248,7 @@ class Notification(models.Model):
     category = models.CharField(
         max_length=16, choices=Category.choices, default=Category.SYSTEM
     )
+    notification_type = models.CharField(max_length=64, default="system")
     title = models.CharField(max_length=255)
     body = models.TextField(blank=True)
     is_read = models.BooleanField(default=False, db_index=True)
@@ -261,6 +262,7 @@ class Notification(models.Model):
         indexes = [
             models.Index(fields=["user", "is_read"]),
             models.Index(fields=["organization", "created_at"]),
+            models.Index(fields=["user", "notification_type", "created_at"]),
         ]
 
 
@@ -271,6 +273,7 @@ class IdempotencyKey(models.Model):
     key = models.CharField(max_length=128)
     method = models.CharField(max_length=10)
     path = models.CharField(max_length=255)
+    request_fingerprint = models.CharField(max_length=64, default="")
     status_code = models.PositiveIntegerField(null=True, blank=True)
     response_json = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

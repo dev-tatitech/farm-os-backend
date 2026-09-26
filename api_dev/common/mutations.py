@@ -1,5 +1,6 @@
 """Atomic writes with operation-bound replay of successful responses."""
 import json
+import hashlib
 from functools import wraps
 
 from django.core.serializers.json import DjangoJSONEncoder
@@ -30,9 +31,16 @@ def atomic_mutation(view):
             from account.sessions import active_account
             active_account(actor)
             existing = IdempotencyKey.objects.filter(user=actor, key=key).first() if key else None
+            value = payload.dict() if hasattr(payload, "dict") else (payload or {})
+            fingerprint = hashlib.sha256(
+                request.method.encode() + b"\n" + request.path.encode() + b"\n" +
+                json.dumps(value, sort_keys=True, default=str).encode()
+            ).hexdigest()
             if existing:
                 if existing.path != request.path or existing.method != request.method:
                     raise ContractError(409, ErrorCode.CONFLICT, "client_request_id belongs to another operation.")
+                if existing.request_fingerprint and existing.request_fingerprint != fingerprint:
+                    raise ContractError(409, ErrorCode.CONFLICT, "client_request_id was reused for a different request.")
                 if existing.response_json is not None:
                     return existing.status_code, existing.response_json
                 # Pre-Domain-01 incomplete keys have no proven result.
@@ -51,6 +59,7 @@ def atomic_mutation(view):
                 transaction.set_rollback(True)
             elif key:
                 IdempotencyKey.objects.create(user=actor, key=key, method=request.method,
-                    path=request.path, status_code=status, response_json=body)
+                    path=request.path, request_fingerprint=fingerprint,
+                    status_code=status, response_json=body)
             return result
     return wrapped

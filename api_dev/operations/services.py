@@ -1,6 +1,9 @@
+import calendar
+import uuid
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -9,6 +12,7 @@ from django.utils import timezone
 
 from animals.event import new_event
 from animals.models import Animal, AnimalEvent, AnimalGroup, AnimalWeight
+from common.access import authorized_farms
 from contract.authz import is_organization_owner
 from contract.codes import ErrorCode
 from contract.exceptions import ContractError
@@ -29,6 +33,36 @@ OPEN_STATUSES = (
     Task.Status.ACCEPTED,
     Task.Status.IN_PROGRESS,
 )
+
+# Product decision D02-007: scheduling is calculated against the FarmOS MVP
+# operational timezone. Persisted Django timestamps remain offset-aware/UTC.
+SCHEDULE_TIMEZONE = ZoneInfo("Africa/Lagos")
+
+# Storage references retain their concrete model/table names.  The public v2
+# task result contract exposes the canonical completion vocabulary instead.
+RESULT_TYPE_BY_REFERENCE = {
+    "vaccination_record": Task.Type.VACCINATION,
+    "treatment_record": Task.Type.TREATMENT,
+    "feed_issuance_record": Task.Type.FEED_ISSUANCE,
+    "sales_record": Task.Type.SALE,
+    "movement_record": Task.Type.MOVEMENT,
+    "health_observation": Task.Type.OBSERVATION,
+    "animal_weight": Task.Type.WEIGHT,
+    "pregnancy_record": Task.Type.PREGNANCY_CHECK,
+    "mortality_record": Task.Type.MORTALITY,
+}
+
+RESULT_EVENT_REFERENCE_TABLE = {
+    "vaccination_record": "vaccination", "treatment_record": "treatment",
+    "feed_issuance_record": "feed_issuance", "sales_record": "sale",
+    "movement_record": "movement", "health_observation": "health_observation",
+    "animal_weight": "weight", "pregnancy_record": "pregnancy",
+    "mortality_record": "mortality",
+}
+
+
+def public_result_type(reference_table: str) -> str:
+    return RESULT_TYPE_BY_REFERENCE.get(reference_table, reference_table)
 
 
 def json_value(value: Any):
@@ -70,6 +104,10 @@ def emit_event(
     animal=None,
     group=None,
     event_date=None,
+    *,
+    metadata=None,
+    changeset=None,
+    correlation_id=None,
 ):
     return new_event(
         farm,
@@ -82,6 +120,9 @@ def emit_event(
         reference_id,
         created_by,
         group=group,
+        metadata=metadata,
+        changeset=changeset,
+        correlation_id=correlation_id,
     )
 
 
@@ -94,6 +135,7 @@ def notify(
     category: str = Notification.Category.TASK,
     reference_table: str = "",
     reference_id: int = None,
+    notification_type: str = "system",
 ):
     if user is None:
         return None
@@ -106,7 +148,31 @@ def notify(
         body=body,
         reference_table=reference_table,
         reference_id=reference_id,
+        notification_type=notification_type,
     )
+
+
+def notify_farm_management(org, farm, *, title, body, reference_table, reference_id, notification_type):
+    """Notify current farm-management recipients, never every org member.
+
+    D02-012 treats an unable-to-complete report as a management-attention
+    notification.  Current assignment/capability is evaluated at delivery;
+    ownership alone is not an implicit subscription.
+    """
+    from role.models import UserRole
+    from common.access import has_capability
+
+    rows = UserRole.objects.filter(
+        farm=farm, status="active", role__active=True,
+        user__is_active=True, user__account_status="active",
+    ).select_related("user")
+    recipients = {row.user for row in rows if has_capability(row.user, org, "assign_operation", farm=farm)}
+    for recipient in recipients:
+        notify(
+            recipient, org, title=title, body=body, farm=farm,
+            reference_table=reference_table, reference_id=reference_id,
+            notification_type=notification_type,
+        )
 
 
 def serialize_task(task: Task) -> dict:
@@ -149,7 +215,7 @@ def serialize_task(task: Task) -> dict:
             "type": task.source_type or Task.SourceType.MANUAL,
             "id": source_id,
         },
-        "result": reference_payload(task.result_reference_table, task.result_reference_id),
+        "result": reference_payload(public_result_type(task.result_reference_table), task.result_reference_id),
         "subject": subject_payload(animal=task.animal, farm=task.farm),
         "result_reference_table": task.result_reference_table or None,
         "result_reference_id": task.result_reference_id,
@@ -157,9 +223,10 @@ def serialize_task(task: Task) -> dict:
     }
 
 
-def work_summary_for(user, org: Organization) -> dict:
+def work_summary_for(user, org: Organization, farm=None) -> dict:
     today = timezone.localdate()
-    assigned = Task.objects.filter(organization=org, assigned_to=user).exclude(
+    farms = [farm] if farm is not None else authorized_farms(user, org)
+    assigned = Task.objects.filter(organization=org, farm__in=farms, assigned_to=user).exclude(
         status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED]
     )
     return {
@@ -168,6 +235,7 @@ def work_summary_for(user, org: Organization) -> dict:
         "overdue_tasks": assigned.filter(due_at__lt=timezone.now()).count(),
         "completed_today": Task.objects.filter(
             organization=org,
+            farm__in=farms,
             assigned_to=user,
             status=Task.Status.COMPLETED,
             completed_at__date=today,
@@ -207,6 +275,83 @@ def _get_assignee(org: Organization, assignee_id, farm=None):
     return user
 
 
+def _validate_subject(task_type: str, animal, group):
+    """Enforce the D02-002 subject model supported by the current contract."""
+    if animal and group:
+        raise ContractError(422, ErrorCode.VALIDATION_ERROR, "Select either an animal or a group, not both.")
+    animal_only = {
+        Task.Type.TREATMENT, Task.Type.OBSERVATION, Task.Type.WEIGHT,
+        Task.Type.PREGNANCY_CHECK, Task.Type.SALE, Task.Type.MORTALITY,
+    }
+    animal_or_group = {Task.Type.VACCINATION, Task.Type.FEED_ISSUANCE, Task.Type.MOVEMENT}
+    if task_type in animal_only and animal is None:
+        raise ContractError(422, ErrorCode.VALIDATION_ERROR, "This task type requires an individual animal subject.")
+    if task_type in animal_or_group and animal is None and group is None:
+        raise ContractError(422, ErrorCode.VALIDATION_ERROR, "This task type requires an animal or group subject.")
+    if task_type == Task.Type.PREGNANCY_CHECK and animal.gender != "female":
+        raise ContractError(422, ErrorCode.INVALID_ANIMAL_STATE, "Pregnancy checks require a female animal.")
+
+
+def _derived_task_title(task_type: str, animal, group, supplied_title: str) -> str:
+    if task_type == Task.Type.GENERIC:
+        if not (supplied_title or "").strip():
+            raise ContractError(422, ErrorCode.VALIDATION_ERROR, "title is required for a generic task.")
+        return supplied_title.strip()
+    subject = animal.tag_id if animal else group.name
+    patterns = {
+        Task.Type.VACCINATION: "Vaccinate {subject}", Task.Type.TREATMENT: "Treat {subject}",
+        Task.Type.FEED_ISSUANCE: "Issue feed to {subject}", Task.Type.OBSERVATION: "Record health observation — {subject}",
+        Task.Type.WEIGHT: "Weigh {subject}", Task.Type.MOVEMENT: "Move {subject}",
+        Task.Type.PREGNANCY_CHECK: "Pregnancy Check — {subject}", Task.Type.SALE: "Sell {subject}",
+        Task.Type.MORTALITY: "Record mortality — {subject}",
+    }
+    return patterns[task_type].format(subject=subject)
+
+
+def _validate_assignee_can_execute(assignee, org: Organization, farm: Farm, task_type: str):
+    if assignee is None:
+        return
+    from common.access import has_capability
+    from common.permissions import Permissions
+
+    domain_permissions = {
+        Task.Type.VACCINATION: (Permissions.Health.CREATE,), Task.Type.TREATMENT: (Permissions.Health.CREATE,),
+        Task.Type.OBSERVATION: ("record_health_observation",), Task.Type.MORTALITY: (Permissions.Health.CREATE,),
+        Task.Type.WEIGHT: (Permissions.Animal.UPDATE, Permissions.Animal.CREATE), Task.Type.PREGNANCY_CHECK: (Permissions.Reproduction.CREATE,),
+        Task.Type.FEED_ISSUANCE: (Permissions.Feed.CREATE,), Task.Type.SALE: (Permissions.SalesRecord.CREATE,),
+        Task.Type.MOVEMENT: (Permissions.MovementRecord.CREATE,), Task.Type.GENERIC: (Permissions.Animal.CREATE, Permissions.Farm.UPDATE),
+    }
+    has_operation = has_capability(assignee, org, "complete_operation", farm=farm)
+    has_domain = any(has_capability(assignee, org, code, farm=farm) for code in domain_permissions[task_type])
+    if not has_operation or not has_domain:
+        missing = ([] if has_operation else ["complete_operation"]) + ([] if has_domain else list(domain_permissions[task_type]))
+        raise ContractError(422, ErrorCode.VALIDATION_ERROR,
+            "Assignee is not eligible to execute this task for the selected farm.",
+            errors={"assignee_id": "missing capabilities: " + ", ".join(missing)})
+
+
+def validate_schedule_template(*, org: Organization, farm: Farm, task_type: str, animal_id=None,
+                               group_id=None, assignee_id=None):
+    """Validate that a schedule can only generate a currently-valid Operations task.
+
+    A schedule stores a future work definition; it must not be able to bypass the
+    subject and assignee rules applied to a manually created task.
+    """
+    if task_type not in Task.Type.values:
+        raise ContractError(
+            422,
+            ErrorCode.VALIDATION_ERROR,
+            "Invalid task type.",
+            errors={"task_type": task_type},
+        )
+    animal = _get_animal(org, farm, animal_id)
+    group = _get_group(farm, group_id)
+    _validate_subject(task_type, animal, group)
+    assignee = _get_assignee(org, assignee_id, farm)
+    _validate_assignee_can_execute(assignee, org, farm, task_type)
+    return animal, group, assignee
+
+
 def create_task(
     *,
     org: Organization,
@@ -225,6 +370,7 @@ def create_task(
     source_type=None,
     source_id=None,
     occurrence_key="",
+    preserve_title=False,
 ) -> Task:
     if task_type not in Task.Type.values:
         raise ContractError(
@@ -235,7 +381,14 @@ def create_task(
         )
     animal = _get_animal(org, farm, animal_id)
     group = _get_group(farm, group_id)
+    _validate_subject(task_type, animal, group)
     assignee = _get_assignee(org, assignee_id, farm)
+    _validate_assignee_can_execute(assignee, org, farm, task_type)
+    if priority not in Task.Priority.values:
+        raise ContractError(422, ErrorCode.VALIDATION_ERROR, "Invalid priority.")
+    title = title.strip() if preserve_title else _derived_task_title(task_type, animal, group, title)
+    if not title:
+        raise ContractError(422, ErrorCode.VALIDATION_ERROR, "title is required.")
     task = Task.objects.create(
         organization=org,
         farm=farm,
@@ -246,7 +399,7 @@ def create_task(
         task_type=task_type,
         title=title,
         description=description or "",
-        priority=priority if priority in Task.Priority.values else Task.Priority.NORMAL,
+        priority=priority,
         due_at=as_datetime(due_at) if due_at else None,
         created_by=user,
         status=Task.Status.ASSIGNED if assignee else Task.Status.DRAFT,
@@ -268,6 +421,7 @@ def create_task(
             farm=farm,
             reference_table="task",
             reference_id=task.id,
+            notification_type="task_assigned",
         )
     emit_event(
         farm,
@@ -279,7 +433,19 @@ def create_task(
         user,
         animal=animal,
         group=group,
+        metadata={
+            "task_type": task.task_type,
+            "priority": task.priority,
+            "due_at": json_value(task.due_at),
+            "assignee_id": str(task.assigned_to_id) if task.assigned_to_id else None,
+        },
     )
+    if assignee:
+        emit_event(
+            farm, "task_assigned", f"Task assigned — {task.title}", "Initial task assignment.",
+            "task", task.id, user, animal=animal, group=group,
+            metadata={"previous_assignee_id": None, "new_assignee_id": str(assignee.id)},
+        )
     return task
 
 
@@ -295,13 +461,16 @@ def get_task(org: Organization, task_id: int, farm: Farm = None) -> Task:
 
 
 def assign_task(task: Task, actor, assignee_id) -> Task:
-    if task.status in (Task.Status.COMPLETED, Task.Status.CANCELLED):
+    task = Task.objects.select_for_update().select_related("farm", "organization").get(pk=task.pk)
+    if task.status in (Task.Status.COMPLETED, Task.Status.CANCELLED, Task.Status.UNABLE_TO_COMPLETE):
         raise ContractError(
-            409, ErrorCode.TASK_INVALID_STATE, "Completed or cancelled tasks cannot be assigned."
+            409, ErrorCode.TASK_INVALID_STATE, "Closed tasks must be reopened before assignment."
         )
     assignee = _get_assignee(task.organization, assignee_id, task.farm)
     if not assignee:
         raise ContractError(422, ErrorCode.VALIDATION_ERROR, "assignee_id is required.")
+    _validate_assignee_can_execute(assignee, task.organization, task.farm, task.task_type)
+    previous_assignee = task.assigned_to
     TaskAssignment.objects.filter(
         task=task, status=TaskAssignment.Status.PENDING
     ).update(status=TaskAssignment.Status.SUPERSEDED)
@@ -312,6 +481,21 @@ def assign_task(task: Task, actor, assignee_id) -> Task:
     task.status = Task.Status.ASSIGNED
     task.accepted_at = None
     task.save(update_fields=["assigned_to", "status", "accepted_at", "updated_at"])
+    emit_event(
+        task.farm,
+        "task_reassigned" if previous_assignee else "task_assigned",
+        f"Task {'reassigned' if previous_assignee else 'assigned'} — {task.title}",
+        f"Previous assignee: {getattr(previous_assignee, 'email', 'unassigned')}; new assignee: {assignee.email}",
+        "task",
+        task.id,
+        actor,
+        animal=task.animal,
+        group=task.group,
+        changeset={"assigned_to": {
+            "before": str(previous_assignee.id) if previous_assignee else None,
+            "after": str(assignee.id),
+        }},
+    )
     notify(
         assignee,
         task.organization,
@@ -320,11 +504,56 @@ def assign_task(task: Task, actor, assignee_id) -> Task:
         farm=task.farm,
         reference_table="task",
         reference_id=task.id,
+        notification_type="task_reassigned" if previous_assignee else "task_assigned",
     )
     return task
 
 
+def unassign_open_tasks_for_access_loss(user, actor, *, farm: Farm = None, reason: str) -> int:
+    """Remove current assignments after a deliberate access-loss decision.
+
+    The task and its historical assignment records remain intact.  This does
+    not cancel or complete work; management can subsequently assign it again.
+    Caller must already be inside the governing account/role transaction.
+    """
+    tasks = Task.objects.select_for_update().filter(assigned_to=user).exclude(
+        status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED]
+    )
+    if farm is not None:
+        tasks = tasks.filter(farm=farm)
+    count = 0
+    # Do not join nullable subject relations while issuing FOR UPDATE on
+    # PostgreSQL; lock the Task rows themselves and resolve relations lazily.
+    for task in tasks:
+        TaskAssignment.objects.filter(
+            task=task,
+            user=user,
+            status__in=[TaskAssignment.Status.PENDING, TaskAssignment.Status.ACCEPTED],
+        ).update(status=TaskAssignment.Status.SUPERSEDED)
+        task.assigned_to = None
+        task.status = Task.Status.DRAFT
+        task.accepted_at = None
+        task.started_at = None
+        task.save(update_fields=["assigned_to", "status", "accepted_at", "started_at", "updated_at"])
+        emit_event(
+            task.farm,
+            "task_unassigned",
+            f"Task unassigned — {task.title}",
+            reason,
+            "task",
+            task.id,
+            actor,
+            animal=task.animal,
+            group=task.group,
+        )
+        count += 1
+    return count
+
+
 def accept_task(task: Task, actor) -> Task:
+    task = Task.objects.select_for_update().get(pk=task.pk)
+    if task.status == Task.Status.DRAFT:
+        raise ContractError(409, ErrorCode.TASK_ASSIGNMENT_REQUIRED, "Task must be assigned before it can be accepted.")
     if task.status == Task.Status.CANCELLED:
         raise ContractError(409, ErrorCode.TASK_ALREADY_CANCELLED, "Task cannot be accepted.")
     if task.status == Task.Status.COMPLETED:
@@ -345,17 +574,22 @@ def accept_task(task: Task, actor) -> Task:
     TaskAssignment.objects.filter(task=task, user=task.assigned_to).update(
         status=TaskAssignment.Status.ACCEPTED, accepted_at=task.accepted_at
     )
+    emit_event(
+        task.farm, "task_accepted", f"Task accepted — {task.title}", "Task responsibility accepted.",
+        "task", task.id, actor, animal=task.animal, group=task.group,
+    )
     return task
 
 
 def start_task(task: Task, actor) -> Task:
-    if task.status not in (Task.Status.ASSIGNED, Task.Status.ACCEPTED, Task.Status.DRAFT):
+    task = Task.objects.select_for_update().get(pk=task.pk)
+    if task.status not in (Task.Status.ASSIGNED, Task.Status.ACCEPTED):
         raise ContractError(409, ErrorCode.TASK_INVALID_STATE, "Task cannot be started.")
     if task.assigned_to_id != actor.id and not is_organization_owner(actor, task.organization):
         raise ContractError(
             403, ErrorCode.TASK_NOT_ASSIGNED_TO_USER, "Only the assignee can start this task."
         )
-    if task.status in (Task.Status.ASSIGNED, Task.Status.DRAFT):
+    if task.status == Task.Status.ASSIGNED:
         accept_task(task, actor)
         task.refresh_from_db()
     task.status = Task.Status.IN_PROGRESS
@@ -364,6 +598,10 @@ def start_task(task: Task, actor) -> Task:
     if not task.accepted_at:
         task.accepted_at = task.started_at
     task.save(update_fields=["status", "started_at", "accepted_at", "updated_at"])
+    emit_event(
+        task.farm, "task_started", f"Task started — {task.title}", "Work started.",
+        "task", task.id, actor, animal=task.animal, group=task.group,
+    )
     return task
 
 
@@ -372,8 +610,11 @@ def cancel_task(task: Task, actor, reason: str = "") -> Task:
         raise ContractError(409, ErrorCode.TASK_ALREADY_CANCELLED, "Task cannot be cancelled.")
     if task.status == Task.Status.COMPLETED:
         raise ContractError(409, ErrorCode.TASK_ALREADY_COMPLETED, "Task cannot be cancelled.")
+    if task.status == Task.Status.UNABLE_TO_COMPLETE:
+        raise ContractError(409, ErrorCode.TASK_INVALID_STATE, "Unable-to-complete tasks must be reopened before cancellation.")
     if not (reason or "").strip():
         raise ContractError(422, ErrorCode.VALIDATION_ERROR, "cancelled_reason is required.")
+    previous = task.status
     task.status = Task.Status.CANCELLED
     if not task.cancelled_at:
         task.cancelled_at = timezone.now()
@@ -389,6 +630,7 @@ def cancel_task(task: Task, actor, reason: str = "") -> Task:
         actor,
         animal=task.animal,
         group=task.group,
+        metadata={"previous_status": previous, "reason": task.cancel_reason},
     )
     if task.assigned_to_id:
         notify(
@@ -399,6 +641,7 @@ def cancel_task(task: Task, actor, reason: str = "") -> Task:
             farm=task.farm,
             reference_table="task",
             reference_id=task.id,
+            notification_type="task_cancelled",
         )
     return task
 
@@ -424,9 +667,8 @@ def _ensure_completable(task: Task, actor):
         raise ContractError(
             403, ErrorCode.PERMISSION_DENIED, "Only the assignee can complete this task."
         )
-    if task.status == Task.Status.ASSIGNED:
-        accept_task(task, actor)
-        task.refresh_from_db()
+    # Accept and Start are intentionally optional. Direct completion from
+    # ASSIGNED therefore retains null accepted_at and started_at timestamps.
 
 
 def _stock_error(exc: ValidationError):
@@ -492,7 +734,9 @@ def _complete_vaccination(task: Task, actor, payload: dict):
             group_id=task.group_id,
             due_at=record.next_due_date,
             assignee_id=task.assigned_to_id,
-            parent=task,
+            # Direct domain actions deliberately have no Task.  A follow-up is
+            # still legitimate work, but it cannot point at a fabricated task.
+            parent=task if task.pk else None,
             source_type=Task.SourceType.VACCINATION_FOLLOW_UP,
             source_id=record.id,
         )
@@ -565,11 +809,59 @@ def _complete_treatment(task: Task, actor, payload: dict):
             group_id=task.group_id,
             due_at=record.next_follow_up_date,
             assignee_id=task.assigned_to_id,
-            parent=task,
+            parent=task if task.pk else None,
             source_type=Task.SourceType.TREATMENT_FOLLOW_UP,
             source_id=record.id,
         )
     return "treatment_record", record.id
+
+
+def execute_direct_domain_action(
+    org: Organization,
+    farm: Farm,
+    actor,
+    *,
+    task_type: str,
+    animal=None,
+    group=None,
+    payload: Optional[dict] = None,
+):
+    """Execute a permitted ad-hoc domain action without persisting a Task.
+
+    The transient Task supplies the shared typed-workflow handlers with the
+    subject and farm context.  It is intentionally never saved: the resulting
+    business record, not an Operations task, is authoritative for this path.
+    """
+    handlers = {
+        Task.Type.VACCINATION: _complete_vaccination,
+        Task.Type.TREATMENT: _complete_treatment,
+        Task.Type.FEED_ISSUANCE: _complete_feed,
+        Task.Type.SALE: _complete_sale,
+        Task.Type.MOVEMENT: _complete_movement,
+        Task.Type.OBSERVATION: _complete_observation,
+        Task.Type.WEIGHT: _complete_weight,
+        Task.Type.PREGNANCY_CHECK: _complete_pregnancy_check,
+        Task.Type.MORTALITY: _complete_mortality,
+    }
+    handler = handlers.get(task_type)
+    if handler is None:
+        raise ContractError(
+            422,
+            ErrorCode.VALIDATION_ERROR,
+            "task_type must name a typed domain action; generic has no domain result.",
+        )
+    context = Task(
+        organization=org,
+        farm=farm,
+        animal=animal,
+        group=group,
+        task_type=task_type,
+        title=f"Ad-hoc {task_type.replace('_', ' ')}",
+        description="",
+        created_by=actor,
+    )
+    with transaction.atomic():
+        return handler(context, actor, payload or {})
 
 
 def _complete_feed(task: Task, actor, payload: dict):
@@ -913,6 +1205,8 @@ def mark_unable_to_complete(task: Task, actor, payload: Optional[dict] = None) -
         raise ContractError(
             409, ErrorCode.TASK_UNABLE_TO_COMPLETE_RECORDED, "Unable-to-complete is already recorded."
         )
+    if task.status not in (Task.Status.ASSIGNED, Task.Status.ACCEPTED, Task.Status.IN_PROGRESS):
+        raise ContractError(409, ErrorCode.TASK_INVALID_STATE, "Task must be assigned before it can be marked unable.")
     if task.assigned_to_id != actor.id and not is_organization_owner(actor, task.organization):
         raise ContractError(
             403, ErrorCode.TASK_NOT_ASSIGNED_TO_USER, "Only the assignee can mark this task unable to complete."
@@ -920,6 +1214,11 @@ def mark_unable_to_complete(task: Task, actor, payload: Optional[dict] = None) -
     reason = payload.get("reason_code") or "other"
     if reason not in UNABLE_REASON_CODES:
         raise ContractError(422, ErrorCode.VALIDATION_ERROR, "Invalid reason_code.")
+    if reason == "other" and not (payload.get("notes") or "").strip():
+        raise ContractError(
+            422, ErrorCode.VALIDATION_ERROR,
+            "notes are required when reason_code is other.", errors={"notes": "required for other"},
+        )
     previous = task.status
     task.status = Task.Status.UNABLE_TO_COMPLETE
     task.unable_to_complete_at = timezone.now()
@@ -944,17 +1243,13 @@ def mark_unable_to_complete(task: Task, actor, payload: Optional[dict] = None) -
         actor,
         animal=task.animal,
         group=task.group,
+        metadata={"previous_status": previous, "reason_code": reason},
     )
-    if task.created_by_id:
-        notify(
-            task.created_by,
-            task.organization,
-            title="Task unable to complete",
-            body=task.title,
-            farm=task.farm,
-            reference_table="task",
-            reference_id=task.id,
-        )
+    notify_farm_management(
+        task.organization, task.farm, title="Task unable to complete", body=task.title,
+        reference_table="task", reference_id=task.id,
+        notification_type="operational_exception_created",
+    )
     return task
 
 
@@ -974,7 +1269,10 @@ def reopen_task(task: Task, actor, payload: Optional[dict] = None) -> Task:
         task.due_at = as_datetime(payload["due_at"])
     task.status = Task.Status.ASSIGNED if task.assigned_to_id else Task.Status.DRAFT
     task.unable_to_complete_at = None
+    task.unable_reason_code = ""
+    task.unable_notes = ""
     task.cancelled_at = None
+    task.cancel_reason = ""
     task.accepted_at = None
     task.started_at = None
     task.save(
@@ -983,7 +1281,10 @@ def reopen_task(task: Task, actor, payload: Optional[dict] = None) -> Task:
             "due_at",
             "status",
             "unable_to_complete_at",
+            "unable_reason_code",
+            "unable_notes",
             "cancelled_at",
+            "cancel_reason",
             "accepted_at",
             "started_at",
             "updated_at",
@@ -999,6 +1300,7 @@ def reopen_task(task: Task, actor, payload: Optional[dict] = None) -> Task:
         actor,
         animal=task.animal,
         group=task.group,
+        changeset={"status": {"before": previous, "after": task.status}},
     )
     if task.assigned_to_id:
         notify(
@@ -1009,6 +1311,7 @@ def reopen_task(task: Task, actor, payload: Optional[dict] = None) -> Task:
             farm=task.farm,
             reference_table="task",
             reference_id=task.id,
+            notification_type="task_reopened",
         )
     return task
 
@@ -1034,6 +1337,15 @@ def complete_task(task: Task, actor, payload: Optional[dict] = None, evidence: s
         table, ref_id = "", None
         if handler:
             table, ref_id = handler(task, actor, payload)
+        correlation_id = uuid.uuid4()
+        if table and ref_id:
+            # The typed domain event is a distinct fact, but shares the
+            # workflow correlation with the Operations completion event.
+            AnimalEvent.objects.filter(
+                farm=task.farm,
+                reference_table=RESULT_EVENT_REFERENCE_TABLE.get(table, table),
+                reference_id=ref_id,
+            ).update(correlation_id=correlation_id)
         task.status = Task.Status.COMPLETED
         task.completed_at = timezone.now()
         task.completion_payload = json_value(payload)
@@ -1061,15 +1373,12 @@ def complete_task(task: Task, actor, payload: Optional[dict] = None, evidence: s
             actor,
             animal=task.animal,
             group=task.group,
-        )
-        notify(
-            task.created_by,
-            task.organization,
-            title="Task completed",
-            body=task.title,
-            farm=task.farm,
-            reference_table="task",
-            reference_id=task.id,
+            metadata={
+                "task_type": task.task_type,
+                "result_reference_table": table or None,
+                "result_reference_id": ref_id,
+            },
+            correlation_id=correlation_id,
         )
     return task
 
@@ -1092,25 +1401,78 @@ def serialize_schedule(schedule: TaskSchedule) -> dict:
 
 
 def bump_schedule(schedule: TaskSchedule):
+    next_run = schedule.next_run_at.astimezone(SCHEDULE_TIMEZONE)
     if schedule.recurrence == TaskSchedule.Recurrence.ONCE:
         schedule.is_active = False
     elif schedule.recurrence == TaskSchedule.Recurrence.DAILY:
-        schedule.next_run_at = schedule.next_run_at + timedelta(days=1)
+        schedule.next_run_at = next_run + timedelta(days=1)
     elif schedule.recurrence == TaskSchedule.Recurrence.WEEKLY:
-        schedule.next_run_at = schedule.next_run_at + timedelta(days=7)
+        schedule.next_run_at = next_run + timedelta(days=7)
     elif schedule.recurrence == TaskSchedule.Recurrence.MONTHLY:
-        schedule.next_run_at = schedule.next_run_at + timedelta(days=30)
+        # Preserve the local clock time and use the last valid calendar day,
+        # rather than treating a month as an arbitrary 30-day interval.
+        month_index = next_run.month
+        year = next_run.year + (month_index // 12)
+        month = (month_index % 12) + 1
+        day = min(next_run.day, calendar.monthrange(year, month)[1])
+        schedule.next_run_at = next_run.replace(year=year, month=month, day=day)
     schedule.save(update_fields=["next_run_at", "is_active", "updated_at"])
 
 
-def run_schedule(schedule: TaskSchedule, actor, *, due_only: bool = False) -> Task:
-    if not schedule.is_active:
-        raise ContractError(409, ErrorCode.TASK_INVALID_STATE, "Schedule is not active.")
+def _deactivate_ineligible_schedule(schedule: TaskSchedule, actor):
+    schedule.is_active = False
+    schedule.save(update_fields=["is_active", "updated_at"])
+    emit_event(
+        schedule.farm,
+        "schedule_deactivated",
+        f"Schedule deactivated — {schedule.title}",
+        "The stored assignee is no longer eligible for this farm or task type.",
+        "task_schedule",
+        schedule.id,
+        actor,
+        animal=schedule.animal,
+        group=schedule.group,
+    )
+
+
+def reactivate_schedule(schedule: TaskSchedule, actor) -> Task | None:
+    """Reactivate and generate at most one missed occurrence.
+
+    Product decision D02-007: a reactivated recurring schedule creates its
+    current missed occurrence once, then resumes at the next future Lagos-time
+    occurrence; it does not backfill every missed interval.
+    """
+    with transaction.atomic():
+        locked = TaskSchedule.objects.select_for_update().get(id=schedule.id)
+        if locked.is_active:
+            return None
+        locked.is_active = True
+        locked.save(update_fields=["is_active", "updated_at"])
+        generated = None
+        if locked.next_run_at <= timezone.now():
+            generated = run_schedule(locked, actor)
+            locked.refresh_from_db()
+            while locked.is_active and locked.next_run_at <= timezone.now():
+                bump_schedule(locked)
+                locked.refresh_from_db()
+        if locked.is_active:
+            emit_event(
+                locked.farm,
+                "schedule_reactivated",
+                f"Schedule reactivated — {locked.title}",
+                "Future schedule execution restored.",
+                "task_schedule",
+                locked.id,
+                actor,
+                animal=locked.animal,
+                group=locked.group,
+            )
+    return generated
+
+
+def run_schedule(schedule: TaskSchedule, actor=None, *, due_only: bool = False) -> Task:
     now = timezone.now()
-    occurrence_key = schedule.next_run_at.isoformat()
-    existing = Task.objects.filter(schedule=schedule, occurrence_key=occurrence_key).first()
-    if existing:
-        return existing
+    ineligible_assignee = False
     with transaction.atomic():
         locked = TaskSchedule.objects.select_for_update().get(id=schedule.id)
         if not locked.is_active:
@@ -1126,23 +1488,46 @@ def run_schedule(schedule: TaskSchedule, actor, *, due_only: bool = False) -> Ta
         existing = Task.objects.filter(schedule=locked, occurrence_key=occurrence_key).first()
         if existing:
             return existing
-        task = create_task(
-            org=locked.organization,
-            farm=locked.farm,
-            user=actor or locked.created_by,
-            task_type=locked.task_type,
-            title=locked.title,
-            description=locked.description,
-            animal_id=locked.animal_id,
-            group_id=locked.group_id,
-            due_at=locked.next_run_at,
-            assignee_id=locked.assignee_id,
-            schedule=locked,
-            source_type=Task.SourceType.SCHEDULE,
-            source_id=locked.id,
-            occurrence_key=occurrence_key,
+        if locked.assignee_id:
+            try:
+                assignee = _get_assignee(locked.organization, locked.assignee_id, locked.farm)
+                _validate_assignee_can_execute(assignee, locked.organization, locked.farm, locked.task_type)
+            except ContractError:
+                _deactivate_ineligible_schedule(locked, actor)
+                ineligible_assignee = True
+        if not ineligible_assignee:
+            task = create_task(
+                org=locked.organization,
+                farm=locked.farm,
+                user=actor,
+                task_type=locked.task_type,
+                title=locked.title,
+                description=locked.description,
+                animal_id=locked.animal_id,
+                group_id=locked.group_id,
+                due_at=locked.next_run_at,
+                assignee_id=locked.assignee_id,
+                schedule=locked,
+                source_type=Task.SourceType.SCHEDULE,
+                source_id=locked.id,
+                occurrence_key=occurrence_key,
+                # A schedule title is an explicit template label, unlike the
+                # derived display title used by direct typed-task creation.
+                preserve_title=True,
+            )
+            emit_event(
+                locked.farm, "schedule_task_generated", f"Schedule generated task — {task.title}",
+                "Recurring schedule expansion completed.", "task_schedule", locked.id, actor,
+                animal=locked.animal, group=locked.group,
+                metadata={"generated_task_id": task.id, "occurrence_key": occurrence_key},
+            )
+            bump_schedule(locked)
+    if ineligible_assignee:
+        raise ContractError(
+            409,
+            ErrorCode.TASK_INVALID_STATE,
+            "Schedule deactivated because its assignee is no longer eligible.",
         )
-        bump_schedule(locked)
     return task
 
 
@@ -1156,7 +1541,10 @@ def process_due_schedules(now=None) -> int:
         try:
             schedule = TaskSchedule.objects.get(id=schedule_id)
             before_key = schedule.next_run_at
-            task = run_schedule(schedule, schedule.created_by, due_only=True)
+            # A scheduled occurrence has no human triggering actor.  Keeping
+            # this null avoids falsely attributing future automated work to
+            # the person who originally created the schedule.
+            task = run_schedule(schedule, None, due_only=True)
             schedule.refresh_from_db()
             if task and (schedule.next_run_at != before_key or not schedule.is_active):
                 created += 1
@@ -1169,6 +1557,7 @@ def serialize_notification(row: Notification) -> dict:
     return {
         "id": row.id,
         "category": row.category,
+        "notification_type": row.notification_type,
         "title": row.title,
         "body": row.body,
         "is_read": row.is_read,
@@ -1185,12 +1574,21 @@ def serialize_event(event: AnimalEvent) -> dict:
 
     return {
         "id": event.id,
+        "event_name": event.event_name or (event.event_type.name if event.event_type_id else None),
+        "actor_type": event.actor_type or ("user" if event.created_by_id else "system"),
+        "actor_display_snapshot": event.actor_display_snapshot or None,
+        "source_module": event.source_module or None,
+        "occurred_at": json_value(event.event_date),
+        "recorded_at": json_value(event.created_at),
+        "correlation_id": str(event.correlation_id) if event.correlation_id else None,
+        "metadata": event.metadata or {},
+        "changeset": event.changeset or {},
         "farm_id": event.farm_id,
         "animal_id": event.animal_id,
         "animal_tag": event.animal.tag_id if event.animal_id else None,
         "group_id": event.group_id,
         "event_type": event.event_type.name if event.event_type_id else None,
-        "event_date": json_value(event.event_date),
+        "event_date": json_value(event.event_date),  # compatibility alias for occurred_at
         "event_title": event.event_title,
         "event_summary": event.event_summary,
         "reference_table": event.reference_table,

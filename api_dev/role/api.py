@@ -498,12 +498,16 @@ def revoke_user_role(request, assignment_id: int):
     assignment.revoked_at = timezone.now()
     assignment.revoked_by = actor
     assignment.save(update_fields=["status", "revoked_at", "revoked_by", "updated_at"])
+    from operations.services import unassign_open_tasks_for_access_loss
+    unassigned_tasks = unassign_open_tasks_for_access_loss(
+        assignment.user, actor, farm=assignment.farm, reason="assignee farm access revoked"
+    )
     security_event("USER_ASSIGNMENT_REVOKED", actor, target=assignment, org=org, farm=assignment.farm,
-                   previous=previous, new=_assignment_state(assignment))
+                   previous=previous, new={**_assignment_state(assignment), "tasks_unassigned": unassigned_tasks})
     return 200, APIResponse(
         success=True,
         message="Farm assignment removed successfully.",
-        data={"assignment_id": assignment.id, "status": assignment.status},
+        data={"assignment_id": assignment.id, "status": assignment.status, "tasks_unassigned": unassigned_tasks},
     )
     
 @router.get("/user-role/", response={200: APIResponse, 403: APIResponse})

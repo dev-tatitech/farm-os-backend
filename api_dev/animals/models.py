@@ -284,6 +284,16 @@ class AnimalGroupMember(models.Model):
         
 
 class AnimalEvent(models.Model):
+    # D02-011 canonical business-event fields.  The pre-existing event_type,
+    # title and summary remain the presentation compatibility layer; these
+    # structured fields are the audit authority.
+    event_name = models.CharField(max_length=120, blank=True, db_index=True)
+    actor_type = models.CharField(max_length=16, default="user")
+    actor_display_snapshot = models.CharField(max_length=255, blank=True)
+    source_module = models.CharField(max_length=64, default="operations")
+    correlation_id = models.UUIDField(null=True, blank=True, db_index=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    changeset = models.JSONField(default=dict, blank=True)
     farm = models.ForeignKey(
         "organization.Farm",
         on_delete=models.CASCADE,

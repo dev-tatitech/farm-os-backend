@@ -170,6 +170,7 @@ if animal:
             "title": "Weigh verify",
             "animal_id": animal.id,
             "assignee_id": str(owner.id),
+            "due_at": timezone.now().isoformat(),
             "client_request_id": "v21-weight-task-%s" % run_id,
         },
     )
@@ -196,6 +197,7 @@ if animal:
             "title": "Unable verify",
             "animal_id": animal.id,
             "assignee_id": str(owner.id),
+            "due_at": timezone.now().isoformat(),
             "client_request_id": "v21-unable-task-%s" % run_id,
         },
     )
@@ -249,6 +251,7 @@ if animal:
             "title": "Preg check verify",
             "animal_id": preg_animal.id,
             "assignee_id": str(owner.id),
+            "due_at": timezone.now().isoformat(),
             "client_request_id": "v21-preg-task-%s" % run_id,
         },
     )

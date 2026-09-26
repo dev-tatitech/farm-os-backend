@@ -1,5 +1,6 @@
 """Sandbox E2E runner. Invoked via: python manage.py shell < contract/e2e_run.py"""
 import json
+import secrets
 from datetime import date, timedelta
 from decimal import Decimal
 from urllib.error import HTTPError
@@ -7,7 +8,7 @@ from urllib.request import Request, urlopen
 
 from django.utils import timezone
 
-from account.models import EmailValidation, User
+from account.models import EmailValidation, RefreshSession, User
 from account.utils.jwt_utils import create_access_token
 from animals.models import Animal
 from common.permissions import Permissions
@@ -54,12 +55,12 @@ def ok_success(status, body):
 
 def seed_user(email, username, org=None):
     user, _ = User.objects.get_or_create(
-        email=email, defaults={"username": username, "account_status": "Active"}
+        email=email, defaults={"username": username, "account_status": "active"}
     )
     user.set_password("E2ePass123!")
     user.is_superuser = False
     user.is_staff = False
-    user.account_status = "Active"
+    user.account_status = "active"
     if org is not None:
         user.organization = org
     user.save()
@@ -110,6 +111,11 @@ needed = [
     Permissions.MovementRecord.CREATE,
     Permissions.Farm.UPDATE,
     Permissions.Reports.LIVESTOCK_DASHBOARD,
+    "view_operation",
+    "create_operation",
+    "complete_operation",
+    "record_health_observation",
+    "manage_health_case",
 ]
 for code in needed:
     perm = Permission.objects.filter(code=code).first()
@@ -139,8 +145,20 @@ if inventory.quantity_available < Decimal("50.00"):
     inventory.quantity_available = Decimal("100.00")
     inventory.save(update_fields=["quantity_available"])
 
-owner_token = create_access_token({"sub": str(owner.id)})
-ibrahim_token = create_access_token({"sub": str(ibrahim.id)})
+def e2e_access_token(user, channel="web"):
+    """Create the same revocable access-token/session pairing production uses."""
+    session = RefreshSession.objects.create(
+        user=user,
+        token_hash=secrets.token_hex(32),
+        channel=channel,
+        expires_at=timezone.now() + timedelta(days=1),
+        user_agent="FarmOS E2E runner",
+    )
+    return create_access_token({"sub": str(user.id), "sid": session.pk, "kind": "access"})
+
+
+owner_token = e2e_access_token(owner)
+ibrahim_token = e2e_access_token(ibrahim)
 
 # --- isolation / auth ---
 st, body = http("GET", "/api/openapi.json")
@@ -180,7 +198,7 @@ check("ibrahim_me", ok_success(st, me) and (me.get("data") or {}).get("email") =
 open_before = ((me.get("data") or {}).get("work_summary") or {}).get("open_tasks") or 0
 
 st, dash_before = http("GET", "/api/v2/dashboard/farm/%s/" % farm.id, token=owner_token)
-farm_open_before = (((dash_before.get("data") or {}).get("tasks") or {}).get("open") or 0)
+farm_open_before = (((dash_before.get("data") or {}).get("today") or {}).get("scheduled") or 0)
 
 due = (timezone.now() + timedelta(days=1)).isoformat()
 st, created = http(
@@ -290,7 +308,7 @@ check(
 )
 
 st, dash_after = http("GET", "/api/v2/dashboard/farm/%s/" % farm.id, token=owner_token)
-farm_open_after = (((dash_after.get("data") or {}).get("tasks") or {}).get("open") or 0)
+farm_open_after = (((dash_after.get("data") or {}).get("today") or {}).get("scheduled") or 0)
 check(
     "farm_dashboard_open_tasks_sane",
     ok_success(st, dash_after) and farm_open_after >= 0,
@@ -324,6 +342,7 @@ st, tcreated = http(
         "title": "Ibrahim treatment",
         "animal_id": animal.id,
         "assignee_id": str(ibrahim.id),
+        "due_at": due,
     },
 )
 tid = (tcreated.get("data") or {}).get("id")
@@ -349,6 +368,7 @@ st, fcreated = http(
         "title": "Ibrahim feed",
         "animal_id": animal.id,
         "assignee_id": str(ibrahim.id),
+        "due_at": due,
     },
 )
 fid = (fcreated.get("data") or {}).get("id")

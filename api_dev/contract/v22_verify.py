@@ -65,6 +65,7 @@ st, body = http(
         "farm_id": farm.id,
         "task_type": "generic",
         "title": "v22 timestamps %s" % run_id,
+        "due_at": (timezone.now() + timedelta(days=1)).isoformat(),
         "assignee_id": str(owner.id),
         "client_request_id": "v22-ts-%s" % run_id,
     },

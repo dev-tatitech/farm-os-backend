@@ -18,6 +18,7 @@ from role.models import Permission, Role, UserRole
 
 from .authz import (
     is_organization_owner,
+    require_farm,
     require_organization,
     require_user,
     resolve_organization,
@@ -148,13 +149,18 @@ def deactivate_user(request, user_id: UUID, payload: UserDeactivateIn):
     target.save(update_fields=["account_status", "deactivated_at", "deactivation_reason", "updated_at"])
     from account.models import RefreshSession
     RefreshSession.objects.filter(user=target, is_active=True).update(is_active=False)
+    from operations.services import unassign_open_tasks_for_access_loss
+    unassigned_tasks = unassign_open_tasks_for_access_loss(
+        target, actor, reason="assignee account deactivated"
+    )
     security_event("USER_DEACTIVATED", actor, target=target, org=org, previous=previous,
-                   new={"account_status": target.account_status})
+                   new={"account_status": target.account_status, "tasks_unassigned": unassigned_tasks})
     return 200, success_body(
         data={
             "user_id": str(target.id),
             "account_status": target.account_status,
             "deactivated_at": target.deactivated_at,
+            "tasks_unassigned": unassigned_tasks,
         },
         code="USER_DEACTIVATED",
         message="User access has been deactivated.",
@@ -278,14 +284,19 @@ def users_me_capabilities(request, farm_id: int = None):
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error},
     summary="Current user activity timeline",
 )
-def users_me_activity(request, page: int = 1, page_size: int = 20):
+def users_me_activity(request, page: int = 1, page_size: int = 20, farm_id: int = None):
     user = require_user(request)
     org = resolve_organization(user)
+    farm = None
+    if farm_id is not None:
+        farm = require_farm(org, farm_id, user)
     qs = (
         AnimalEvent.objects.filter(farm__in=authorized_farms(user, org), created_by=user)
         .select_related("event_type", "animal", "farm")
         .order_by("-event_date", "-id")
     )
+    if farm is not None:
+        qs = qs.filter(farm=farm)
     return 200, paginated(qs, page, page_size, serialize_event, "Activity fetched successfully.")
 
 
@@ -294,14 +305,18 @@ def users_me_activity(request, page: int = 1, page_size: int = 20):
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error},
     summary="Tasks assigned to the current user",
 )
-def users_me_tasks(request, page: int = 1, page_size: int = 20, status: str = None):
+def users_me_tasks(request, page: int = 1, page_size: int = 20, status: str = None, farm_id: int = None):
     from operations.services import serialize_task
 
     user = require_user(request)
     org = resolve_organization(user)
+    require_permission(user, org, "view_operation")
+    farm = require_farm(org, farm_id, user) if farm_id is not None else None
     qs = Task.objects.filter(farm__in=authorized_farms(user, org), assigned_to=user).select_related(
         "animal", "assigned_to", "created_by", "farm"
     )
+    if farm is not None:
+        qs = qs.filter(farm=farm)
     if status == "open":
         qs = qs.exclude(
             status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED, Task.Status.UNABLE_TO_COMPLETE]

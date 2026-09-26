@@ -60,6 +60,7 @@ def org_dashboard(request):
         .select_related("event_type", "animal", "farm", "created_by")
         .order_by("-event_date", "-id")[:10]
     )
+    alerts = HealthAlert.objects.filter(farm__in=authorized_farms(user, org), status="open").select_related("animal")[:10]
     farm_breakdown = []
     for farm in farms:
         farm_open = _open_tasks(org, user, farm)
@@ -78,6 +79,24 @@ def org_dashboard(request):
                 "work_completion_percent": int((completed_today / scheduled) * 100) if scheduled else 100,
             }
         )
+    alerts = HealthAlert.objects.filter(
+        farm__in=authorized_farms(user, org), status="open"
+    ).select_related("animal")[:10]
+    attention = [
+        {
+            "type": "alert",
+            "id": row.id,
+            "title": row.alert_type.replace("_", " ").title(),
+            "priority": row.severity,
+            "subject": {
+                "type": "animal",
+                "id": row.animal_id,
+                "label": row.animal.tag_id if row.animal_id else None,
+            },
+            "available_actions": ["view_subject", "create_task"],
+        }
+        for row in alerts
+    ]
     data = {
         "organization": {
             "id": str(org.id),
@@ -171,6 +190,12 @@ def farm_dashboard(request, farm_id: int):
         .order_by("-event_date", "-id")[:10]
     )
     alerts = HealthAlert.objects.filter(farm=farm, status="open").select_related("animal")[:10]
+    attention = [
+        {"type": "alert", "id": row.id, "title": row.alert_type.replace("_", " ").title(),
+         "priority": row.severity, "subject": {"type": "animal", "id": row.animal_id,
+         "label": row.animal.tag_id if row.animal_id else None}, "available_actions": ["view_subject", "create_task"]}
+        for row in alerts
+    ]
     data = {
         "farm": {"id": farm.id, "name": farm.name, "status": farm.status, "timezone": "Africa/Lagos"},
         "livestock": {
@@ -191,21 +216,8 @@ def farm_dashboard(request, farm_id: int):
             .count(),
             "overdue": open_tasks.filter(due_at__lt=now).count(),
         },
-        "attention": [
-            {
-                "type": "alert",
-                "id": row.id,
-                "title": row.alert_type.replace("_", " ").title(),
-                "priority": row.severity,
-                "subject": {
-                    "type": "animal",
-                    "id": row.animal_id,
-                    "label": row.animal.tag_id if row.animal_id else None,
-                },
-                "available_actions": ["view_subject", "create_task"],
-            }
-            for row in alerts
-        ],
+        "attention": attention,
+        "has_attention": len(attention) > 0,
         "upcoming": [
             serialize_task(task)
             for task in open_tasks.filter(due_at__date__gt=today).order_by("due_at")[:10]
@@ -235,6 +247,8 @@ def farm_dashboard(request, farm_id: int):
 def my_work_dashboard(request, farm_id: int = None):
     user = require_user(request)
     org = resolve_organization(user)
+    require_permission(user, org, "view_operation")
+    farm = None
     qs = Task.objects.filter(farm__in=authorized_farms(user, org), assigned_to=user).select_related(
         "animal", "assigned_to", "created_by", "farm"
     )
@@ -246,7 +260,7 @@ def my_work_dashboard(request, farm_id: int = None):
     )
     today = timezone.localdate()
     data = {
-        "summary": work_summary_for(user, org),
+        "summary": work_summary_for(user, org, farm=farm),
         "today": [serialize_task(t) for t in open_qs.filter(due_at__date=today)[:20]],
         "overdue": [serialize_task(t) for t in open_qs.filter(due_at__lt=timezone.now())[:20]],
         "upcoming": [

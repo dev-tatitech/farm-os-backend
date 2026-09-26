@@ -23,6 +23,7 @@ from finance.api import router as finance
 from pharmacy.api import router as pharmacy
 from reports.api import router as reports
 from contract.api import v2_api
+from contract.mobile import mobile_api
 from contract.openapi_merge import patch_dev_openapi
 from django.conf import settings
 from django.conf.urls.static import static
@@ -89,6 +90,7 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/v2/docs", RedirectView.as_view(url="/api/docs", permanent=False)),
     path("api/v2/", v2_api.urls),
+    path("mobile/api/", mobile_api.urls),
     path("api/", api.urls),
 ]
 

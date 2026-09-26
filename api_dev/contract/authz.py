@@ -98,9 +98,9 @@ def require_farm(org: Organization, farm_id, user: User = None) -> Farm:
         from common.access import authorized_farms
         if not authorized_farms(user, org).filter(pk=farm.pk).exists():
             raise ContractError(
-                403,
-                ErrorCode.FARM_ACCESS_DENIED,
-                "You do not have access to this farm.",
+                404,
+                ErrorCode.FARM_NOT_FOUND,
+                "Farm could not be found.",
             )
         codes = getattr(user, "_required_capabilities", ())
         if codes:

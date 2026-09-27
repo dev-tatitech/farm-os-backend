@@ -261,3 +261,18 @@ environmental blocker changes.
 - Passed development-container compilation and Django checks, focused D02-010
   regression coverage (4 tests), and complete authorization regression suite
   (64 tests). **D02-010 PRODUCT LOCKED.** D02-011 was not changed.
+- 2026-09-27 evidence review: expanded `D02-010-implementation.md` with the
+  requested requirement-to-implementation/endpoint/test/result/evidence matrix,
+  including distinct Farm-B-only, dual-Farm, and Organization-owner historical
+  access cases. Started the `api_dev` Compose dependencies; the full Compose up
+  could not bind the separate live backend's occupied port 8000, so left that
+  backend untouched and ran tests in the existing `farmos_dev` container.
+  Fresh focused D02-010 run passed **4/4** using the existing isolated test
+  database with `--keepdb`; Django system check had no issues. The database was
+  preserved. No D02-010 semantics changed; D02-011 was not changed.
+- Regenerated `docs/FarmOS-Frontend-Integration-Guide.pdf` from its development
+  source. The D02-010 section documents `GET /mobile/api/sync-scope/`, its
+  `authorized_farm_ids` and cache-removal directive, queued-write
+  reauthorization, and the resource-specific `*_NOT_FOUND` 404 distinction.
+  Extracted PDF text confirmed the endpoint and response fields. No contract
+  semantics changed.

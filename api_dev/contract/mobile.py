@@ -1,12 +1,20 @@
 """JWT-only field-execution API.  Deliberately smaller than the web v2 API."""
+import secrets
+from datetime import timedelta
+
+from django.contrib.auth.hashers import check_password
+from django.db import transaction
+from django.utils import timezone
 from ninja import NinjaAPI, Router
 from ninja.security import HttpBearer
 
-from account.models import RefreshSession
+from account.models import EmailValidation, RefreshSession, User
+from account.schema import LoginSchema
+from account.utils.jwt_utils import create_access_token, create_refresh_token, decode_token
+from account.utils.token_hash import hash_token
 from account.sessions import active_account, check_channel
-from account.utils.jwt_utils import decode_token
-from common.access import authorized_farms
-from django.utils import timezone
+from common.audit import security_event
+from common.access import authorized_farms, organization_for
 from operations.models import Task
 from operations.services import accept_task, complete_task, get_task, mark_unable_to_complete, serialize_task, start_task, work_summary_for
 
@@ -68,6 +76,56 @@ mobile_api = NinjaAPI(
     urls_namespace="mobile_api",
 )
 router = Router(tags=["Mobile My Work"])
+
+
+@router.post("/auth/login/", auth=None)
+def mobile_login(request, data: LoginSchema):
+    """Create a mobile-channel session and return JWTs for native clients."""
+    user = User.objects.filter(email=data.email).first()
+    if user is None or not check_password(data.password, user.password):
+        raise ContractError(401, ErrorCode.AUTHENTICATION_REQUIRED, "Invalid email or password.")
+    active_account(user)
+    if not user.is_superuser and not EmailValidation.objects.filter(email=user.email, is_used=True).exists():
+        raise ContractError(400, ErrorCode.VALIDATION_ERROR, "Please verify your email.")
+    if user.is_superuser:
+        raise ContractError(403, ErrorCode.CHANNEL_ACCESS_DENIED, "This account cannot use the mobile application.")
+    check_channel(user, "mobile", identity_only=True)
+
+    with transaction.atomic():
+        session = RefreshSession.objects.create(
+            user=user,
+            token_hash=secrets.token_hex(32),
+            channel="mobile",
+            expires_at=timezone.now() + timedelta(days=7),
+            user_agent=request.headers.get("User-Agent", ""),
+            ip_address=request.META.get("REMOTE_ADDR"),
+        )
+        claims = {"sub": str(user.id), "sid": session.pk}
+        refresh = create_refresh_token({**claims, "kind": "refresh", "jti": secrets.token_urlsafe(24)})
+        access = create_access_token({**claims, "kind": "access"})
+        session.token_hash = hash_token(refresh)
+        session.save(update_fields=["token_hash"])
+        user.last_login = timezone.now()
+        user.save(update_fields=["last_login"])
+        security_event("USER_LOGGED_IN", user, target=user, org=organization_for(user))
+
+    return success_body(
+        data={"access_token": access, "refresh_token": refresh, "token_type": "Bearer", "expires_in": 900},
+        message="Mobile login successful.",
+    )
+
+
+@router.post("/auth/logout/", response={200: V2Success, 401: V2Error})
+def mobile_logout(request):
+    """Revoke the current mobile session represented by the Bearer token."""
+    session = request.auth_session
+    with transaction.atomic():
+        locked = RefreshSession.objects.select_for_update().get(pk=session.pk)
+        if locked.is_active:
+            locked.is_active = False
+            locked.save(update_fields=["is_active"])
+            security_event("USER_LOGGED_OUT", locked.user, target=locked.user, org=organization_for(locked.user))
+    return success_body(message="Logged out successfully.")
 
 
 def _user_org(request):

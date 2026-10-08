@@ -34,12 +34,16 @@ REGISTRY = [
     {"domain": "Roles", "operation": "Roles list", "endpoint": "GET /api/v2/roles/", "status": V2},
     {"domain": "Roles", "operation": "Permissions list", "endpoint": "GET /api/v2/permissions/", "status": V2},
     {"domain": "Animals", "operation": "List", "endpoint": "GET /api/v2/animals/", "status": V2},
+    {"domain": "Animals", "operation": "Media gallery", "endpoint": "GET /api/v2/animals/{animal_id}/media/", "status": V2},
+    {"domain": "Groups", "operation": "Farm groups and membership", "endpoint": "/api/v2/groups/", "status": V2},
+    {"domain": "Settings", "operation": "Farm labels", "endpoint": "/api/v2/settings/labels/", "status": V2},
     {"domain": "Animals", "operation": "Create", "endpoint": "POST /api/v2/animals/", "status": V2},
     {"domain": "Animals", "operation": "Update", "endpoint": "PATCH /api/v2/animals/{animal_id}/", "status": V2},
     {"domain": "Animals", "operation": "Profile", "endpoint": "GET /api/v2/animals/{id}/profile/", "status": V2},
     {"domain": "Animals", "operation": "Old profile", "endpoint": "GET /api/animals/animal-profile/v2/{id}", "status": DEPRECATED},
     {"domain": "Animals", "operation": "Resolve tag", "endpoint": "GET /api/v2/animals/resolve-tag/{tag_id}/", "status": V2},
     {"domain": "Operations", "operation": "Tasks CRUD/actions", "endpoint": "/api/v2/operations/tasks/", "status": V2},
+    {"domain": "Operations", "operation": "Work eligibility", "endpoint": "/api/v2/operations/work-types/{work_type}/eligible-targets/", "status": V2},
     {"domain": "Operations", "operation": "Unable to complete", "endpoint": "POST /api/v2/operations/tasks/{id}/unable-to-complete/", "status": V2},
     {"domain": "Operations", "operation": "Operational exceptions", "endpoint": "GET /api/v2/operations/exceptions/", "status": V2},
     {"domain": "Operations", "operation": "Reopen", "endpoint": "POST /api/v2/operations/tasks/{id}/reopen/", "status": V2},
@@ -66,6 +70,11 @@ REGISTRY = [
     {"domain": "Farms", "operation": "Upload farm image", "endpoint": "POST /api/v2/farms/{farm_id}/image/", "status": V2},
     {"domain": "Search", "operation": "Global search", "endpoint": "GET /api/v2/search/", "status": V2},
     {"domain": "Notifications", "operation": "Inbox / unread count", "endpoint": "/api/v2/notifications/", "status": V2},
+    {"domain": "Mobile", "operation": "Server scoped animal list", "endpoint": "GET /mobile/api/animals/", "status": V2},
+    {"domain": "Mobile", "operation": "Work contextual farm members", "endpoint": "GET /mobile/api/farm-members/", "status": V2},
+    {"domain": "Mobile", "operation": "Quick domain record", "endpoint": "POST /mobile/api/quick-record/", "status": V2},
+    {"domain": "Mobile", "operation": "Health case create/detail", "endpoint": "/mobile/api/health/cases/", "status": V2},
+    {"domain": "Mobile", "operation": "Notification inbox", "endpoint": "GET /mobile/api/notifications/", "status": V2},
 ]
 
 

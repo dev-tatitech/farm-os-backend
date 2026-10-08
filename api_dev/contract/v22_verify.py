@@ -1,12 +1,13 @@
 """v2.2 release-readiness checks. python manage.py shell < contract/v22_verify.py"""
 import json
+import secrets
 from datetime import date, timedelta
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from django.utils import timezone
 
-from account.models import User
+from account.models import RefreshSession, User
 from account.utils.jwt_utils import create_access_token
 from animals.models import Animal
 from operations.models import Task, TaskSchedule
@@ -50,7 +51,19 @@ if not owner:
     raise SystemExit("e2e owner missing; run e2e_run.py first")
 org = owner.organization
 farm = org.farms.first()
-token = create_access_token({"sub": str(owner.id)})
+def session_access_token(user):
+    """Use the same revocable session-bound cookie credentials as login."""
+    session = RefreshSession.objects.create(
+        user=user,
+        token_hash=secrets.token_hex(32),
+        channel="web",
+        expires_at=timezone.now() + timedelta(days=1),
+        user_agent="FarmOS v2.2 verification",
+    )
+    return create_access_token({"sub": str(user.id), "sid": session.pk, "kind": "access"})
+
+
+token = session_access_token(owner)
 run_id = timezone.now().strftime("%H%M%S")
 
 st, body = http("GET", "/api/v2/", token=token)
@@ -178,12 +191,12 @@ st, body = http(
     },
 )
 overdue_task = body.get("data") or {}
-st, body = http("GET", "/api/v2/operations/tasks/?status=overdue", token=token)
-overdue_rows = body.get("data") or []
-match = next((row for row in overdue_rows if row.get("id") == overdue_task.get("id")), None)
+overdue_id = overdue_task.get("id")
+st, body = http("GET", "/api/v2/operations/tasks/%s/" % overdue_id, token=token) if overdue_id else (404, {})
+match = body.get("data") or None
 check(
     "overdue_is_computed",
-    ok(st, body)
+    bool(overdue_id) and ok(st, body)
     and match
     and match.get("status") != "overdue"
     and match.get("is_overdue") is True,
@@ -231,7 +244,7 @@ check(
 # isolation: other org must not see this farm's animal
 other = User.objects.exclude(id=owner.id).exclude(organization=org).first()
 if other and animal:
-    other_token = create_access_token({"sub": str(other.id)})
+    other_token = session_access_token(other)
     isolation_paths = [
         ("isolation_user", "GET", "/api/v2/users/%s/" % owner.id),
         ("isolation_org", "GET", "/api/v2/organizations/%s/" % org.id),

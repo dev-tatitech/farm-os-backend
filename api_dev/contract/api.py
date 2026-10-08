@@ -12,6 +12,8 @@ from .envelope import V2Error, V2Success, error_body, success_body
 from .exceptions import ContractError
 from .farms import farms_router
 from .health import health_router
+from .groups import groups_router
+from .settings import settings_router
 from .notify import notify_router
 from .ops import ops_router
 from .orgs import orgs_router, permissions_router, roles_router, users_router
@@ -132,4 +134,6 @@ v2_api.add_router("/search/", search_router)
 v2_api.add_router("/reports/", reporting_router)
 v2_api.add_router("/dashboard/", dash_router)
 v2_api.add_router("/health/", health_router)
+v2_api.add_router("/groups/", groups_router)
+v2_api.add_router("/settings/", settings_router)
 v2_api.add_router("/reproduction/births/", births_router)

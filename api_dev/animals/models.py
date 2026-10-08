@@ -270,17 +270,87 @@ class AnimalGroupMember(models.Model):
         default=Status.ACTIVE
     )
     class Meta:
-        unique_together = ("group", "animal")
+        constraints = [
+            # Keep historical rows when an animal leaves, but only allow one
+            # current membership of an animal in a given group.
+            models.UniqueConstraint(
+                fields=["group", "animal"],
+                condition=models.Q(status="ACTIVE"),
+                name="unique_active_animal_group_membership",
+            )
+        ]
         indexes = [
             models.Index(fields=["group", "status"]),
             models.Index(fields=["animal", "status"]),
         ]
+
+    def clean(self):
+        original = type(self).objects.filter(pk=self.pk).values("group_id", "animal_id").first() if self.pk else None
+        relationship_changed = original is None or original["group_id"] != self.group_id or original["animal_id"] != self.animal_id
+        if relationship_changed and self.group_id and self.animal_id and self.group.farm_id != self.animal.farm_id:
+            raise ValidationError({"animal": "Animal must belong to the same farm as the group."})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
     def remove(self):
         """Soft remove animal from group"""
         from django.utils import timezone
         self.status = self.Status.REMOVED
         self.removed_at = timezone.now()
         self.save()
+
+
+class FarmLabel(models.Model):
+    """A farm-owned classification, deliberately separate from animal state."""
+
+    farm = models.ForeignKey("organization.Farm", on_delete=models.CASCADE, related_name="labels")
+    name = models.CharField(max_length=80)
+    color = models.CharField(max_length=16, blank=True)
+    description = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["farm", "name"], name="unique_farm_label_name")]
+        ordering = ["name", "id"]
+
+
+class AnimalLabel(models.Model):
+    animal = models.ForeignKey(Animal, on_delete=models.CASCADE, related_name="label_assignments")
+    label = models.ForeignKey(FarmLabel, on_delete=models.CASCADE, related_name="animal_assignments")
+    assigned_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="animal_labels_assigned")
+    assigned_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["animal", "label"], name="unique_animal_label")]
+
+    def clean(self):
+        if self.animal_id and self.label_id and self.animal.farm_id != self.label.farm_id:
+            raise ValidationError({"label": "Label must belong to the animal's farm."})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+
+class AnimalMedia(models.Model):
+    animal = models.ForeignKey(Animal, on_delete=models.CASCADE, related_name="media")
+    file = models.ImageField(upload_to="animals/gallery/")
+    note = models.TextField(blank=True)
+    is_primary = models.BooleanField(default=False)
+    captured_at = models.DateTimeField(null=True, blank=True)
+    uploaded_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="animal_media_uploaded")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-is_primary", "-created_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["animal"], condition=models.Q(is_primary=True), name="one_primary_animal_media"
+            )
+        ]
         
 
 class AnimalEvent(models.Model):

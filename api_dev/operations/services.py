@@ -175,6 +175,25 @@ def notify_farm_management(org, farm, *, title, body, reference_table, reference
         )
 
 
+def notify_farm_capabilities(org, farm, capabilities, *, title, body, reference_table, reference_id, notification_type):
+    """Resolve recipients from active Farm assignment plus current capability."""
+    from role.models import UserRole
+    from common.access import has_capability
+
+    rows = UserRole.objects.filter(
+        farm=farm, status="active", role__active=True,
+        user__is_active=True, user__account_status="active",
+    ).select_related("user")
+    recipients = {
+        row.user for row in rows
+        if any(has_capability(row.user, org, code, farm=farm) for code in capabilities)
+    }
+    for recipient in recipients:
+        notify(recipient, org, title=title, body=body, farm=farm,
+            reference_table=reference_table, reference_id=reference_id,
+            notification_type=notification_type)
+
+
 def serialize_task(task: Task) -> dict:
     from contract.identity import actor_payload, display_name, reference_payload, subject_payload
 
@@ -258,7 +277,7 @@ def _get_group(farm: Farm, group_id: Optional[int]):
     try:
         return AnimalGroup.objects.get(id=group_id, farm=farm)
     except AnimalGroup.DoesNotExist:
-        raise ContractError(404, ErrorCode.VALIDATION_ERROR, "Group could not be found.")
+        raise ContractError(404, ErrorCode.GROUP_NOT_FOUND, "Group could not be found.")
 
 
 def _get_assignee(org: Organization, assignee_id, farm=None):
@@ -290,6 +309,10 @@ def _validate_subject(task_type: str, animal, group):
         raise ContractError(422, ErrorCode.VALIDATION_ERROR, "This task type requires an animal or group subject.")
     if task_type == Task.Type.PREGNANCY_CHECK and animal.gender != "female":
         raise ContractError(422, ErrorCode.INVALID_ANIMAL_STATE, "Pregnancy checks require a female animal.")
+    if animal is not None and animal.status != "active":
+        if animal.status == "dead":
+            raise ContractError(409, ErrorCode.ANIMAL_ALREADY_DECEASED, "No further operational work can target a deceased animal.")
+        raise ContractError(409, ErrorCode.INVALID_LIFECYCLE_TRANSITION, "No further operational work can target an exited animal.")
 
 
 def _derived_task_title(task_type: str, animal, group, supplied_title: str) -> str:
@@ -325,7 +348,7 @@ def _validate_assignee_can_execute(assignee, org: Organization, farm: Farm, task
     has_domain = any(has_capability(assignee, org, code, farm=farm) for code in domain_permissions[task_type])
     if not has_operation or not has_domain:
         missing = ([] if has_operation else ["complete_operation"]) + ([] if has_domain else list(domain_permissions[task_type]))
-        raise ContractError(422, ErrorCode.VALIDATION_ERROR,
+        raise ContractError(422, ErrorCode.ASSIGNEE_NOT_ELIGIBLE,
             "Assignee is not eligible to execute this task for the selected farm.",
             errors={"assignee_id": "missing capabilities: " + ", ".join(missing)})
 
@@ -695,51 +718,45 @@ def _complete_vaccination(task: Task, actor, payload: dict):
         raise ContractError(
             422, ErrorCode.VALIDATION_ERROR, "vaccine_name is required.", errors={"vaccine_name": "required"}
         )
-    record = VaccinationRecord(
-        farm=task.farm,
-        animal=task.animal,
-        group=task.group,
-        vaccine_name=vaccine_name,
-        date_given=payload.get("date_given") or timezone.localdate(),
-        next_due_date=payload.get("next_due_date"),
-        notes=payload.get("notes") or "",
-        created_by=actor,
-    )
-    try:
-        record.full_clean()
-        record.save()
-    except ValidationError as exc:
-        _stock_error(exc)
-    emit_event(
-        task.farm,
-        "vaccination",
-        f"Vaccination - {record.vaccine_name}",
-        record.notes or "",
-        "vaccination",
-        record.id,
-        actor,
-        animal=task.animal,
-        group=task.group,
-        event_date=record.date_given,
-    )
-    if record.next_due_date:
-        create_task(
-            org=task.organization,
-            farm=task.farm,
-            user=actor,
-            task_type=Task.Type.VACCINATION,
-            title=f"Follow-up vaccination — {record.vaccine_name}",
-            description=f"Due after {record.vaccine_name}",
-            animal_id=task.animal_id,
-            group_id=task.group_id,
-            due_at=record.next_due_date,
-            assignee_id=task.assigned_to_id,
-            # Direct domain actions deliberately have no Task.  A follow-up is
-            # still legitimate work, but it cannot point at a fabricated task.
-            parent=task if task.pk else None,
-            source_type=Task.SourceType.VACCINATION_FOLLOW_UP,
-            source_id=record.id,
-        )
+    executed_ids = payload.get("executed_animal_ids")
+    excluded_ids = set(payload.get("excluded_animal_ids") or [])
+    if task.group_id:
+        current_ids = set(task.group.members.filter(status="ACTIVE").values_list("animal_id", flat=True))
+        selected_ids = set(executed_ids) if executed_ids is not None else current_ids - excluded_ids
+        if (not selected_ids or not selected_ids.issubset(current_ids)
+                or not excluded_ids.issubset(current_ids) or selected_ids & excluded_ids):
+            raise ContractError(422, ErrorCode.TARGET_NOT_ELIGIBLE, "Vaccination subjects must be current group members.")
+        records = []
+        selected_animals = list(Animal.objects.filter(id__in=selected_ids, farm=task.farm, status="active").order_by("id"))
+        if {animal.id for animal in selected_animals} != selected_ids:
+            raise ContractError(409, ErrorCode.DOMAIN_STATE_CHANGED, "One or more selected animals are no longer active in this farm.")
+        for animal in selected_animals:
+            record = VaccinationRecord(farm=task.farm, animal=animal, group=task.group, vaccine_name=vaccine_name,
+                date_given=payload.get("date_given") or timezone.localdate(), next_due_date=payload.get("next_due_date"), notes=payload.get("notes") or "", created_by=actor)
+            record.full_clean(); record.save(); records.append(record)
+        payload["execution_snapshot"] = {"group_id": task.group_id, "executed_animal_ids": sorted(selected_ids), "excluded_animal_ids": sorted(excluded_ids), "exclusion_reasons": payload.get("exclusion_reasons") or {}}
+        record = records[0]
+    else:
+        record = VaccinationRecord(farm=task.farm, animal=task.animal, group=None, vaccine_name=vaccine_name,
+            date_given=payload.get("date_given") or timezone.localdate(), next_due_date=payload.get("next_due_date"), notes=payload.get("notes") or "", created_by=actor)
+        try:
+            record.full_clean(); record.save()
+        except ValidationError as exc:
+            _stock_error(exc)
+        records = [record]
+    if task.group_id:
+        payload["execution_snapshot"]["vaccination_record_ids"] = [row.id for row in records]
+    for row in records:
+        emit_event(task.farm, "vaccination", f"Vaccination - {row.vaccine_name}", row.notes or "",
+            "vaccination", row.id, actor, animal=row.animal or task.animal, group=task.group,
+            event_date=row.date_given, metadata={"task_id": task.id, "group_execution": bool(task.group_id)})
+        if row.next_due_date:
+            create_task(org=task.organization, farm=task.farm, user=actor,
+                task_type=Task.Type.VACCINATION, title=f"Follow-up vaccination — {row.vaccine_name}",
+                description=f"Due after {row.vaccine_name}", animal_id=row.animal_id or task.animal_id,
+                group_id=None if row.animal_id else task.group_id, due_at=row.next_due_date,
+                assignee_id=task.assigned_to_id, parent=task if task.pk else None,
+                source_type=Task.SourceType.VACCINATION_FOLLOW_UP, source_id=row.id)
     return "vaccination_record", record.id
 
 
@@ -1023,6 +1040,9 @@ def _complete_observation(task: Task, actor, payload: dict):
         created_by=actor,
         case_id=payload.get("case_id"),
     )
+    if task.animal and task.animal.status == "active" and task.animal.health_status == "healthy":
+        task.animal.health_status = "at_risk"
+        task.animal.save(update_fields=["health_status"])
     emit_event(
         task.farm,
         "observation",
@@ -1035,6 +1055,10 @@ def _complete_observation(task: Task, actor, payload: dict):
         group=task.group,
         event_date=observation.observed_at,
     )
+    notify_farm_capabilities(task.organization, task.farm, ("assign_operation", "manage_health_case"),
+        title="Animal observation reported", body=observation.symptoms,
+        reference_table="health_observation", reference_id=observation.id,
+        notification_type="health_observation_reported")
     return "health_observation", observation.id
 
 
@@ -1146,6 +1170,10 @@ def _complete_mortality(task: Task, actor, payload: dict):
         animal=animal,
         event_date=record.death_date,
     )
+    notify_farm_capabilities(task.organization, task.farm, ("assign_operation", "manage_health_case"),
+        title="Animal mortality reported", body=record.cause,
+        reference_table="mortality_record", reference_id=record.id,
+        notification_type="animal_mortality_reported")
     incompatible = (
         Task.Type.VACCINATION,
         Task.Type.TREATMENT,
@@ -1334,6 +1362,13 @@ def complete_task(task: Task, actor, payload: Optional[dict] = None, evidence: s
     with transaction.atomic():
         task = Task.objects.select_for_update().get(pk=task.pk)
         _ensure_completable(task, actor)
+        # Re-read the live subject inside the transaction: a task queued
+        # before mortality/sale must not revive or mutate exited farm truth.
+        if task.animal_id:
+            task.animal.refresh_from_db(fields=["status"])
+            if task.animal.status != "active":
+                code = ErrorCode.ANIMAL_ALREADY_DECEASED if task.animal.status == "dead" else ErrorCode.INVALID_LIFECYCLE_TRANSITION
+                raise ContractError(409, code, "The animal's lifecycle state changed before task execution.")
         table, ref_id = "", None
         if handler:
             table, ref_id = handler(task, actor, payload)
@@ -1391,6 +1426,9 @@ def serialize_schedule(schedule: TaskSchedule) -> dict:
         "title": schedule.title,
         "description": schedule.description,
         "recurrence": schedule.recurrence,
+        "starts_at": json_value(schedule.starts_at or schedule.next_run_at),
+        "ends_at": json_value(schedule.ends_at),
+        "priority": schedule.priority,
         "next_run_at": json_value(schedule.next_run_at),
         "is_active": schedule.is_active,
         "assignee_id": str(schedule.assignee_id) if schedule.assignee_id else None,
@@ -1416,6 +1454,8 @@ def bump_schedule(schedule: TaskSchedule):
         month = (month_index % 12) + 1
         day = min(next_run.day, calendar.monthrange(year, month)[1])
         schedule.next_run_at = next_run.replace(year=year, month=month, day=day)
+    if schedule.ends_at and schedule.next_run_at > schedule.ends_at:
+        schedule.is_active = False
     schedule.save(update_fields=["next_run_at", "is_active", "updated_at"])
 
 
@@ -1433,6 +1473,10 @@ def _deactivate_ineligible_schedule(schedule: TaskSchedule, actor):
         animal=schedule.animal,
         group=schedule.group,
     )
+    notify_farm_management(schedule.organization, schedule.farm,
+        title="Recurring schedule paused", body="The default assignee is no longer eligible for this work.",
+        reference_table="task_schedule", reference_id=schedule.id,
+        notification_type="schedule_assignee_ineligible")
 
 
 def reactivate_schedule(schedule: TaskSchedule, actor) -> Task | None:
@@ -1477,6 +1521,12 @@ def run_schedule(schedule: TaskSchedule, actor=None, *, due_only: bool = False) 
         locked = TaskSchedule.objects.select_for_update().get(id=schedule.id)
         if not locked.is_active:
             raise ContractError(409, ErrorCode.TASK_INVALID_STATE, "Schedule is not active.")
+        if locked.starts_at and locked.next_run_at < locked.starts_at:
+            raise ContractError(409, ErrorCode.TASK_INVALID_STATE, "Schedule occurrence is before its start window.")
+        if locked.ends_at and locked.next_run_at > locked.ends_at:
+            locked.is_active = False
+            locked.save(update_fields=["is_active", "updated_at"])
+            return None
         if due_only and locked.next_run_at > now:
             return (
                 Task.objects.filter(schedule=locked)
@@ -1506,6 +1556,7 @@ def run_schedule(schedule: TaskSchedule, actor=None, *, due_only: bool = False) 
                 animal_id=locked.animal_id,
                 group_id=locked.group_id,
                 due_at=locked.next_run_at,
+                priority=locked.priority,
                 assignee_id=locked.assignee_id,
                 schedule=locked,
                 source_type=Task.SourceType.SCHEDULE,

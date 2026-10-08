@@ -25,6 +25,9 @@ from operations.services import (
     start_task,
     validate_schedule_template,
 )
+from animals.models import Animal, AnimalGroup, AnimalGroupMember
+from account.models import User
+from common.access import has_capability
 
 from .authz import require_farm, require_permission, require_user, resolve_organization
 from .codes import ErrorCode
@@ -44,6 +47,93 @@ from .schemas import (
 )
 
 ops_router = Router(tags=["Operations"])
+
+
+# This is deliberately metadata, not another TaskType table.  Task.Type and
+# the existing completion handlers remain authoritative.
+WORK_TYPE_METADATA = {
+    Task.Type.VACCINATION: {"target_types": ("animal", "group"), "capabilities": (Permissions.Health.CREATE,), "recurring": True, "domain_completion": True, "inventory_effect": True},
+    Task.Type.TREATMENT: {"target_types": ("animal",), "capabilities": (Permissions.Health.CREATE,), "recurring": True, "domain_completion": True, "inventory_effect": True},
+    Task.Type.FEED_ISSUANCE: {"target_types": ("animal", "group"), "capabilities": (Permissions.Feed.CREATE,), "recurring": True, "domain_completion": True, "inventory_effect": True},
+    Task.Type.MOVEMENT: {"target_types": ("animal", "group"), "capabilities": (Permissions.MovementRecord.CREATE,), "recurring": False, "domain_completion": True, "inventory_effect": False},
+    Task.Type.OBSERVATION: {"target_types": ("animal",), "capabilities": ("record_health_observation",), "recurring": True, "domain_completion": True, "inventory_effect": False},
+    Task.Type.WEIGHT: {"target_types": ("animal",), "capabilities": (Permissions.Animal.UPDATE,), "recurring": True, "domain_completion": True, "inventory_effect": False},
+    Task.Type.PREGNANCY_CHECK: {"target_types": ("animal",), "capabilities": (Permissions.Reproduction.CREATE,), "recurring": True, "domain_completion": True, "inventory_effect": False},
+    Task.Type.SALE: {"target_types": ("animal",), "capabilities": (Permissions.SalesRecord.CREATE,), "recurring": False, "domain_completion": True, "inventory_effect": False},
+    Task.Type.MORTALITY: {"target_types": ("animal",), "capabilities": (Permissions.Health.CREATE,), "recurring": False, "domain_completion": True, "inventory_effect": False},
+    Task.Type.GENERIC: {"target_types": (), "capabilities": (), "recurring": True, "domain_completion": False, "inventory_effect": False},
+}
+
+
+def eligible_assignee_rows(user, org, farm, meta, *, channel=None):
+    """Shared current-authority resolver for web and JWT mobile surfaces."""
+    candidates = User.objects.filter(account_status="active", is_active=True).filter(Q(organization=org) | Q(id=org.user_id)).distinct()
+    rows = []
+    for candidate in candidates:
+        if not authorized_farms(candidate, org).filter(pk=farm.pk).exists():
+            continue
+        if channel == "mobile":
+            from role.models import UserRole
+            if not UserRole.objects.filter(user=candidate, farm=farm, status="active", role__active=True,
+                                           role__mobile_access=True).exists():
+                continue
+        if has_capability(candidate, org, "complete_operation", farm=farm) and any(has_capability(candidate, org, cap, farm=farm) for cap in meta["capabilities"]):
+            rows.append({"id": str(candidate.id), "display_name": candidate.get_full_name() or candidate.email})
+    return rows
+
+
+def _work_type_or_404(work_type):
+    try:
+        return WORK_TYPE_METADATA[work_type]
+    except KeyError:
+        raise ContractError(404, ErrorCode.RESOURCE_NOT_FOUND, "Work type could not be found.")
+
+
+@ops_router.get("/work-types/", response={200: V2Success, 401: V2Error, 403: V2Error})
+def work_types(request):
+    user = require_user(request)
+    org = resolve_organization(user)
+    _require_cap(user, org, "view_operation")
+    return 200, success_body(data=[{"code": code, **meta} for code, meta in WORK_TYPE_METADATA.items()], message="Work types fetched successfully.")
+
+
+@ops_router.get("/work-types/{work_type}/eligible-targets/", response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error})
+def eligible_targets(request, work_type: str, farm_id: int, target_type: str = "animal", search: str = None,
+                     livestock_species_id: int = None, livestock_breed_id: int = None, gender: str = None,
+                     group_id: int = None, housing_unit_id: int = None, health_status: str = None,
+                     lifecycle_status: str = None, page: int = 1, page_size: int = 20):
+    user = require_user(request)
+    org = resolve_organization(user)
+    _require_cap(user, org, "create_operation")
+    meta = _work_type_or_404(work_type)
+    farm = require_farm(org, farm_id, user)
+    require_permission(user, org, Permissions.Animal.VIEW, farm=farm)
+    if target_type not in meta["target_types"]:
+        raise ContractError(422, ErrorCode.TARGET_NOT_ELIGIBLE, "This work type does not support the requested target type.")
+    if target_type == "group":
+        qs = AnimalGroup.objects.filter(farm=farm, status=AnimalGroup.Status.ACTIVE)
+        if search:
+            qs = qs.filter(name__icontains=search)
+        return 200, paginated(qs.order_by("name", "id"), page, page_size, lambda row: {"id": row.id, "type": "group", "name": row.name, "farm_id": row.farm_id}, "Eligible targets fetched successfully.")
+    qs = Animal.objects.filter(farm=farm, status="active").select_related("livestock_species", "livestock_breed", "housing_unit")
+    if search:
+        qs = qs.filter(Q(tag_id__icontains=search) | Q(notes__icontains=search))
+    for field, value in (("livestock_species_id", livestock_species_id), ("livestock_breed_id", livestock_breed_id), ("gender", gender), ("housing_unit_id", housing_unit_id), ("health_status", health_status), ("status", lifecycle_status)):
+        if value is not None:
+            qs = qs.filter(**{field: value})
+    if group_id is not None:
+        qs = qs.filter(group_memberships__group_id=group_id, group_memberships__status=AnimalGroupMember.Status.ACTIVE)
+    return 200, paginated(qs.distinct().order_by("tag_id", "id"), page, page_size, lambda row: {"id": row.id, "type": "animal", "tag_id": row.tag_id, "farm_id": row.farm_id}, "Eligible targets fetched successfully.")
+
+
+@ops_router.get("/work-types/{work_type}/eligible-assignees/", response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error})
+def eligible_assignees(request, work_type: str, farm_id: int):
+    user = require_user(request)
+    org = resolve_organization(user)
+    _require_cap(user, org, "assign_operation")
+    meta = _work_type_or_404(work_type)
+    farm = require_farm(org, farm_id, user)
+    return 200, success_body(data=eligible_assignee_rows(user, org, farm, meta), message="Eligible assignees fetched successfully.")
 
 
 def _task_perm(user, org, *codes):
@@ -409,6 +499,13 @@ def create_schedule(request, payload: ScheduleCreateIn):
         raise ContractError(422, ErrorCode.VALIDATION_ERROR, "Invalid recurrence.")
     if not payload.title.strip():
         raise ContractError(422, ErrorCode.VALIDATION_ERROR, "title is required.")
+    if payload.priority not in Task.Priority.values:
+        raise ContractError(422, ErrorCode.VALIDATION_ERROR, "Invalid schedule priority.")
+    starts_at = payload.starts_at or payload.next_run_at
+    if payload.ends_at and payload.ends_at < starts_at:
+        raise ContractError(422, ErrorCode.VALIDATION_ERROR, "ends_at must be on or after starts_at.")
+    if payload.next_run_at < starts_at or (payload.ends_at and payload.next_run_at > payload.ends_at):
+        raise ContractError(422, ErrorCode.VALIDATION_ERROR, "next_run_at must be inside the schedule window.")
     animal, group, assignee = validate_schedule_template(
         org=org,
         farm=farm,
@@ -426,6 +523,9 @@ def create_schedule(request, payload: ScheduleCreateIn):
         title=payload.title,
         description=payload.description or "",
         recurrence=payload.recurrence,
+        starts_at=starts_at,
+        ends_at=payload.ends_at,
+        priority=payload.priority,
         next_run_at=payload.next_run_at,
         assignee=assignee,
         template_payload=payload.template_payload or {},
@@ -434,7 +534,7 @@ def create_schedule(request, payload: ScheduleCreateIn):
     emit_event(
         farm, "schedule_created", f"Schedule created — {schedule.title}", schedule.description,
         "task_schedule", schedule.id, user, animal=animal, group=group,
-        metadata={"recurrence": schedule.recurrence, "next_run_at": schedule.next_run_at.isoformat()},
+        metadata={"recurrence": schedule.recurrence, "starts_at": schedule.starts_at.isoformat(), "ends_at": schedule.ends_at.isoformat() if schedule.ends_at else None, "priority": schedule.priority, "next_run_at": schedule.next_run_at.isoformat()},
     )
     data = serialize_schedule(schedule)
     if payload.run_now:
@@ -535,6 +635,9 @@ def schedule_patch(request, schedule_id: int, payload: SchedulePatchIn):
         "title": schedule.title, "description": schedule.description, "recurrence": schedule.recurrence,
         "next_run_at": schedule.next_run_at.isoformat(), "assignee_id": str(schedule.assignee_id) if schedule.assignee_id else None,
         "animal_id": schedule.animal_id, "group_id": schedule.group_id, "is_active": schedule.is_active,
+        "starts_at": schedule.starts_at.isoformat() if schedule.starts_at else None,
+        "ends_at": schedule.ends_at.isoformat() if schedule.ends_at else None,
+        "priority": schedule.priority,
     }
     if payload.title is not None:
         schedule.title = payload.title
@@ -546,6 +649,14 @@ def schedule_patch(request, schedule_id: int, payload: SchedulePatchIn):
         schedule.recurrence = payload.recurrence
     if payload.next_run_at:
         schedule.next_run_at = payload.next_run_at
+    if "starts_at" in payload.__fields_set__:
+        schedule.starts_at = payload.starts_at
+    if "ends_at" in payload.__fields_set__:
+        schedule.ends_at = payload.ends_at
+    if payload.priority is not None:
+        if payload.priority not in Task.Priority.values:
+            raise ContractError(422, ErrorCode.VALIDATION_ERROR, "Invalid schedule priority.")
+        schedule.priority = payload.priority
     if payload.assignee_id is not None:
         schedule.assignee_id = payload.assignee_id
     if payload.animal_id is not None:
@@ -555,6 +666,8 @@ def schedule_patch(request, schedule_id: int, payload: SchedulePatchIn):
     reactivating = payload.is_active is True and not schedule.is_active
     if payload.is_active is not None and not reactivating:
         schedule.is_active = payload.is_active
+    if schedule.ends_at and schedule.ends_at < timezone.now():
+        raise ContractError(422, ErrorCode.VALIDATION_ERROR, "ends_at must be in the future when a schedule is active.")
     # Subject and assignee mutations are validated against the same farm and
     # execution rules as a new schedule.  Existing tasks remain untouched.
     validate_schedule_template(
@@ -565,11 +678,19 @@ def schedule_patch(request, schedule_id: int, payload: SchedulePatchIn):
         group_id=schedule.group_id,
         assignee_id=schedule.assignee_id,
     )
+    effective_start = schedule.starts_at or schedule.next_run_at
+    if schedule.ends_at and schedule.ends_at < effective_start:
+        raise ContractError(422, ErrorCode.VALIDATION_ERROR, "ends_at must be on or after starts_at.")
+    if schedule.next_run_at < effective_start or (schedule.ends_at and schedule.next_run_at > schedule.ends_at):
+        raise ContractError(422, ErrorCode.VALIDATION_ERROR, "next_run_at must be inside the schedule window.")
     schedule.save()
     after = {
         "title": schedule.title, "description": schedule.description, "recurrence": schedule.recurrence,
         "next_run_at": schedule.next_run_at.isoformat(), "assignee_id": str(schedule.assignee_id) if schedule.assignee_id else None,
         "animal_id": schedule.animal_id, "group_id": schedule.group_id, "is_active": schedule.is_active,
+        "starts_at": schedule.starts_at.isoformat() if schedule.starts_at else None,
+        "ends_at": schedule.ends_at.isoformat() if schedule.ends_at else None,
+        "priority": schedule.priority,
     }
     changeset = {key: {"before": before[key], "after": after[key]} for key in before if before[key] != after[key]}
     if changeset:

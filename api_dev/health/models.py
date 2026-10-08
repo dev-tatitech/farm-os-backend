@@ -378,6 +378,12 @@ class HealthCase(models.Model):
 
 
 class HealthObservation(models.Model):
+    class Status(models.TextChoices):
+        OPEN = "open", "Open"
+        ACKNOWLEDGED = "acknowledged", "Acknowledged"
+        ASSESSED = "assessed", "Assessed"
+        RESOLVED = "resolved", "Resolved"
+        ESCALATED = "escalated_to_health_case", "Escalated to health case"
     farm = models.ForeignKey(
         "organization.Farm", on_delete=models.CASCADE, related_name="health_observations"
     )
@@ -405,6 +411,10 @@ class HealthObservation(models.Model):
     observed_at = models.DateTimeField()
     symptoms = models.TextField()
     severity = models.CharField(max_length=20, default="mild")
+    status = models.CharField(max_length=32, choices=Status.choices, default=Status.OPEN, db_index=True)
+    assessment_note = models.TextField(blank=True)
+    assessed_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="assessed_health_observations")
+    assessed_at = models.DateTimeField(null=True, blank=True)
     created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL)
     created_at = models.DateTimeField(auto_now_add=True)
 

@@ -9,7 +9,8 @@ from django.db import transaction
 
 from account.models import Country, AdminLevel1, EmailValidation, RefreshSession, User
 from account.utils.jwt_utils import create_access_token, decode_token
-from animals.models import Animal
+from animals.models import Animal, AnimalGroup, AnimalGroupMember, AnimalLabel, FarmLabel
+from health.models import HealthObservation
 from common.access import has_capability
 from common.models import AuditLog
 from operations.models import Task, IdempotencyKey, TaskSchedule
@@ -1063,3 +1064,50 @@ class Domain01Tests(TestCase):
             role=Role.objects.get(organization=self.org, system_template_type="farm_manager"), assigned_by=self.owner)
         self.assertEqual(self.login(self.manager).get(f"/api/v2/operations/tasks/{historic.id}/").status_code, 200)
         self.assertEqual(self.login(self.owner).get(f"/api/v2/operations/tasks/{historic.id}/").status_code, 200)
+
+    def test_v2_group_membership_preserves_history_and_conceals_cross_farm_animal(self):
+        client = self.login(self.owner)
+        created = self.request(client, "post", "/api/v2/groups/", {"farm_id": self.farm_a.id, "name": "Milking"})
+        self.assertEqual(created.status_code, 200, created.content)
+        group_id = created.json()["data"]["id"]
+        cross_farm = self.request(client, "post", f"/api/v2/groups/{group_id}/members/{self.animal_b.id}/", {})
+        self.assertEqual(cross_farm.status_code, 404, cross_farm.content)
+        add = self.request(client, "post", f"/api/v2/groups/{group_id}/members/{self.animal_a.id}/", {})
+        self.assertEqual(add.status_code, 200, add.content)
+        removed = client.delete(f"/api/v2/groups/{group_id}/members/{self.animal_a.id}/")
+        self.assertEqual(removed.status_code, 200, removed.content)
+        readd = self.request(client, "post", f"/api/v2/groups/{group_id}/members/{self.animal_a.id}/", {})
+        self.assertEqual(readd.status_code, 200, readd.content)
+        self.assertEqual(AnimalGroupMember.objects.filter(group_id=group_id, animal=self.animal_a).count(), 2)
+        self.assertEqual(AnimalGroupMember.objects.filter(group_id=group_id, animal=self.animal_a, status="ACTIVE").count(), 1)
+
+    def test_field_observation_flags_attention_without_diagnosis_and_clinical_assessment_is_gated(self):
+        worker = self.login(self.worker, "mobile")
+        response = self.request(worker, "post", "/api/v2/health/observations/", {
+            "farm_id": self.farm_a.id, "animal_id": self.animal_a.id, "symptoms": "Not eating",
+        })
+        self.assertEqual(response.status_code, 200, response.content)
+        self.animal_a.refresh_from_db()
+        self.assertEqual(self.animal_a.health_status, "at_risk")
+        observation_id = response.json()["data"]["id"]
+        denied = self.request(worker, "post", f"/api/v2/health/observations/{observation_id}/assess/", {
+            "outcome": "escalate_to_health_case", "note": "Clinical review",
+        })
+        self.assertEqual(denied.status_code, 403, denied.content)
+        assessed = self.request(self.login(self.vet), "post", f"/api/v2/health/observations/{observation_id}/assess/", {
+            "outcome": "escalate_to_health_case", "note": "Confirmed clinical concern",
+        })
+        self.assertEqual(assessed.status_code, 200, assessed.content)
+        self.animal_a.refresh_from_db()
+        self.assertEqual(self.animal_a.health_status, "sick")
+        self.assertEqual(HealthObservation.objects.get(pk=observation_id).status, HealthObservation.Status.ESCALATED)
+
+    def test_farm_labels_cannot_replace_authoritative_health_state(self):
+        client = self.login(self.owner)
+        invalid = self.request(client, "post", "/api/v2/settings/labels/", {"farm_id": self.farm_a.id, "name": "Sick"})
+        self.assertEqual(invalid.status_code, 422, invalid.content)
+        valid = self.request(client, "post", "/api/v2/settings/labels/", {"farm_id": self.farm_a.id, "name": "Priority"})
+        self.assertEqual(valid.status_code, 200, valid.content)
+        label_id = valid.json()["data"]["id"]
+        cross_farm = self.request(client, "post", f"/api/v2/settings/animals/{self.animal_b.id}/labels/{label_id}/", {})
+        self.assertEqual(cross_farm.status_code, 404, cross_farm.content)

@@ -276,3 +276,19 @@ environmental blocker changes.
   reauthorization, and the resource-specific `*_NOT_FOUND` 404 distinction.
   Extracted PDF text confirmed the endpoint and response fields. No contract
   semantics changed.
+
+## 2026-10-06 — Backend correction frontend handoff
+
+- Updated the frontend integration guide source and regenerated
+  `api_dev/docs/FarmOS-Frontend-Integration-Guide.pdf` with a development-only
+  addendum for groups/membership history, farm labels, animal gallery media,
+  health-observation lifecycle, schedule windows/priority, and mobile field
+  endpoints.
+- Added `api_dev/reports/evidence/backend-correction-frontend-handoff-2026-10-06.md`
+  mapping endpoint families to implementation and tests and recording the
+  actual development verification results: migrations applied, system check
+  clean, no model drift, HTTP E2E 48/48, v2.2 verifier 28/28, and Django suite
+  69/69.
+- Explicitly marked the PDF as a backend development handoff, not frontend
+  acceptance or live promotion. Focused frontend acceptance remains a separate
+  next step.

@@ -208,6 +208,9 @@ class TaskSchedule(TimeStampedModel):
     recurrence = models.CharField(
         max_length=16, choices=Recurrence.choices, default=Recurrence.ONCE
     )
+    starts_at = models.DateTimeField(null=True, blank=True)
+    ends_at = models.DateTimeField(null=True, blank=True)
+    priority = models.CharField(max_length=16, choices=Task.Priority.choices, default=Task.Priority.NORMAL)
     next_run_at = models.DateTimeField(db_index=True)
     is_active = models.BooleanField(default=True)
     assignee = models.ForeignKey(

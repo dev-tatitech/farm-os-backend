@@ -171,6 +171,9 @@ class SchedulePatchIn(Schema):
     description: Optional[str] = None
     recurrence: Optional[str] = None
     next_run_at: Optional[datetime] = None
+    starts_at: Optional[datetime] = None
+    ends_at: Optional[datetime] = None
+    priority: Optional[str] = None
     assignee_id: Optional[UUID] = None
     animal_id: Optional[int] = None
     group_id: Optional[int] = None
@@ -185,6 +188,9 @@ class ScheduleCreateIn(Schema):
     description: str = ""
     recurrence: str = "once"
     next_run_at: datetime
+    starts_at: Optional[datetime] = None
+    ends_at: Optional[datetime] = None
+    priority: str = "normal"
     animal_id: Optional[int] = None
     group_id: Optional[int] = None
     assignee_id: Optional[UUID] = None
@@ -219,6 +225,38 @@ class HealthCaseIn(Schema):
 class HealthCaseCloseIn(Schema):
     notes: str = ""
     client_request_id: Optional[str] = None
+
+
+class GroupCreateIn(Schema):
+    farm_id: int
+    name: str
+    description: str = ""
+
+
+class GroupPatchIn(Schema):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class LabelCreateIn(Schema):
+    farm_id: int
+    name: str
+    color: str = ""
+    description: str = ""
+
+
+class LabelPatchIn(Schema):
+    name: Optional[str] = None
+    color: Optional[str] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class ObservationAssessIn(Schema):
+    note: str = ""
+    outcome: str  # resolved | escalate_to_health_case
+    case_title: Optional[str] = None
 
 
 class BirthCreateIn(Schema):

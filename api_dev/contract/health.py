@@ -6,14 +6,14 @@ from ninja import Router
 from common.permissions import Permissions
 from health.models import HealthAlert, HealthCase, HealthObservation, TreatmentRecord
 from operations.models import Task
-from operations.services import as_datetime, create_task, emit_event, json_value, serialize_task
+from operations.services import as_datetime, create_task, emit_event, json_value, notify_farm_capabilities, serialize_task
 
 from .authz import require_animal, require_farm, require_permission, require_user, resolve_organization
 from .codes import ErrorCode
 from .envelope import V2Error, V2Success, success_body
 from .exceptions import ContractError
 from .helpers import begin_idempotency, paginated, store_idempotency
-from .schemas import HealthCaseCloseIn, HealthCaseIn, ObservationIn
+from .schemas import HealthCaseCloseIn, HealthCaseIn, ObservationAssessIn, ObservationIn
 
 health_router = Router(tags=["Health"])
 
@@ -42,8 +42,24 @@ def _serialize_observation(row: HealthObservation) -> dict:
         "observed_at": json_value(row.observed_at),
         "symptoms": row.symptoms,
         "severity": row.severity,
+        "status": row.status,
+        "assessment_note": row.assessment_note,
         "created_at": json_value(row.created_at),
     }
+
+
+def open_health_case(org, farm, user, *, animal=None, group=None, title, notes=""):
+    """Shared clinical case creation used by web and mobile adapters."""
+    case = HealthCase.objects.create(farm=farm, animal=animal, group=group, title=title,
+        notes=notes or "", opened_by=user)
+    if animal and animal.status == "active":
+        animal.health_status = "sick"; animal.save(update_fields=["health_status"])
+    emit_event(farm, "health_case", f"Health case opened — {case.title}", case.notes,
+        "health_case", case.id, user, animal=animal, group=group)
+    notify_farm_capabilities(org, farm, ("manage_health_case", "assign_operation"), title="Health case opened",
+        body=case.title, reference_table="health_case", reference_id=case.id,
+        notification_type="health_case_opened")
+    return case
 
 
 @health_router.post(
@@ -77,14 +93,12 @@ def create_observation(request, payload: ObservationIn):
         except HealthCase.DoesNotExist:
             raise ContractError(404, ErrorCode.HEALTH_CASE_NOT_FOUND, "Health case could not be found.")
     if payload.create_case and case is None:
-        case = HealthCase.objects.create(
-            farm=farm,
-            animal=animal,
-            group_id=payload.group_id,
-            title=(payload.symptoms or "Observation")[:120],
-            notes=payload.symptoms or "",
-            opened_by=user,
-        )
+        group = None
+        if payload.group_id:
+            from operations.services import _get_group
+            group = _get_group(farm, payload.group_id)
+        case = open_health_case(org, farm, user, animal=animal, group=group,
+            title=(payload.symptoms or "Observation")[:120], notes=payload.symptoms or "")
     row = HealthObservation.objects.create(
         farm=farm,
         animal=animal,
@@ -95,6 +109,11 @@ def create_observation(request, payload: ObservationIn):
         severity=payload.severity or "mild",
         created_by=user,
     )
+    # An observation is not a diagnosis.  It only raises the existing derived
+    # attention state; clinical state remains controlled by case management.
+    if animal and animal.status == "active" and animal.health_status == "healthy":
+        animal.health_status = "at_risk"
+        animal.save(update_fields=["health_status"])
     emit_event(
         farm,
         "observation",
@@ -106,6 +125,10 @@ def create_observation(request, payload: ObservationIn):
         animal=animal,
         event_date=row.observed_at,
     )
+    notify_farm_capabilities(org, farm, ("assign_operation", "manage_health_case"),
+        title="Animal observation reported", body=row.symptoms,
+        reference_table="health_observation", reference_id=row.id,
+        notification_type="health_observation_reported")
     data = _serialize_observation(row)
     if payload.create_task:
         task = create_task(
@@ -145,6 +168,46 @@ def list_observations(request, page: int = 1, page_size: int = 20, farm_id: int 
     return 200, paginated(qs, page, page_size, _serialize_observation, "Observations fetched successfully.")
 
 
+@health_router.post("/observations/{observation_id}/acknowledge/", response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 409: V2Error})
+@atomic_mutation
+def acknowledge_observation(request, observation_id: int):
+    user = require_user(request); org = resolve_organization(user)
+    require_permission(user, org, "record_health_observation")
+    try: row = HealthObservation.objects.get(id=observation_id, farm__in=authorized_farms(user, org))
+    except HealthObservation.DoesNotExist: raise ContractError(404, ErrorCode.OBSERVATION_NOT_FOUND, "Observation could not be found.")
+    require_farm(org, row.farm_id, user)
+    if row.status != HealthObservation.Status.OPEN: raise ContractError(409, ErrorCode.CONFLICT, "Only open observations can be acknowledged.")
+    row.status = HealthObservation.Status.ACKNOWLEDGED; row.save(update_fields=["status"])
+    emit_event(row.farm, "observation_acknowledged", "Health observation acknowledged", row.symptoms, "health_observation", row.id, user, animal=row.animal, group=row.group)
+    return 200, success_body(data=_serialize_observation(row), message="Observation acknowledged successfully.")
+
+
+@health_router.post("/observations/{observation_id}/assess/", response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 409: V2Error, 422: V2Error})
+@atomic_mutation
+def assess_observation(request, observation_id: int, payload: ObservationAssessIn):
+    user = require_user(request); org = resolve_organization(user)
+    require_permission(user, org, "manage_health_case")
+    try: row = HealthObservation.objects.select_related("animal", "farm").get(id=observation_id, farm__in=authorized_farms(user, org))
+    except HealthObservation.DoesNotExist: raise ContractError(404, ErrorCode.OBSERVATION_NOT_FOUND, "Observation could not be found.")
+    require_farm(org, row.farm_id, user)
+    if row.status not in (HealthObservation.Status.OPEN, HealthObservation.Status.ACKNOWLEDGED):
+        raise ContractError(409, ErrorCode.CONFLICT, "This observation is already clinically assessed.")
+    if payload.outcome not in ("resolved", "escalate_to_health_case"):
+        raise ContractError(422, ErrorCode.VALIDATION_ERROR, "outcome must be resolved or escalate_to_health_case.")
+    row.assessment_note = payload.note; row.assessed_by = user; row.assessed_at = timezone.now()
+    if payload.outcome == "resolved":
+        row.status = HealthObservation.Status.RESOLVED
+    else:
+        case = row.case or open_health_case(org, row.farm, user, animal=row.animal, group=row.group,
+            title=payload.case_title or row.symptoms[:120], notes=payload.note)
+        row.case = case; row.status = HealthObservation.Status.ESCALATED
+        if row.case_id:
+            emit_event(row.farm, "health_observation_escalated", "Observation linked to health case", case.title, "health_case", case.id, user, animal=row.animal, group=row.group)
+    row.save(update_fields=["assessment_note", "assessed_by", "assessed_at", "case", "status"])
+    emit_event(row.farm, "observation_assessed", "Health observation assessed", payload.note, "health_observation", row.id, user, animal=row.animal, group=row.group)
+    return 200, success_body(data=_serialize_observation(row), message="Observation assessed successfully.")
+
+
 @health_router.post(
     "/cases/",
     response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error},
@@ -157,24 +220,11 @@ def create_case(request, payload: HealthCaseIn):
     require_permission(user, org, "manage_health_case")
     farm = require_farm(org, payload.farm_id, user)
     animal = require_animal(org, payload.animal_id, farm) if payload.animal_id else None
-    case = HealthCase.objects.create(
-        farm=farm,
-        animal=animal,
-        group_id=payload.group_id,
-        title=payload.title,
-        notes=payload.notes or "",
-        opened_by=user,
-    )
-    emit_event(
-        farm,
-        "health_case",
-        f"Health case opened — {case.title}",
-        case.notes,
-        "health_case",
-        case.id,
-        user,
-        animal=animal,
-    )
+    group = None
+    if payload.group_id:
+        from operations.services import _get_group
+        group = _get_group(farm, payload.group_id)
+    case = open_health_case(org, farm, user, animal=animal, group=group, title=payload.title, notes=payload.notes)
     return 200, success_body(data=_serialize_case(case), message="Health case opened successfully.")
 
 
@@ -219,6 +269,7 @@ def close_case(request, case_id: int, payload: HealthCaseCloseIn):
     if payload.notes:
         case.notes = (case.notes + "\n" + payload.notes).strip()
     case.save()
+    emit_event(case.farm, "health_case_closed", "Health case closed", payload.notes or case.title, "health_case", case.id, user, animal=case.animal, group=case.group)
     return 200, success_body(data=_serialize_case(case), message="Health case closed successfully.")
 
 

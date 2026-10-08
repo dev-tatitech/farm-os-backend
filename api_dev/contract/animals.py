@@ -1,14 +1,16 @@
 from common.mutations import atomic_mutation
 from common.access import authorized_farms
 import uuid
+from datetime import datetime
 
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.db.models import Q, Sum
 from django.utils import timezone
-from ninja import Router
+from ninja import File, Router, UploadedFile
 
 from admin_panel.models import FarmHousingUnit, LivestockBreed, LivestockSpecies
-from animals.models import Animal, AnimalEvent, MilkRecord
+from animals.models import Animal, AnimalEvent, AnimalMedia, MilkRecord
 from common.permissions import Permissions
 from feed.models import FeedIssuanceRecord
 from health.models import TreatmentRecord, VaccinationRecord
@@ -45,6 +47,33 @@ def _internal_tag():
     return f"INT-{uuid.uuid4().hex[:12].upper()}"
 
 
+def profile_completion(animal):
+    """Central, deterministic completion projection for web and mobile."""
+    fields = [
+        ("tag_id", "Identification tag", bool(animal.tag_id)),
+        ("species", "Species", bool(animal.livestock_species_id or animal.species_id)),
+        ("breed", "Breed", bool(animal.livestock_breed_id or animal.breed_id)),
+        ("date_of_birth", "Date of birth", bool(animal.dob or animal.estimated_age_months is not None)),
+        ("housing_unit", "Housing unit", bool(animal.housing_unit_id or animal.unit_id)),
+        ("source_type", "Source", bool(animal.source_type)),
+    ]
+    missing = [{"key": key, "label": label} for key, label, present in fields if not present]
+    total = len(fields); completed = total - len(missing)
+    return {"percentage": round(completed * 100 / total) if total else 100, "completed": completed, "total_applicable": total, "missing": missing}
+
+
+def _media_payload(row):
+    return {"id": row.id, "url": row.file.url if row.file else None, "note": row.note, "is_primary": row.is_primary, "captured_at": row.captured_at.isoformat() if row.captured_at else None, "uploaded_at": row.created_at.isoformat()}
+
+
+def _preserve_legacy_primary(animal, user):
+    """Attach the pre-gallery profile file to history before replacing it."""
+    if not animal.image or animal.media.filter(file=animal.image.name).exists():
+        return None
+    return AnimalMedia.objects.create(animal=animal, file=animal.image.name,
+        note="Previous profile photo", is_primary=False, uploaded_by=user)
+
+
 def serialize_animal_card(animal):
     species_name = (
         animal.livestock_species.name
@@ -79,6 +108,7 @@ def serialize_animal_card(animal):
             "_mutability": "read_only_derived",
         },
         "image_url": animal.image.url if animal.image else None,
+        "profile_completion": profile_completion(animal),
     }
 
 
@@ -239,6 +269,7 @@ def build_animal_profile(animal):
             else None,
         },
         "sale_readiness": readiness,
+        "profile_completion": profile_completion(animal),
         "open_tasks": [serialize_task(task) for task in open_tasks],
     }
 
@@ -265,58 +296,24 @@ def list_animals(
     is_lactating: bool = None,
     is_quarantine: bool = None,
     needs_attention: bool = None,
+    label_id: int = None,
+    profile_incomplete: bool = None,
+    open_observation: bool = None,
+    open_health_case: bool = None,
+    age_min_months: int = None,
+    age_max_months: int = None,
     sort: str = "-id",
 ):
     user = require_user(request)
     org = resolve_organization(user)
-    require_permission(user, org, Permissions.Animal.VIEW)
-    qs = Animal.objects.filter(farm__in=authorized_farms(user, org)).select_related(
-        "farm", "livestock_species", "livestock_breed", "housing_unit", "species", "breed"
-    )
-    if farm_id is not None:
-        farm = require_farm(org, farm_id, user)
-        qs = qs.filter(farm=farm)
-    if search:
-        lookup = Q(tag_id__icontains=search) | Q(notes__icontains=search)
-        if search.isdigit():
-            lookup |= Q(id=int(search))
-        qs = qs.filter(lookup)
-    if livestock_species_id:
-        qs = qs.filter(livestock_species_id=livestock_species_id)
-    if livestock_breed_id:
-        qs = qs.filter(livestock_breed_id=livestock_breed_id)
-    if gender:
-        qs = qs.filter(gender=gender)
-    if lifecycle_status:
-        qs = qs.filter(status=lifecycle_status)
-    if health_status:
-        qs = qs.filter(health_status=health_status)
-    if housing_unit_id:
-        qs = qs.filter(housing_unit_id=housing_unit_id)
-    if group_id:
-        from animals.models import AnimalGroupMember
-
-        qs = qs.filter(group_memberships__group_id=group_id, group_memberships__status="ACTIVE")
-    if is_pregnant is not None:
-        qs = qs.filter(is_pregnant=is_pregnant)
-    if is_lactating is not None:
-        qs = qs.filter(is_lactating=is_lactating)
-    if is_quarantine is not None:
-        qs = qs.filter(is_quarantine=is_quarantine)
-    if needs_attention:
-        qs = qs.filter(Q(health_status__in=["sick", "at_risk"]) | Q(is_quarantine=True))
-    allowed_sort = {
-        "id",
-        "-id",
-        "tag_id",
-        "-tag_id",
-        "status",
-        "-status",
-        "created_at",
-        "-created_at",
-    }
-    qs = qs.order_by(sort if sort in allowed_sort else "-id").distinct()
-    return 200, paginated(qs, page, page_size, serialize_animal_card, "Animals fetched successfully.")
+    from .animal_query import query_animals
+    return 200, query_animals(user, org, page=page, page_size=page_size, farm_id=farm_id,
+        search=search, livestock_species_id=livestock_species_id, livestock_breed_id=livestock_breed_id,
+        gender=gender, lifecycle_status=lifecycle_status, health_status=health_status,
+        housing_unit_id=housing_unit_id, group_id=group_id, is_pregnant=is_pregnant,
+        is_lactating=is_lactating, is_quarantine=is_quarantine, needs_attention=needs_attention,
+        label_id=label_id, profile_incomplete=profile_incomplete, open_observation=open_observation,
+        open_health_case=open_health_case, age_min_months=age_min_months, age_max_months=age_max_months, sort=sort)
 
 
 @animals_router.patch(
@@ -410,6 +407,51 @@ def animal_profile(request, animal_id: int):
     return 200, success_body(
         data=build_animal_profile(animal), message="Animal profile fetched successfully."
     )
+
+
+@animals_router.get("/{animal_id}/media/", response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error}, summary="List animal gallery")
+def list_animal_media(request, animal_id: int, page: int = 1, page_size: int = 30):
+    user = require_user(request); org = resolve_organization(user)
+    require_permission(user, org, Permissions.Animal.VIEW)
+    animal = require_animal(org, animal_id); require_farm(org, animal.farm_id, user)
+    return 200, paginated(animal.media.all(), page, page_size, _media_payload, "Animal media fetched successfully.")
+
+
+@animals_router.post("/{animal_id}/media/", response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 422: V2Error}, summary="Upload animal gallery image")
+@atomic_mutation
+def upload_animal_media(request, animal_id: int, file: UploadedFile = File(...), note: str = "", make_primary: bool = False, captured_at: datetime | None = None):
+    user = require_user(request); org = resolve_organization(user)
+    require_permission(user, org, Permissions.Animal.UPDATE)
+    animal = require_animal(org, animal_id); require_farm(org, animal.farm_id, user)
+    if not (file.content_type or "").startswith("image/"):
+        raise ContractError(422, ErrorCode.INVALID_FILE_TYPE, "Only image uploads are supported.")
+    with transaction.atomic():
+        if make_primary or not animal.media.filter(is_primary=True).exists():
+            _preserve_legacy_primary(animal, user)
+            animal.media.filter(is_primary=True).update(is_primary=False)
+            make_primary = True
+        row = AnimalMedia.objects.create(animal=animal, file=file, note=note, captured_at=captured_at, is_primary=make_primary, uploaded_by=user)
+        if make_primary:
+            animal.image = row.file; animal.save(update_fields=["image"])
+    from operations.services import emit_event
+    emit_event(animal.farm, "animal_media_uploaded", "Animal media uploaded", note, "animal_media", row.id, user, animal=animal)
+    return 200, success_body(data=_media_payload(row), message="Animal media uploaded successfully.")
+
+
+@animals_router.post("/{animal_id}/media/{media_id}/primary/", response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error})
+@atomic_mutation
+def set_primary_animal_media(request, animal_id: int, media_id: int):
+    user = require_user(request); org = resolve_organization(user); require_permission(user, org, Permissions.Animal.UPDATE)
+    animal = require_animal(org, animal_id); require_farm(org, animal.farm_id, user)
+    try: row = animal.media.get(id=media_id)
+    except AnimalMedia.DoesNotExist: raise ContractError(404, ErrorCode.RESOURCE_NOT_FOUND, "Animal media could not be found.")
+    with transaction.atomic():
+        _preserve_legacy_primary(animal, user)
+        animal.media.filter(is_primary=True).update(is_primary=False); row.is_primary = True; row.save(update_fields=["is_primary"])
+        animal.image = row.file; animal.save(update_fields=["image"])
+    from operations.services import emit_event
+    emit_event(animal.farm, "animal_primary_photo_changed", "Primary animal photo changed", "", "animal_media", row.id, user, animal=animal)
+    return 200, success_body(data=_media_payload(row), message="Primary animal photo updated successfully.")
 
 
 @animals_router.get(

@@ -229,26 +229,26 @@ class HealthCaseCloseIn(Schema):
 
 class GroupCreateIn(Schema):
     farm_id: int
-    name: str
+    name: str = Field(min_length=1, max_length=255)
     description: str = ""
 
 
 class GroupPatchIn(Schema):
-    name: Optional[str] = None
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
     description: Optional[str] = None
     is_active: Optional[bool] = None
 
 
 class LabelCreateIn(Schema):
     farm_id: int
-    name: str
-    color: str = ""
+    name: str = Field(min_length=1, max_length=80)
+    color: str = Field(default="", max_length=16)
     description: str = ""
 
 
 class LabelPatchIn(Schema):
-    name: Optional[str] = None
-    color: Optional[str] = None
+    name: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    color: Optional[str] = Field(default=None, max_length=16)
     description: Optional[str] = None
     is_active: Optional[bool] = None
 

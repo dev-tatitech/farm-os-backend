@@ -1,8 +1,10 @@
 from django.db import transaction
+from django.db.models import Count, Exists, OuterRef, Q
 from django.utils import timezone
 from ninja import Router
 
-from animals.models import Animal, AnimalGroup, AnimalGroupMember
+from animals.models import Animal, AnimalGroup, AnimalGroupMember, AnimalProfileAttribute
+from organization.models import Farm
 from common.mutations import atomic_mutation
 from common.permissions import Permissions
 from operations.services import emit_event
@@ -28,17 +30,38 @@ def _group(org, user, group_id):
 
 
 def _serialize(row):
-    return {"id": row.id, "farm_id": row.farm_id, "name": row.name, "description": row.description or "", "status": row.status, "member_count": row.members.filter(status=AnimalGroupMember.Status.ACTIVE).count()}
+    count = getattr(row, "active_member_count", None)
+    if count is None:
+        count = row.members.filter(status=AnimalGroupMember.Status.ACTIVE).count()
+    return {
+        "id": row.id,
+        "farm_id": row.farm_id,
+        "name": row.name,
+        "description": row.description or "",
+        "status": row.status,
+        "member_count": count,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
 
 
-@groups_router.get("/", response={200: V2Success, 401: V2Error, 403: V2Error})
-def list_groups(request, farm_id: int, page: int = 1, page_size: int = 20, include_inactive: bool = False):
+@groups_router.get("/", response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 422: V2Error})
+def list_groups(request, farm_id: int, page: int = 1, page_size: int = 20,
+                status: str = None, include_inactive: bool = False, search: str = None):
     user = require_user(request); org = resolve_organization(user)
     require_permission(user, org, Permissions.Animal.VIEW)
     farm = require_farm(org, farm_id, user)
-    qs = AnimalGroup.objects.filter(farm=farm)
-    if not include_inactive:
+    qs = AnimalGroup.objects.filter(farm=farm).annotate(
+        active_member_count=Count("members", filter=Q(members__status=AnimalGroupMember.Status.ACTIVE))
+    )
+    normalized_status = status.casefold() if status else ("all" if include_inactive else "active")
+    if normalized_status == "active":
         qs = qs.filter(status=AnimalGroup.Status.ACTIVE)
+    elif normalized_status == "inactive":
+        qs = qs.filter(status=AnimalGroup.Status.INACTIVE)
+    elif normalized_status != "all":
+        raise ContractError(422, ErrorCode.VALIDATION_ERROR, "status must be active, inactive, or all.", errors={"status": status})
+    if search:
+        qs = qs.filter(Q(name__icontains=search) | Q(description__icontains=search))
     return 200, paginated(qs.order_by("name", "id"), page, page_size, _serialize, "Groups fetched successfully.")
 
 
@@ -51,17 +74,45 @@ def group_detail(request, group_id: int):
 
 
 @groups_router.get("/{group_id}/members/", response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error})
-def group_members(request, group_id: int, page: int = 1, page_size: int = 50, include_removed: bool = False):
+def group_members(request, group_id: int, page: int = 1, page_size: int = 50,
+                  include_removed: bool = False, search: str = None,
+                  livestock_species_id: int = None, livestock_breed_id: int = None,
+                  gender: str = None, lifecycle_status: str = None):
     user = require_user(request); org = resolve_organization(user)
     require_permission(user, org, Permissions.Animal.VIEW)
     group = _group(org, user, group_id)
-    qs = group.members.select_related("animal").order_by("animal__tag_id", "id")
+    qs = group.members.select_related(
+        "animal", "animal__livestock_species", "animal__livestock_breed",
+        "animal__species", "animal__breed", "animal__housing_unit",
+    ).order_by("animal__tag_id", "id")
     if not include_removed:
         qs = qs.filter(status=AnimalGroupMember.Status.ACTIVE)
+    if search:
+        name_match = AnimalProfileAttribute.objects.filter(
+            animal_id=OuterRef("animal_id"),
+            attribute_key__in=("name", "display_name", "animal_name"),
+            attribute_value__icontains=search,
+        )
+        qs = qs.annotate(_name_match=Exists(name_match)).filter(
+            Q(animal__tag_id__icontains=search)
+            | Q(animal__notes__icontains=search)
+            | Q(_name_match=True)
+        )
+    if livestock_species_id is not None:
+        qs = qs.filter(Q(animal__livestock_species_id=livestock_species_id)
+                       | Q(animal__livestock_species__isnull=True, animal__species__id=livestock_species_id))
+    if livestock_breed_id is not None:
+        qs = qs.filter(Q(animal__livestock_breed_id=livestock_breed_id)
+                       | Q(animal__livestock_breed__isnull=True, animal__breed__id=livestock_breed_id))
+    if gender:
+        qs = qs.filter(animal__gender=gender)
+    if lifecycle_status:
+        qs = qs.filter(animal__status=lifecycle_status)
+    from .animals import serialize_animal_card
     return 200, paginated(qs, page, page_size, lambda row: {"membership_id": row.id, "animal_id": row.animal_id,
         "tag_id": row.animal.tag_id, "joined_at": row.joined_at.isoformat(),
         "removed_at": row.removed_at.isoformat() if row.removed_at else None,
-        "status": row.status}, "Group members fetched successfully.")
+        "status": row.status, "animal": serialize_animal_card(row.animal)}, "Group members fetched successfully.")
 
 
 @groups_router.post("/", response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 409: V2Error, 422: V2Error})
@@ -70,23 +121,33 @@ def create_group(request, payload: GroupCreateIn):
     user = require_user(request); org = resolve_organization(user)
     require_permission(user, org, Permissions.Animal.CREATE)
     farm = require_farm(org, payload.farm_id, user)
-    if AnimalGroup.objects.filter(farm=farm, name__iexact=payload.name.strip()).exists():
+    farm = Farm.objects.select_for_update().get(pk=farm.pk)
+    name = payload.name.strip()
+    if not name:
+        raise ContractError(422, ErrorCode.VALIDATION_ERROR, "Group name is required.", errors={"name": "required"})
+    if AnimalGroup.objects.filter(farm=farm, name__iexact=name).exists():
         raise ContractError(409, ErrorCode.CONFLICT, "A group with this name already exists.")
-    row = AnimalGroup.objects.create(farm=farm, name=payload.name.strip(), description=payload.description or "")
+    row = AnimalGroup.objects.create(farm=farm, name=name, description=payload.description or "")
     emit_event(farm, "group_created", "Group created", row.name, "animal_group", row.id, user, group=row)
     return 200, success_body(data=_serialize(row), message="Group created successfully.")
 
 
-@groups_router.patch("/{group_id}/", response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 422: V2Error})
+@groups_router.patch("/{group_id}/", response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 409: V2Error, 422: V2Error})
 @atomic_mutation
 def patch_group(request, group_id: int, payload: GroupPatchIn):
     user = require_user(request); org = resolve_organization(user)
     require_permission(user, org, Permissions.Animal.UPDATE)
     row = _group(org, user, group_id)
-    for field in ("name", "description"):
-        value = getattr(payload, field)
-        if value is not None:
-            setattr(row, field, value.strip() if field == "name" else value)
+    Farm.objects.select_for_update().get(pk=row.farm_id)
+    if payload.name is not None:
+        name = payload.name.strip()
+        if not name:
+            raise ContractError(422, ErrorCode.VALIDATION_ERROR, "Group name is required.", errors={"name": "required"})
+        if AnimalGroup.objects.filter(farm=row.farm, name__iexact=name).exclude(pk=row.pk).exists():
+            raise ContractError(409, ErrorCode.CONFLICT, "A group with this name already exists.")
+        row.name = name
+    if payload.description is not None:
+        row.description = payload.description
     if payload.is_active is not None:
         row.status = AnimalGroup.Status.ACTIVE if payload.is_active else AnimalGroup.Status.INACTIVE
     row.save()

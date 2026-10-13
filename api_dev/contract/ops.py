@@ -1,9 +1,10 @@
 from common.mutations import atomic_mutation
 from common.access import authorized_farms
-from datetime import timedelta
+from datetime import date, timedelta
 from django.utils import timezone
-from django.db.models import Count, Q
+from django.db.models import Case, Count, Exists, IntegerField, OuterRef, Q, When
 from zoneinfo import ZoneInfo
+from uuid import UUID
 from ninja import Router
 
 from common.permissions import Permissions
@@ -25,7 +26,7 @@ from operations.services import (
     start_task,
     validate_schedule_template,
 )
-from animals.models import Animal, AnimalGroup, AnimalGroupMember
+from animals.models import Animal, AnimalGroup, AnimalGroupMember, AnimalProfileAttribute
 from account.models import User
 from common.access import has_capability
 
@@ -65,9 +66,14 @@ WORK_TYPE_METADATA = {
 }
 
 
-def eligible_assignee_rows(user, org, farm, meta, *, channel=None):
+def eligible_assignee_rows(user, org, farm, meta, *, channel=None, search=None):
     """Shared current-authority resolver for web and JWT mobile surfaces."""
     candidates = User.objects.filter(account_status="active", is_active=True).filter(Q(organization=org) | Q(id=org.user_id)).distinct()
+    if search:
+        candidates = candidates.filter(
+            Q(first_name__icontains=search) | Q(last_name__icontains=search)
+            | Q(email__icontains=search) | Q(username__icontains=search)
+        )
     rows = []
     for candidate in candidates:
         if not authorized_farms(candidate, org).filter(pk=farm.pk).exists():
@@ -78,8 +84,45 @@ def eligible_assignee_rows(user, org, farm, meta, *, channel=None):
                                            role__mobile_access=True).exists():
                 continue
         if has_capability(candidate, org, "complete_operation", farm=farm) and any(has_capability(candidate, org, cap, farm=farm) for cap in meta["capabilities"]):
-            rows.append({"id": str(candidate.id), "display_name": candidate.get_full_name() or candidate.email})
+            display = candidate.get_full_name() or candidate.email
+            if search and search.casefold() not in display.casefold() and search.casefold() not in candidate.email.casefold():
+                continue
+            rows.append({
+                "id": str(candidate.id),
+                "display_name": display,
+                "email": candidate.email,
+                "avatar_url": candidate.avatar.url if candidate.avatar else None,
+                "farm": {"id": farm.id, "name": farm.name},
+            })
     return rows
+
+
+def eligible_vaccination_group_animals(task, page=1, page_size=20):
+    """Current group roster plus the exact active/farm eligibility used at execution."""
+    if task.task_type != Task.Type.VACCINATION or not task.group_id:
+        raise ContractError(422, ErrorCode.TARGET_NOT_ELIGIBLE, "This Task has no group vaccination roster.")
+    animals = Animal.objects.filter(
+        farm=task.farm,
+        group_memberships__group_id=task.group_id,
+        group_memberships__status=AnimalGroupMember.Status.ACTIVE,
+    ).select_related(
+        "farm", "livestock_species", "livestock_breed", "housing_unit", "species", "breed"
+    ).prefetch_related("profile_attributes").distinct().order_by("tag_id", "id")
+
+    def serialize(animal):
+        from .animals import serialize_animal_card
+
+        eligible = animal.status == "active"
+        return {
+            **serialize_animal_card(animal),
+            "eligible": eligible,
+            "eligibility_reason": None if eligible else {
+                "code": ErrorCode.DOMAIN_STATE_CHANGED,
+                "message": "Animal is no longer active in this Farm.",
+            },
+        }
+
+    return paginated(animals, page, page_size, serialize, "Vaccination roster fetched successfully.")
 
 
 def _work_type_or_404(work_type):
@@ -111,29 +154,79 @@ def eligible_targets(request, work_type: str, farm_id: int, target_type: str = "
     if target_type not in meta["target_types"]:
         raise ContractError(422, ErrorCode.TARGET_NOT_ELIGIBLE, "This work type does not support the requested target type.")
     if target_type == "group":
-        qs = AnimalGroup.objects.filter(farm=farm, status=AnimalGroup.Status.ACTIVE)
+        qs = AnimalGroup.objects.filter(farm=farm, status=AnimalGroup.Status.ACTIVE).annotate(
+            active_member_count=Count("members", filter=Q(members__status=AnimalGroupMember.Status.ACTIVE))
+        )
         if search:
             qs = qs.filter(name__icontains=search)
-        return 200, paginated(qs.order_by("name", "id"), page, page_size, lambda row: {"id": row.id, "type": "group", "name": row.name, "farm_id": row.farm_id}, "Eligible targets fetched successfully.")
-    qs = Animal.objects.filter(farm=farm, status="active").select_related("livestock_species", "livestock_breed", "housing_unit")
+        # Resolve species from current group members in a small bounded batch
+        # after pagination, avoiding full-herd reads for the selector.
+        def serialize_group(row):
+            member_species = Animal.objects.filter(
+                farm=farm, status="active", group_memberships__group=row,
+                group_memberships__status=AnimalGroupMember.Status.ACTIVE,
+            ).values_list("livestock_species__name", "species__name").distinct()
+            species = sorted({name for pair in member_species for name in pair if name})
+            return {
+                "id": row.id, "type": "group", "name": row.name,
+                "description": row.description or "", "farm_id": row.farm_id,
+                "member_count": row.active_member_count, "species": species,
+            }
+        return 200, paginated(qs.order_by("name", "id"), page, page_size, serialize_group, "Eligible targets fetched successfully.")
+    qs = Animal.objects.filter(farm=farm, status="active").select_related(
+        "livestock_species", "livestock_breed", "housing_unit", "species", "breed"
+    ).prefetch_related("group_memberships__group", "profile_attributes")
     if search:
-        qs = qs.filter(Q(tag_id__icontains=search) | Q(notes__icontains=search))
+        name_match = AnimalProfileAttribute.objects.filter(
+            animal_id=OuterRef("pk"),
+            attribute_key__in=("name", "display_name", "animal_name"),
+            attribute_value__icontains=search,
+        )
+        qs = qs.annotate(_name_match=Exists(name_match)).filter(
+            Q(tag_id__icontains=search) | Q(notes__icontains=search) | Q(_name_match=True)
+        )
     for field, value in (("livestock_species_id", livestock_species_id), ("livestock_breed_id", livestock_breed_id), ("gender", gender), ("housing_unit_id", housing_unit_id), ("health_status", health_status), ("status", lifecycle_status)):
         if value is not None:
             qs = qs.filter(**{field: value})
+    if lifecycle_status is not None:
+        qs = qs.filter(status=lifecycle_status)
     if group_id is not None:
         qs = qs.filter(group_memberships__group_id=group_id, group_memberships__status=AnimalGroupMember.Status.ACTIVE)
-    return 200, paginated(qs.distinct().order_by("tag_id", "id"), page, page_size, lambda row: {"id": row.id, "type": "animal", "tag_id": row.tag_id, "farm_id": row.farm_id}, "Eligible targets fetched successfully.")
+    def serialize_animal(row):
+        from .animal_query import animal_display_name
+
+        group = next((membership for membership in row.group_memberships.all()
+                      if membership.status == AnimalGroupMember.Status.ACTIVE), None)
+        return {
+            "id": row.id,
+            "type": "animal",
+            "tag_id": row.tag_id,
+            "name": animal_display_name(row),
+            "farm_id": row.farm_id,
+            "image_url": row.image.url if row.image else None,
+            "species": row.livestock_species.name if row.livestock_species_id else (row.species.name if row.species_id else None),
+            "livestock_species_id": row.livestock_species_id,
+            "breed": row.livestock_breed.name if row.livestock_breed_id else (row.breed.name if row.breed_id else None),
+            "livestock_breed_id": row.livestock_breed_id,
+            "gender": row.gender,
+            "health_status": row.health_status,
+            "lifecycle_status": row.status,
+            "housing_unit": {"id": row.housing_unit_id, "name": row.housing_unit.name} if row.housing_unit_id else None,
+            "group": {"id": group.group_id, "name": group.group.name} if group else None,
+        }
+    return 200, paginated(qs.distinct().order_by("tag_id", "id"), page, page_size, serialize_animal, "Eligible targets fetched successfully.")
 
 
 @ops_router.get("/work-types/{work_type}/eligible-assignees/", response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error})
-def eligible_assignees(request, work_type: str, farm_id: int):
+def eligible_assignees(request, work_type: str, farm_id: int, search: str = None,
+                       page: int = 1, page_size: int = 20):
     user = require_user(request)
     org = resolve_organization(user)
     _require_cap(user, org, "assign_operation")
     meta = _work_type_or_404(work_type)
     farm = require_farm(org, farm_id, user)
-    return 200, success_body(data=eligible_assignee_rows(user, org, farm, meta), message="Eligible assignees fetched successfully.")
+    rows = eligible_assignee_rows(user, org, farm, meta, search=search)
+    return 200, paginated(rows, page, page_size, lambda row: row, "Eligible assignees fetched successfully.")
 
 
 def _task_perm(user, org, *codes):
@@ -227,9 +320,15 @@ def list_tasks(
     page: int = 1,
     page_size: int = 20,
     farm_id: int = None,
+    search: str = None,
     status: str = None,
     task_type: str = None,
+    assigned_to: UUID = None,
     assigned_to_me: bool = False,
+    due_from: date = None,
+    due_to: date = None,
+    priority: str = None,
+    sort: str = "due_asc",
 ):
     user = require_user(request)
     org = resolve_organization(user)
@@ -237,6 +336,18 @@ def list_tasks(
     qs = _open_qs(org, user, farm_id)
     if assigned_to_me:
         qs = qs.filter(assigned_to=user)
+    elif assigned_to:
+        qs = qs.filter(assigned_to_id=assigned_to)
+    if search:
+        qs = qs.filter(
+            Q(title__icontains=search)
+            | Q(description__icontains=search)
+            | Q(animal__tag_id__icontains=search)
+            | Q(group__name__icontains=search)
+            | Q(assigned_to__first_name__icontains=search)
+            | Q(assigned_to__last_name__icontains=search)
+            | Q(assigned_to__email__icontains=search)
+        )
     if task_type:
         qs = qs.filter(task_type=task_type)
     if status == "open":
@@ -249,7 +360,30 @@ def list_tasks(
         ).filter(due_at__lt=timezone.now())
     elif status:
         qs = qs.filter(status=status)
-    return 200, paginated(qs.order_by("due_at", "-id"), page, page_size, serialize_task, "Tasks fetched successfully.")
+    if due_from:
+        qs = qs.filter(due_at__date__gte=due_from)
+    if due_to:
+        qs = qs.filter(due_at__date__lte=due_to)
+    if priority:
+        qs = qs.filter(priority=priority)
+    orderings = {
+        "due_asc": ("due_at", "id"), "due_desc": ("-due_at", "-id"),
+        "recent": ("-created_at", "-id"),
+    }
+    if sort not in {*orderings, "priority"}:
+        raise ContractError(422, ErrorCode.VALIDATION_ERROR, "Unsupported task sort order.", errors={"sort": sort})
+    if sort == "priority":
+        qs = qs.annotate(_priority_order=Case(
+            When(priority=Task.Priority.CRITICAL, then=0),
+            When(priority=Task.Priority.HIGH, then=1),
+            When(priority=Task.Priority.NORMAL, then=2),
+            When(priority=Task.Priority.LOW, then=3),
+            default=4,
+            output_field=IntegerField(),
+        )).order_by("_priority_order", "due_at", "id")
+    else:
+        qs = qs.order_by(*orderings[sort])
+    return 200, paginated(qs, page, page_size, serialize_task, "Tasks fetched successfully.")
 
 
 @ops_router.get(
@@ -268,6 +402,23 @@ def task_detail(request, task_id: int):
     if task.assigned_to_id != user.id:
         _require_cap(user, org, "view_operation")
     return 200, success_body(data=serialize_task(task), message="Task fetched successfully.")
+
+
+@ops_router.get(
+    "/tasks/{task_id}/vaccination-roster/",
+    response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 409: V2Error, 422: V2Error},
+    summary="List current eligible animals for group vaccination execution",
+)
+def task_vaccination_roster(request, task_id: int, page: int = 1, page_size: int = 50):
+    user = require_user(request)
+    org = resolve_organization(user)
+    task = get_task(org, task_id)
+    require_farm(org, task.farm_id, user)
+    _require_cap(user, org, "complete_operation", farm=task.farm)
+    require_permission(user, org, *_domain_complete_perm(task), farm=task.farm)
+    if not task.is_open:
+        raise ContractError(409, ErrorCode.TASK_INVALID_STATE, "Only open Tasks have an execution roster.")
+    return 200, eligible_vaccination_group_animals(task, page, page_size)
 
 
 @ops_router.post(
@@ -477,7 +628,9 @@ def list_schedules(request, page: int = 1, page_size: int = 20, farm_id: int = N
     user = require_user(request)
     org = resolve_organization(user)
     _require_cap(user, org, "view_operation")
-    qs = TaskSchedule.objects.filter(farm__in=authorized_farms(user, org))
+    qs = TaskSchedule.objects.filter(farm__in=authorized_farms(user, org)).select_related(
+        "farm", "assignee", "created_by", "animal", "group"
+    )
     if farm_id is not None:
         farm = require_farm(org, farm_id, user)
         qs = qs.filter(farm=farm)
@@ -553,7 +706,9 @@ def run_schedule_endpoint(request, schedule_id: int):
     user = require_user(request)
     org = resolve_organization(user)
     try:
-        schedule = TaskSchedule.objects.get(id=schedule_id, organization=org)
+        schedule = TaskSchedule.objects.select_related(
+            "farm", "assignee", "created_by", "animal", "group"
+        ).get(id=schedule_id, organization=org)
     except TaskSchedule.DoesNotExist:
         raise ContractError(404, ErrorCode.SCHEDULE_NOT_FOUND, "Schedule could not be found.")
     require_farm(org, schedule.farm_id, user)
@@ -608,12 +763,34 @@ def schedule_detail(request, schedule_id: int):
     user = require_user(request)
     org = resolve_organization(user)
     try:
-        schedule = TaskSchedule.objects.get(id=schedule_id, organization=org)
+        schedule = TaskSchedule.objects.select_related(
+            "farm", "assignee", "created_by", "animal", "group"
+        ).get(id=schedule_id, organization=org)
     except TaskSchedule.DoesNotExist:
         raise ContractError(404, ErrorCode.SCHEDULE_NOT_FOUND, "Schedule could not be found.")
     require_farm(org, schedule.farm_id, user)
     _require_cap(user, org, "view_operation", farm=schedule.farm)
     return 200, success_body(data=serialize_schedule(schedule), message="Schedule fetched successfully.")
+
+
+@ops_router.get(
+    "/schedules/{schedule_id}/tasks/",
+    response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error},
+    summary="List Tasks generated by a schedule",
+)
+def schedule_tasks(request, schedule_id: int, page: int = 1, page_size: int = 20):
+    user = require_user(request)
+    org = resolve_organization(user)
+    try:
+        schedule = TaskSchedule.objects.select_related("farm").get(id=schedule_id, organization=org)
+    except TaskSchedule.DoesNotExist:
+        raise ContractError(404, ErrorCode.SCHEDULE_NOT_FOUND, "Schedule could not be found.")
+    require_farm(org, schedule.farm_id, user)
+    _require_cap(user, org, "view_operation", farm=schedule.farm)
+    tasks = Task.objects.filter(schedule=schedule).select_related(
+        "animal", "group", "assigned_to", "created_by", "farm"
+    ).order_by("-created_at", "-id")
+    return 200, paginated(tasks, page, page_size, serialize_task, "Generated schedule Tasks fetched successfully.")
 
 
 @ops_router.patch(

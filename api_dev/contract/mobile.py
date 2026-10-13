@@ -5,6 +5,7 @@ from functools import wraps
 
 from django.contrib.auth.hashers import check_password
 from django.db import transaction
+from django.db.models import Count, Q
 from django.utils import timezone
 from ninja import NinjaAPI, Router
 from ninja.security import HttpBearer
@@ -19,7 +20,7 @@ from common.audit import security_event
 from common.access import authorized_farms, organization_for
 from operations.models import Task
 from operations.models import Notification
-from animals.models import AnimalGroup
+from animals.models import Animal, AnimalGroup, AnimalGroupMember
 from health.models import HealthCase
 from operations.services import accept_task, complete_task, execute_direct_domain_action, get_task, mark_unable_to_complete, public_result_type, serialize_notification, serialize_task, start_task, work_summary_for
 
@@ -28,7 +29,7 @@ from .codes import ErrorCode
 from .envelope import V2Error, V2Success, error_body, success_body
 from .exceptions import ContractError
 from .helpers import begin_idempotency, paginated, store_idempotency
-from .ops import WORK_TYPE_METADATA, _domain_complete_perm, _payload_dict, eligible_assignee_rows, _work_type_or_404
+from .ops import WORK_TYPE_METADATA, _domain_complete_perm, _payload_dict, eligible_assignee_rows, eligible_vaccination_group_animals, _work_type_or_404
 from .schemas import DirectDomainActionIn, HealthCaseIn, TaskCompleteIn, TaskUnableIn
 from .identity import reference_payload, subject_payload
 from .authz import require_animal
@@ -225,10 +226,16 @@ def my_work_dashboard(request, farm_id: int = None):
     farm = require_farm(org, farm_id, user) if farm_id is not None else None
     qs = _open_personal(user, org, farm)
     today = timezone.localdate()
-    return 200, success_body(data={"summary": work_summary_for(user, org, farm), "today": [serialize_task(t) for t in qs.filter(due_at__date=today)[:20]], "overdue": [serialize_task(t) for t in qs.filter(due_at__lt=timezone.now())[:20]], "upcoming": [serialize_task(t) for t in qs.filter(due_at__date__gt=today).order_by("due_at")[:20]]}, message="Mobile work dashboard fetched successfully.")
+    now = timezone.now()
+    return 200, success_body(data={
+        "summary": work_summary_for(user, org, farm),
+        "today": [serialize_task(t) for t in qs.filter(due_at__date=today, due_at__gte=now).order_by("due_at")[:20]],
+        "overdue": [serialize_task(t) for t in qs.filter(due_at__lt=now).order_by("due_at")[:20]],
+        "upcoming": [serialize_task(t) for t in qs.filter(due_at__date__gt=today).order_by("due_at")[:20]],
+    }, message="Mobile work dashboard fetched successfully.")
 
 
-@router.get("/animals/", response={200: V2Success, 401: V2Error, 403: V2Error})
+@router.get("/animals/", response={200: V2Success, 401: V2Error, 403: V2Error, 422: V2Error})
 def mobile_animals(request, page: int = 1, page_size: int = 20, farm_id: int = None,
                    search: str = None, livestock_species_id: int = None, livestock_breed_id: int = None,
                    gender: str = None, lifecycle_status: str = None, health_status: str = None,
@@ -250,11 +257,13 @@ def mobile_animals(request, page: int = 1, page_size: int = 20, farm_id: int = N
 
 
 @router.get("/work-types/{work_type}/eligible-assignees/", response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error})
-def mobile_eligible_assignees(request, work_type: str, farm_id: int):
+def mobile_eligible_assignees(request, work_type: str, farm_id: int, search: str = None,
+                              page: int = 1, page_size: int = 20):
     user, org = _user_org(request)
     require_permission(user, org, "assign_operation")
     farm = require_farm(org, farm_id, user)
-    return 200, success_body(data=eligible_assignee_rows(user, org, farm, _work_type_or_404(work_type), channel="mobile"), message="Eligible assignees fetched successfully.")
+    rows = eligible_assignee_rows(user, org, farm, _work_type_or_404(work_type), channel="mobile", search=search)
+    return 200, paginated(rows, page, page_size, lambda row: row, "Eligible assignees fetched successfully.")
 
 
 @router.get("/work-types/{work_type}/eligible-targets/", response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 422: V2Error})
@@ -272,20 +281,46 @@ def mobile_eligible_targets(request, work_type: str, farm_id: int, target_type: 
         from .helpers import paginated
         qs = AnimalGroup.objects.filter(farm=farm, status=AnimalGroup.Status.ACTIVE)
         if search: qs = qs.filter(name__icontains=search)
-        return 200, paginated(qs.order_by("name", "id"), page, page_size, lambda row: {"id": row.id, "type": "group", "name": row.name, "farm_id": row.farm_id}, "Eligible targets fetched successfully.")
+        def serialize_group(row):
+            member_species = Animal.objects.filter(
+                farm=farm, status="active", group_memberships__group=row,
+                group_memberships__status=AnimalGroupMember.Status.ACTIVE,
+            ).values_list("livestock_species__name", "species__name").distinct()
+            species = sorted({name for pair in member_species for name in pair if name})
+            return {
+                "id": row.id, "type": "group", "name": row.name, "description": row.description or "",
+                "farm_id": row.farm_id, "member_count": row.active_member_count, "species": species,
+            }
+        return 200, paginated(qs.annotate(active_member_count=Count("members", filter=Q(members__status=AnimalGroupMember.Status.ACTIVE))).order_by("name", "id"), page, page_size, serialize_group, "Eligible targets fetched successfully.")
     from .animal_query import query_animals
     data = query_animals(user, org, page=page, page_size=page_size, farm_id=farm.id, search=search,
         livestock_species_id=livestock_species_id, livestock_breed_id=livestock_breed_id, gender=gender,
         lifecycle_status=lifecycle_status or "active", health_status=health_status, housing_unit_id=housing_unit_id,
         group_id=group_id, sort="tag_id")
-    data["data"] = [{"id": row["id"], "type": "animal", "tag_id": row["tag_id"], "farm_id": farm.id} for row in data.get("data", [])]
+    enriched = []
+    for card in data.get("data", []):
+        animal = Animal.objects.select_related("livestock_species", "livestock_breed", "species", "breed", "housing_unit").get(pk=card["id"], farm=farm)
+        group = animal.group_memberships.filter(status=AnimalGroupMember.Status.ACTIVE).select_related("group").order_by("group__name", "group_id").first()
+        enriched.append({
+            "id": animal.id, "type": "animal", "tag_id": animal.tag_id, "name": card.get("name") or animal.tag_id,
+            "farm_id": farm.id, "image_url": animal.image.url if animal.image else None,
+            "species": animal.livestock_species.name if animal.livestock_species_id else (animal.species.name if animal.species_id else None),
+            "livestock_species_id": animal.livestock_species_id,
+            "breed": animal.livestock_breed.name if animal.livestock_breed_id else (animal.breed.name if animal.breed_id else None),
+            "livestock_breed_id": animal.livestock_breed_id, "gender": animal.gender,
+            "health_status": animal.health_status, "lifecycle_status": animal.status,
+            "housing_unit": {"id": animal.housing_unit_id, "name": animal.housing_unit.name} if animal.housing_unit_id else None,
+            "group": {"id": group.group_id, "name": group.group.name} if group else None,
+        })
+    data["data"] = enriched
     return 200, data
 
 
 @router.get("/farm-members/", response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error})
-def mobile_farm_members(request, farm_id: int, work_type: str):
+def mobile_farm_members(request, farm_id: int, work_type: str, search: str = None,
+                        page: int = 1, page_size: int = 20):
     """Work-context assignment list; never returns every farm member."""
-    return mobile_eligible_assignees(request, work_type, farm_id)
+    return mobile_eligible_assignees(request, work_type, farm_id, search, page, page_size)
 
 
 @router.post("/quick-record/", response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 409: V2Error, 422: V2Error})
@@ -364,6 +399,17 @@ def task_detail(request, task_id: int):
     if task.assigned_to_id != user.id:
         raise ContractError(403, ErrorCode.TASK_NOT_ASSIGNED_TO_USER, "This task is not assigned to you.")
     return 200, success_body(data=serialize_task(task), message="Mobile task fetched successfully.")
+
+
+@router.get("/tasks/{task_id}/vaccination-roster/", response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 409: V2Error, 422: V2Error})
+def task_vaccination_roster(request, task_id: int, page: int = 1, page_size: int = 50):
+    user, org, task = _mobile_task(request, task_id)
+    if task.assigned_to_id != user.id:
+        raise ContractError(403, ErrorCode.TASK_NOT_ASSIGNED_TO_USER, "This task is not assigned to you.")
+    require_permission(user, org, "complete_operation", *_domain_complete_perm(task), farm=task.farm)
+    if not task.is_open:
+        raise ContractError(409, ErrorCode.TASK_INVALID_STATE, "Only open Tasks have an execution roster.")
+    return 200, eligible_vaccination_group_animals(task, page, page_size)
 
 
 @router.post("/tasks/{task_id}/accept/", response={200: V2Success, 401: V2Error, 403: V2Error, 409: V2Error})

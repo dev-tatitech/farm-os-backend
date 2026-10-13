@@ -1,8 +1,10 @@
 from ninja import Router
+from django.db.models import Count, Q
 
 from animals.models import Animal, AnimalLabel, FarmLabel
 from common.mutations import atomic_mutation
 from common.permissions import Permissions
+from organization.models import Farm
 from operations.services import emit_event
 
 from .authz import require_farm, require_permission, require_user, resolve_organization
@@ -29,16 +31,22 @@ def _label(org, user, label_id):
 
 
 def _serialize_label(label):
-    return {"id": label.id, "farm_id": label.farm_id, "name": label.name, "color": label.color, "description": label.description, "is_active": label.is_active}
+    count = getattr(label, "assigned_animal_count", None)
+    if count is None:
+        count = label.animal_assignments.count()
+    return {"id": label.id, "farm_id": label.farm_id, "name": label.name, "color": label.color,
+            "description": label.description, "is_active": label.is_active, "animal_count": count}
 
 
 @settings_router.get("/labels/", response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error})
-def list_labels(request, farm_id: int, page: int = 1, page_size: int = 50, include_inactive: bool = False):
+def list_labels(request, farm_id: int, page: int = 1, page_size: int = 50,
+                include_inactive: bool = False, search: str = None):
     user = require_user(request); org = resolve_organization(user)
     require_permission(user, org, Permissions.Animal.VIEW)
     farm = require_farm(org, farm_id, user)
-    qs = FarmLabel.objects.filter(farm=farm)
+    qs = FarmLabel.objects.filter(farm=farm).annotate(assigned_animal_count=Count("animal_assignments", distinct=True))
     if not include_inactive: qs = qs.filter(is_active=True)
+    if search: qs = qs.filter(Q(name__icontains=search) | Q(description__icontains=search))
     return 200, paginated(qs, page, page_size, _serialize_label, "Labels fetched successfully.")
 
 
@@ -48,6 +56,7 @@ def create_label(request, payload: LabelCreateIn):
     user = require_user(request); org = resolve_organization(user)
     require_permission(user, org, Permissions.Animal.UPDATE)
     farm = require_farm(org, payload.farm_id, user)
+    farm = Farm.objects.select_for_update().get(pk=farm.pk)
     name = payload.name.strip()
     if not name or name.casefold() in RESERVED_STATE_LABELS:
         raise ContractError(422, ErrorCode.VALIDATION_ERROR, "Labels cannot represent authoritative animal states.")
@@ -57,15 +66,18 @@ def create_label(request, payload: LabelCreateIn):
     return 200, success_body(data=_serialize_label(label), message="Label created successfully.")
 
 
-@settings_router.patch("/labels/{label_id}/", response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 422: V2Error})
+@settings_router.patch("/labels/{label_id}/", response={200: V2Success, 401: V2Error, 403: V2Error, 404: V2Error, 409: V2Error, 422: V2Error})
 @atomic_mutation
 def patch_label(request, label_id: int, payload: LabelPatchIn):
     user = require_user(request); org = resolve_organization(user)
     require_permission(user, org, Permissions.Animal.UPDATE)
     label = _label(org, user, label_id)
+    Farm.objects.select_for_update().get(pk=label.farm_id)
     if payload.name is not None:
         name = payload.name.strip()
         if not name or name.casefold() in RESERVED_STATE_LABELS: raise ContractError(422, ErrorCode.VALIDATION_ERROR, "Labels cannot represent authoritative animal states.")
+        if FarmLabel.objects.filter(farm=label.farm, name__iexact=name).exclude(pk=label.pk).exists():
+            raise ContractError(409, ErrorCode.CONFLICT, "A label with this name already exists.")
         label.name = name
     for field in ("color", "description", "is_active"):
         value = getattr(payload, field)

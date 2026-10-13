@@ -13,6 +13,7 @@ from animals.models import Animal, AnimalGroup, AnimalGroupMember, AnimalLabel, 
 from health.models import HealthObservation
 from common.access import has_capability
 from common.models import AuditLog
+from common.permissions import Permissions
 from operations.models import Task, IdempotencyKey, TaskSchedule
 from operations.services import process_due_schedules
 from organization.models import Organization, Farm, FarmType
@@ -790,12 +791,24 @@ class Domain01Tests(TestCase):
             "next_run_at": january_31.isoformat(),
         })
         self.assertEqual(create.status_code, 200, create.content)
-        schedule_id = create.json()["data"]["id"]
+        created_schedule = create.json()["data"]
+        schedule_id = created_schedule["id"]
+        self.assertEqual(created_schedule["created_by"], str(self.owner.id))
+        self.assertEqual(created_schedule["creator"]["display_name"], self.owner.username)
+        self.assertEqual(created_schedule["animal"]["tag_id"], self.animal_a.tag_id)
+        self.assertEqual(created_schedule["farm"]["id"], self.farm_a.id)
+        detail = client.get(f"/api/v2/operations/schedules/{schedule_id}/")
+        self.assertEqual(detail.status_code, 200, detail.content)
+        self.assertEqual(detail.json()["data"]["animal"]["id"], self.animal_a.id)
         run = self.request(client, "post", f"/api/v2/operations/schedules/{schedule_id}/run/")
         self.assertEqual(run.status_code, 200, run.content)
         generated = run.json()["data"]
         self.assertEqual(generated["title"], "Monthly CBPP round")
         self.assertEqual(generated["source"], {"type": "schedule", "id": schedule_id})
+        history = client.get(f"/api/v2/operations/schedules/{schedule_id}/tasks/?page=1&page_size=10")
+        self.assertEqual(history.status_code, 200, history.content)
+        self.assertEqual([row["id"] for row in history.json()["data"]], [generated["id"]])
+        self.assertEqual(history.json()["data"][0]["source"], {"type": "schedule", "id": schedule_id})
         schedule = TaskSchedule.objects.get(pk=schedule_id)
         self.assertEqual((schedule.next_run_at.year, schedule.next_run_at.month, schedule.next_run_at.day), (2028, 2, 29))
 
@@ -980,6 +993,191 @@ class Domain01Tests(TestCase):
         self.assertEqual(personal.json()["data"]["completed"], 0)
         self.assertEqual(personal.json()["data"]["actionable"], 1)
 
+    def test_work_selectors_return_context_and_search_only_eligible_assignees(self):
+        from animals.models import AnimalGroupMember, AnimalProfileAttribute
+
+        group = AnimalGroup.objects.create(farm=self.farm_a, name="Milking", description="Morning group")
+        AnimalGroupMember.objects.create(group=group, animal=self.animal_a)
+        AnimalProfileAttribute.objects.create(
+            animal=self.animal_a, attribute_key="name", attribute_value="Borno Bull Alpha"
+        )
+        client = self.login(self.owner)
+
+        targets = client.get(
+            f"/api/v2/operations/work-types/vaccination/eligible-targets/?farm_id={self.farm_a.id}&target_type=animal"
+        )
+        self.assertEqual(targets.status_code, 200, targets.content)
+        animal = targets.json()["data"][0]
+        self.assertEqual(animal["id"], self.animal_a.id)
+        self.assertEqual(animal["tag_id"], self.animal_a.tag_id)
+        self.assertEqual(animal["name"], "Borno Bull Alpha")
+        self.assertIn("species", animal)
+        self.assertIn("breed", animal)
+        self.assertIn("gender", animal)
+        self.assertEqual(animal["group"], {"id": group.id, "name": group.name})
+        by_name = client.get(
+            f"/api/v2/operations/work-types/vaccination/eligible-targets/?farm_id={self.farm_a.id}&target_type=animal&search=Borno"
+        )
+        self.assertEqual([row["id"] for row in by_name.json()["data"]], [self.animal_a.id])
+
+        field_worker_role = Role.objects.get(organization=self.org, system_template_type="field_worker")
+        for permission_code in ("create_operation", Permissions.Animal.VIEW, Permissions.Health.CREATE):
+            RolePermission.objects.get_or_create(
+                role=field_worker_role, permission=Permission.objects.get(code=permission_code)
+            )
+        mobile_session = self.login(self.worker, "mobile")
+        token = mobile_session.cookies["client_access_token"].value
+        mobile_client = Client(HTTP_AUTHORIZATION=f"Bearer {token}")
+        mobile_by_name = mobile_client.get(
+            f"/mobile/api/work-types/vaccination/eligible-targets/?farm_id={self.farm_a.id}&target_type=animal&search=Borno"
+        )
+        self.assertEqual(mobile_by_name.status_code, 200, mobile_by_name.content)
+        self.assertEqual(mobile_by_name.json()["data"][0]["name"], "Borno Bull Alpha")
+
+        groups = client.get(
+            f"/api/v2/operations/work-types/vaccination/eligible-targets/?farm_id={self.farm_a.id}&target_type=group"
+        )
+        self.assertEqual(groups.status_code, 200, groups.content)
+        self.assertEqual(groups.json()["data"][0]["member_count"], 1)
+        self.assertEqual(groups.json()["data"][0]["species"], [])
+
+        assignees = client.get(
+            f"/api/v2/operations/work-types/vaccination/eligible-assignees/?farm_id={self.farm_a.id}&search=vet"
+        )
+        self.assertEqual(assignees.status_code, 200, assignees.content)
+        rows = assignees.json()["data"]
+        self.assertTrue(rows)
+        self.assertEqual(assignees.json()["meta"]["pagination"]["page_size"], 20)
+        self.assertTrue(all("avatar_url" in row and row["farm"]["id"] == self.farm_a.id for row in rows))
+        self.assertTrue(all("vet" in row["email"].casefold() or "vet" in row["display_name"].casefold() for row in rows))
+        self.assertEqual(
+            client.get(
+                f"/api/v2/operations/work-types/vaccination/eligible-assignees/?farm_id={self.farm_a.id}&search=does-not-match"
+            ).json()["data"],
+            [],
+        )
+        page_two = client.get(
+            f"/api/v2/operations/work-types/vaccination/eligible-assignees/?farm_id={self.farm_a.id}&page=2&page_size=1"
+        )
+        self.assertEqual(page_two.status_code, 200, page_two.content)
+        self.assertEqual(page_two.json()["meta"]["pagination"]["page"], 2)
+
+    def test_group_vaccination_roster_returns_current_eligibility_and_reason(self):
+        group = AnimalGroup.objects.create(farm=self.farm_a, name="Vaccination roster")
+        AnimalGroupMember.objects.create(group=group, animal=self.animal_a)
+        inactive = Animal.objects.create(
+            farm=self.farm_a, tag_id="ANIMAL-SOLD", gender="female",
+            source_type="opening_record", status="sold",
+        )
+        AnimalGroupMember.objects.create(group=group, animal=inactive)
+        task = Task.objects.create(
+            organization=self.org, farm=self.farm_a, group=group,
+            task_type=Task.Type.VACCINATION, title="Group vaccination",
+            due_at=timezone.now() + timedelta(hours=1), status=Task.Status.ASSIGNED,
+            assigned_to=self.worker, created_by=self.owner,
+        )
+
+        response = self.login(self.owner).get(
+            f"/api/v2/operations/tasks/{task.id}/vaccination-roster/?page=1&page_size=10"
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        rows = {row["id"]: row for row in response.json()["data"]}
+        self.assertTrue(rows[self.animal_a.id]["eligible"])
+        self.assertIsNone(rows[self.animal_a.id]["eligibility_reason"])
+        self.assertFalse(rows[inactive.id]["eligible"])
+        self.assertEqual(rows[inactive.id]["eligibility_reason"]["code"], "DOMAIN_STATE_CHANGED")
+
+        field_worker_role = Role.objects.get(organization=self.org, system_template_type="field_worker")
+        RolePermission.objects.get_or_create(
+            role=field_worker_role,
+            permission=Permission.objects.get(code=Permissions.Health.CREATE),
+        )
+        mobile_session = self.login(self.worker, "mobile")
+        token = mobile_session.cookies["client_access_token"].value
+        mobile_client = Client(HTTP_AUTHORIZATION=f"Bearer {token}")
+        mobile_roster = mobile_client.get(
+            f"/mobile/api/tasks/{task.id}/vaccination-roster/?page=1&page_size=10"
+        )
+        self.assertEqual(mobile_roster.status_code, 200, mobile_roster.content)
+        self.assertEqual(len(mobile_roster.json()["data"]), 2)
+
+        wrong_type = Task.objects.create(
+            organization=self.org, farm=self.farm_a, animal=self.animal_a,
+            task_type=Task.Type.WEIGHT, title="Weight check",
+            due_at=timezone.now() + timedelta(hours=1), status=Task.Status.ASSIGNED,
+            assigned_to=self.worker, created_by=self.owner,
+        )
+        rejected = self.login(self.owner).get(
+            f"/api/v2/operations/tasks/{wrong_type.id}/vaccination-roster/"
+        )
+        self.assertEqual(rejected.status_code, 422, rejected.content)
+
+    def test_my_work_summary_uses_open_actionable_and_non_overlapping_due_buckets(self):
+        now = timezone.now()
+        scenarios = [
+            ("Due later today", Task.Status.ASSIGNED, now + timedelta(hours=2)),
+            ("Already late today", Task.Status.ACCEPTED, now - timedelta(hours=2)),
+            ("Future", Task.Status.ASSIGNED, now + timedelta(days=2)),
+            ("Unable", Task.Status.UNABLE_TO_COMPLETE, now + timedelta(hours=1)),
+        ]
+        for title, status, due_at in scenarios:
+            Task.objects.create(
+                organization=self.org, farm=self.farm_a, animal=self.animal_a,
+                task_type=Task.Type.VACCINATION, title=title, due_at=due_at,
+                status=status, assigned_to=self.worker, created_by=self.owner,
+            )
+        from operations.services import work_summary_for
+
+        summary = work_summary_for(self.worker, self.org, self.farm_a)
+        self.assertEqual(summary["open_tasks"], 3)
+        self.assertEqual(summary["today"], 1)
+        self.assertEqual(summary["due_today"], 1)
+        self.assertEqual(summary["overdue"], 1)
+        self.assertEqual(summary["overdue_tasks"], 1)
+        self.assertEqual(summary["upcoming"], 1)
+
+        session = self.login(self.worker, "mobile")
+        token = session.cookies["client_access_token"].value
+        jwt_client = Client(HTTP_AUTHORIZATION=f"Bearer {token}")
+        mobile = jwt_client.get("/mobile/api/work/dashboard/")
+        self.assertEqual(mobile.status_code, 200, mobile.content)
+        self.assertEqual([row["title"] for row in mobile.json()["data"]["today"]], ["Due later today"])
+        self.assertEqual([row["title"] for row in mobile.json()["data"]["overdue"]], ["Already late today"])
+
+    def test_operations_task_list_applies_server_side_management_filters(self):
+        now = timezone.now()
+        wanted = Task.objects.create(
+            organization=self.org, farm=self.farm_a, animal=self.animal_a,
+            task_type=Task.Type.VACCINATION, title="Searchable vaccination",
+            description="North paddock", due_at=now + timedelta(days=1),
+            status=Task.Status.ASSIGNED, priority=Task.Priority.HIGH,
+            assigned_to=self.worker, created_by=self.owner,
+        )
+        normal = Task.objects.create(
+            organization=self.org, farm=self.farm_a, animal=self.animal_a,
+            task_type=Task.Type.FEED_ISSUANCE, title="Other work", due_at=now,
+            status=Task.Status.ASSIGNED, priority=Task.Priority.NORMAL,
+            assigned_to=self.manager, created_by=self.owner,
+        )
+        critical = Task.objects.create(
+            organization=self.org, farm=self.farm_a, animal=self.animal_a,
+            task_type=Task.Type.MORTALITY, title="Critical work", due_at=now,
+            status=Task.Status.ASSIGNED, priority=Task.Priority.CRITICAL,
+            assigned_to=self.manager, created_by=self.owner,
+        )
+        client = self.login(self.manager)
+        response = client.get(
+            "/api/v2/operations/tasks/?search=Searchable&task_type=vaccination"
+            f"&assigned_to={self.worker.id}&priority=high&sort=due_asc"
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual([row["id"] for row in response.json()["data"]], [wanted.id])
+        priority_rows = client.get("/api/v2/operations/tasks/?sort=priority").json()["data"]
+        self.assertEqual(priority_rows[0]["id"], critical.id)
+        self.assertIn(normal.id, [row["id"] for row in priority_rows])
+        invalid = client.get("/api/v2/operations/tasks/?sort=not-supported")
+        self.assertEqual(invalid.status_code, 422, invalid.content)
+
     def test_operations_reporting_overview_is_farm_scoped_and_read_only(self):
         visible = Task.objects.create(organization=self.org, farm=self.farm_a, animal=self.animal_a, task_type=Task.Type.VACCINATION, title="Report A", due_at=timezone.now() - timedelta(hours=1), status=Task.Status.ASSIGNED, assigned_to=self.manager, created_by=self.owner)
         Task.objects.create(organization=self.org, farm=self.farm_b, animal=self.animal_b, task_type=Task.Type.VACCINATION, title="Report B", due_at=timezone.now() - timedelta(hours=1), status=Task.Status.ASSIGNED, assigned_to=self.owner, created_by=self.owner)
@@ -1080,6 +1278,104 @@ class Domain01Tests(TestCase):
         self.assertEqual(readd.status_code, 200, readd.content)
         self.assertEqual(AnimalGroupMember.objects.filter(group_id=group_id, animal=self.animal_a).count(), 2)
         self.assertEqual(AnimalGroupMember.objects.filter(group_id=group_id, animal=self.animal_a, status="ACTIVE").count(), 1)
+
+    def test_group_settings_support_search_status_and_member_animal_context(self):
+        group = AnimalGroup.objects.create(farm=self.farm_a, name="Lactating", description="Milking herd")
+        inactive = AnimalGroup.objects.create(farm=self.farm_a, name="Retired", status=AnimalGroup.Status.INACTIVE)
+        from animals.models import AnimalProfileAttribute
+        from admin_panel.models import LivestockSpecies, LivestockBreed
+
+        species = LivestockSpecies.objects.create(name="Cattle", category="ruminant")
+        breed = LivestockBreed.objects.create(name="Red Bororo", species=species)
+        self.animal_a.livestock_species = species
+        self.animal_a.livestock_breed = breed
+        self.animal_a.save()
+        AnimalProfileAttribute.objects.create(animal=self.animal_a, attribute_key="name", attribute_value="Borno Bull Alpha")
+        AnimalGroupMember.objects.create(group=group, animal=self.animal_a)
+        client = self.login(self.owner)
+
+        active = client.get(f"/api/v2/groups/?farm_id={self.farm_a.id}&status=active&search=Milk")
+        self.assertEqual(active.status_code, 200, active.content)
+        self.assertEqual([row["id"] for row in active.json()["data"]], [group.id])
+        self.assertEqual(active.json()["data"][0]["member_count"], 1)
+        self.assertIn("updated_at", active.json()["data"][0])
+
+        inactive_rows = client.get(f"/api/v2/groups/?farm_id={self.farm_a.id}&status=inactive")
+        self.assertEqual([row["id"] for row in inactive_rows.json()["data"]], [inactive.id])
+        all_rows = client.get(f"/api/v2/groups/?farm_id={self.farm_a.id}&include_inactive=true")
+        self.assertEqual({row["id"] for row in all_rows.json()["data"]}, {group.id, inactive.id})
+
+        members = client.get(f"/api/v2/groups/{group.id}/members/?search={self.animal_a.tag_id}")
+        self.assertEqual(members.status_code, 200, members.content)
+        self.assertEqual(members.json()["data"][0]["animal"]["tag_id"], self.animal_a.tag_id)
+        self.assertIn("profile_completion", members.json()["data"][0]["animal"])
+        named_member = client.get(f"/api/v2/groups/{group.id}/members/?search=Borno")
+        self.assertEqual([row["animal_id"] for row in named_member.json()["data"]], [self.animal_a.id])
+        filtered_member = client.get(
+            f"/api/v2/groups/{group.id}/members/?livestock_species_id={species.id}&livestock_breed_id={breed.id}&gender=female"
+        )
+        self.assertEqual([row["animal_id"] for row in filtered_member.json()["data"]], [self.animal_a.id])
+        excluded_member = client.get(f"/api/v2/groups/{group.id}/members/?livestock_species_id=999999")
+        self.assertEqual(excluded_member.json()["data"], [])
+
+        duplicate = self.request(client, "patch", f"/api/v2/groups/{group.id}/", {"name": "Retired"})
+        self.assertEqual(duplicate.status_code, 409, duplicate.content)
+
+    def test_animal_profile_incomplete_filter_uses_profile_completion_fields(self):
+        from contract.animals import profile_completion
+
+        client = self.login(self.owner)
+        response = client.get(f"/api/v2/animals/?farm_id={self.farm_a.id}&profile_incomplete=true")
+        self.assertEqual(response.status_code, 200, response.content)
+        rows = response.json()["data"]
+        self.assertIn(self.animal_a.id, [row["id"] for row in rows])
+        self.assertTrue(all(profile_completion(self.animal_a)["percentage"] < 100 for row in rows if row["id"] == self.animal_a.id))
+        complete_only = client.get(f"/api/v2/animals/?farm_id={self.farm_a.id}&profile_incomplete=false")
+        self.assertEqual(complete_only.status_code, 200, complete_only.content)
+        self.assertNotIn(self.animal_a.id, [row["id"] for row in complete_only.json()["data"]])
+
+    def test_animal_search_and_name_sort_use_profile_name_attribute(self):
+        from animals.models import AnimalProfileAttribute
+
+        AnimalProfileAttribute.objects.create(
+            animal=self.animal_a, attribute_key="name", attribute_value="Borno Bull Alpha"
+        )
+        AnimalProfileAttribute.objects.create(
+            animal=self.animal_b, attribute_key="display_name", attribute_value="Zulu Cow"
+        )
+        client = self.login(self.owner)
+        search = client.get(f"/api/v2/animals/?farm_id={self.farm_a.id}&search=Borno")
+        self.assertEqual(search.status_code, 200, search.content)
+        self.assertEqual([row["id"] for row in search.json()["data"]], [self.animal_a.id])
+
+        ascending = client.get(f"/api/v2/animals/?sort=name_asc")
+        descending = client.get(f"/api/v2/animals/?sort=name_desc")
+        self.assertEqual(ascending.status_code, 200, ascending.content)
+        self.assertEqual(descending.status_code, 200, descending.content)
+        self.assertEqual([row["id"] for row in ascending.json()["data"]], [self.animal_a.id, self.animal_b.id])
+        self.assertEqual([row["id"] for row in descending.json()["data"]], [self.animal_b.id, self.animal_a.id])
+        unsupported = client.get("/api/v2/animals/?sort=client_invented_sort")
+        self.assertEqual(unsupported.status_code, 422, unsupported.content)
+        self.assertEqual(unsupported.json()["code"], "VALIDATION_ERROR")
+
+    def test_label_settings_search_counts_and_duplicate_rename(self):
+        client = self.login(self.owner)
+        first = self.request(client, "post", "/api/v2/settings/labels/", {
+            "farm_id": self.farm_a.id, "name": "Priority", "description": "Follow up soon",
+        })
+        self.assertEqual(first.status_code, 200, first.content)
+        label_id = first.json()["data"]["id"]
+        assigned = self.request(client, "post", f"/api/v2/settings/animals/{self.animal_a.id}/labels/{label_id}/", {})
+        self.assertEqual(assigned.status_code, 200, assigned.content)
+        listed = client.get(f"/api/v2/settings/labels/?farm_id={self.farm_a.id}&search=Follow")
+        self.assertEqual(listed.status_code, 200, listed.content)
+        self.assertEqual(listed.json()["data"][0]["animal_count"], 1)
+
+        other = self.request(client, "post", "/api/v2/settings/labels/", {
+            "farm_id": self.farm_a.id, "name": "Watch",
+        })
+        conflict = self.request(client, "patch", f"/api/v2/settings/labels/{other.json()['data']['id']}/", {"name": "Priority"})
+        self.assertEqual(conflict.status_code, 409, conflict.content)
 
     def test_field_observation_flags_attention_without_diagnosis_and_clinical_assessment_is_gated(self):
         worker = self.login(self.worker, "mobile")

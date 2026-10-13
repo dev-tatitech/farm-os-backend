@@ -292,3 +292,69 @@ environmental blocker changes.
 - Explicitly marked the PDF as a backend development handoff, not frontend
   acceptance or live promotion. Focused frontend acceptance remains a separate
   next step.
+
+## 2026-10-13 — Development E2E and selector verification
+
+- Started the development PostgreSQL, Redis, and API services only. The live
+  API service was not started or used.
+- Main HTTP E2E runner passed **48/48** and the v2.2 verifier passed **28/28**.
+- `common.tests` passed **74/74** against a uniquely named temporary test
+  database, which Django destroyed after the run. The existing
+  `test_farmos_dev` database was left untouched. The common test suite includes
+  the latest animal-name search/sort and group-member filter coverage.
+- Django system checks passed; `makemigrations --check --dry-run` reported no
+  changes; the dev OpenAPI endpoint returned HTTP 200.
+- The E2E runner seeded test-only users and operational records in the
+  development database; those records remain in `farmos_dev`. No live data or
+  service was touched.
+- Updated the development integration guide source and regenerated its PDF
+  with current verification counts. Frontend acceptance and product lock are
+  still outstanding.
+
+## 2026-10-13 — Schedule generated-task history
+
+- Added farm-authorized, paginated `GET
+  /api/v2/operations/schedules/{schedule_id}/tasks/`, backed by the existing
+  Task-to-Schedule relationship. Generated task source references are retained.
+- Added the endpoint to the registry, frontend integration guide, and handoff
+  evidence. Regenerated the guide PDF.
+- The focused schedule generation/history regression passed **1/1** in the
+  development container using a unique temporary test database; Django
+  destroyed the database after the run. Django checks, compilation, and
+  `git diff --check` passed.
+- Schedule list/detail/create responses now also include nested Farm, target,
+  default-assignee, and creator display context while preserving existing IDs.
+  The same focused regression now asserts schedule detail and target/creator
+  serialization and still passes **1/1**.
+- Confirmed reactivation was already supported through `PATCH` with
+  `is_active=true` and uses the existing single-missed-occurrence policy, so
+  no duplicate reactivation route was added.
+
+## 2026-10-13 — Group vaccination execution roster
+
+- Added paginated web and mobile Task roster routes for group vaccination.
+  Rows expose the standard Animal card plus backend-derived `eligible` and
+  `eligibility_reason` fields. Eligibility follows current group membership,
+  Task Farm scope, and the active-lifecycle check used again at completion.
+- Mobile roster access is restricted to the Task's assigned worker and requires
+  the same operation/domain capabilities as typed completion.
+- Added regression coverage for eligible/ineligible members, non-vaccination
+  rejection, and both web and mobile routes. Focused test passed **1/1** in the
+  development container using an isolated temporary database.
+- Updated registry, handoff, and generated integration-guide PDF. Django
+  checks, compilation, and `git diff --check` passed.
+
+## 2026-10-13 — Frontend guide and acceptance evidence refresh
+
+- Updated the integration-guide cover status and addendum date to reflect the
+  current development-backend handoff, and clarified that product lock and
+  frontend acceptance remain open.
+- Added a concrete frontend acceptance checklist for gallery upload, mobile
+  quick-record/idempotent retry, schedule windows/history, and web/mobile group
+  vaccination roster behavior.
+- Expanded the handoff evidence with requirement-to-test entries for schedule
+  display context, task selectors/My Work, animal profile-name search/sort, and
+  the group vaccination roster, plus current focused-regression results.
+- Regenerated `api_dev/docs/FarmOS-Frontend-Integration-Guide.pdf` from its
+  source. Backend verification remains separate from frontend acceptance; no
+  live backend or frontend application was changed.

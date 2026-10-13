@@ -244,14 +244,20 @@ def serialize_task(task: Task) -> dict:
 
 def work_summary_for(user, org: Organization, farm=None) -> dict:
     today = timezone.localdate()
+    now = timezone.now()
     farms = [farm] if farm is not None else authorized_farms(user, org)
-    assigned = Task.objects.filter(organization=org, farm__in=farms, assigned_to=user).exclude(
-        status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED]
-    )
+    assigned = Task.objects.filter(organization=org, farm__in=farms, assigned_to=user)
+    open_tasks = assigned.exclude(status__in=[
+        Task.Status.COMPLETED, Task.Status.CANCELLED, Task.Status.UNABLE_TO_COMPLETE,
+    ])
     return {
-        "open_tasks": assigned.count(),
-        "due_today": assigned.filter(due_at__date=today).count(),
-        "overdue_tasks": assigned.filter(due_at__lt=timezone.now()).count(),
+        "open_tasks": open_tasks.count(),
+        "today": open_tasks.filter(due_at__date=today, due_at__gte=now).count(),
+        "overdue": open_tasks.filter(due_at__lt=now).count(),
+        "upcoming": open_tasks.filter(due_at__date__gt=today).count(),
+        # Retain established field names for existing clients during migration.
+        "due_today": open_tasks.filter(due_at__date=today, due_at__gte=now).count(),
+        "overdue_tasks": open_tasks.filter(due_at__lt=now).count(),
         "completed_today": Task.objects.filter(
             organization=org,
             farm__in=farms,
@@ -1419,9 +1425,21 @@ def complete_task(task: Task, actor, payload: Optional[dict] = None, evidence: s
 
 
 def serialize_schedule(schedule: TaskSchedule) -> dict:
+    from contract.identity import display_name
+
+    animal = schedule.animal if schedule.animal_id else None
+    group = schedule.group if schedule.group_id else None
+    assignee = schedule.assignee if schedule.assignee_id else None
+    creator = schedule.created_by if schedule.created_by_id else None
+    animal_name = None
+    if animal:
+        from contract.animal_query import animal_display_name
+
+        animal_name = animal_display_name(animal)
     return {
         "id": schedule.id,
         "farm_id": schedule.farm_id,
+        "farm": {"id": schedule.farm_id, "name": schedule.farm.name},
         "task_type": schedule.task_type,
         "title": schedule.title,
         "description": schedule.description,
@@ -1432,8 +1450,13 @@ def serialize_schedule(schedule: TaskSchedule) -> dict:
         "next_run_at": json_value(schedule.next_run_at),
         "is_active": schedule.is_active,
         "assignee_id": str(schedule.assignee_id) if schedule.assignee_id else None,
+        "assignee": {"id": str(schedule.assignee_id), "display_name": display_name(assignee)} if assignee else None,
         "animal_id": schedule.animal_id,
+        "animal": {"id": animal.id, "tag_id": animal.tag_id, "name": animal_name} if animal else None,
         "group_id": schedule.group_id,
+        "group": {"id": group.id, "name": group.name} if group else None,
+        "created_by": str(schedule.created_by_id) if schedule.created_by_id else None,
+        "creator": {"id": str(schedule.created_by_id), "display_name": display_name(creator)} if creator else None,
         "created_at": json_value(schedule.created_at),
     }
 

@@ -75,6 +75,8 @@ def _preserve_legacy_primary(animal, user):
 
 
 def serialize_animal_card(animal):
+    from .animal_query import animal_display_name
+
     species_name = (
         animal.livestock_species.name
         if animal.livestock_species
@@ -91,6 +93,7 @@ def serialize_animal_card(animal):
     return {
         "id": animal.id,
         "tag_id": animal.tag_id or None,
+        "name": animal_display_name(animal),
         "farm_id": animal.farm_id,
         "species": species_name,
         "breed": breed_name,
@@ -276,7 +279,7 @@ def build_animal_profile(animal):
 
 @animals_router.get(
     "/",
-    response={200: V2Success, 401: V2Error, 403: V2Error},
+    response={200: V2Success, 401: V2Error, 403: V2Error, 422: V2Error},
     summary="List animals (card records)",
 )
 def list_animals(

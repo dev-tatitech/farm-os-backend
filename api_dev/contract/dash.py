@@ -229,7 +229,7 @@ def farm_dashboard(request, farm_id: int):
             "today.completed": "tasks with completed_at date = today",
             "today.in_progress": "due-today open tasks whose lifecycle status is in_progress",
             "today.pending": "due-today open tasks that are not in_progress (draft, assigned, or accepted). pending is an aggregate, not a task lifecycle status",
-            "today.overdue": "open tasks whose due_at is in the past; each row still returns its real lifecycle status plus is_overdue=true",
+            "today.overdue": "count of open tasks due today whose due_at is before evaluation time; overdue tasks are presented in the overdue bucket, not upcoming today",
             "active_animals": "count of animals whose lifecycle_status = active",
             "critical_health": "count of animals with health_status = sick",
             "feed_risk": "count of open HealthAlert rows whose alert_type contains 'feed'",
@@ -259,10 +259,11 @@ def my_work_dashboard(request, farm_id: int = None):
         status__in=[Task.Status.COMPLETED, Task.Status.CANCELLED, Task.Status.UNABLE_TO_COMPLETE]
     )
     today = timezone.localdate()
+    now = timezone.now()
     data = {
         "summary": work_summary_for(user, org, farm=farm),
-        "today": [serialize_task(t) for t in open_qs.filter(due_at__date=today)[:20]],
-        "overdue": [serialize_task(t) for t in open_qs.filter(due_at__lt=timezone.now())[:20]],
+        "today": [serialize_task(t) for t in open_qs.filter(due_at__date=today, due_at__gte=now)[:20]],
+        "overdue": [serialize_task(t) for t in open_qs.filter(due_at__lt=now)[:20]],
         "upcoming": [
             serialize_task(t)
             for t in open_qs.filter(due_at__date__gt=today).order_by("due_at")[:20]
